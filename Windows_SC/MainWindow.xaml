@@ -3,17 +3,37 @@
     x:Class="Windows_SC.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:Windows_SC"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d"
     Title="Windows_SC">
 
     <Window.SystemBackdrop>
-        <MicaBackdrop />
+        <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <Grid>
+    <Border
+        x:Name="RootBorder"
+        Padding="20"
+        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+        BorderThickness="1"
+        CornerRadius="12"
+        KeyDown="RootBorder_KeyDown">
+        <Grid RowDefinitions="Auto,*" RowSpacing="16">
+            <StackPanel Spacing="4">
+                <TextBlock
+                    FontSize="22"
+                    FontWeight="SemiBold"
+                    Text="Windows_SC" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="Windowsキー または Ctrl + Alt + Space で表示／非表示" />
+            </StackPanel>
 
-    </Grid>
+            <Grid Grid.Row="1" ColumnDefinitions="*,*" RowDefinitions="*,*" ColumnSpacing="12" RowSpacing="12">
+                <Button HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Content="ショートカット 1" />
+                <Button Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Content="ショートカット 2" />
+                <Button Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Content="ショートカット 3" />
+                <Button Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Content="ショートカット 4" />
+            </Grid>
+        </Grid>
+    </Border>
 </Window>
