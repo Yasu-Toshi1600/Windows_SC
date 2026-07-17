@@ -17,11 +17,13 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     private readonly AutoResetEvent _scanRequested = new(false);
     private readonly Thread _workerThread;
     private readonly object _stateLock = new();
-    private bool _isStartMenuVisible;
+    private StartMenuSnapshot _snapshot = StartMenuSnapshot.Hidden;
     private bool _isDisposed;
     private string _lastSnapshotSignature = string.Empty;
     private string _lastDesktopRootSignature = string.Empty;
     private string _lastFocusedElementSignature = string.Empty;
+    private string _lastPhonePanelSignature = "<not-scanned>";
+    private bool _phonePanelScannedForCurrentOpen;
 
     public UiAutomationStartMenuInspector(DiagnosticLogger logger)
     {
@@ -40,7 +42,18 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         {
             lock (_stateLock)
             {
-                return _isStartMenuVisible;
+                return _snapshot.IsVisible;
+            }
+        }
+    }
+
+    public StartMenuSnapshot Snapshot
+    {
+        get
+        {
+            lock (_stateLock)
+            {
+                return _snapshot;
             }
         }
     }
@@ -77,7 +90,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     {
         while (true)
         {
-            _scanRequested.WaitOne(TimeSpan.FromMilliseconds(200));
+            _scanRequested.WaitOne(TimeSpan.FromMilliseconds(100));
 
             if (_isDisposed)
             {
@@ -92,7 +105,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                 or InvalidOperationException
                 or System.Runtime.InteropServices.COMException)
             {
-                UpdateState(false);
+                UpdateSnapshot(StartMenuSnapshot.Hidden);
                 _logger.Write($"[UIAutomation] scan=failed exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
             }
         }
@@ -100,8 +113,6 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     private void ScanDesktopAutomationTree()
     {
-        LogDesktopRootsIfChanged();
-
         int[] processIds = new[] { "StartMenuExperienceHost", "SearchHost" }
             .SelectMany(Process.GetProcessesByName)
             .Select(process =>
@@ -115,19 +126,47 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
         if (processIds.Length == 0)
         {
-            UpdateState(false);
+            _phonePanelScannedForCurrentOpen = false;
+            UpdateSnapshot(StartMenuSnapshot.Hidden);
             LogSnapshotIfChanged("process-not-found", []);
             return;
         }
 
         List<AutomationCandidate> candidates = [];
 
-        if (TryCollectFocusedStartMenuElement(processIds, candidates))
+        if (TryCollectFocusedStartMenuElement(processIds, candidates, out AutomationElement? startRoot))
         {
-            UpdateState(true);
+            System.Windows.Rect? startBounds = SelectStartMenuBounds(candidates);
+            StartMenuSnapshot previousSnapshot = Snapshot;
+            UpdateSnapshot(new StartMenuSnapshot(
+                true,
+                startBounds is null ? null : ToRectInt32(startBounds.Value),
+                previousSnapshot.IsPhonePanelVisible,
+                previousSnapshot.PhonePanelBounds));
             LogSnapshotIfChanged("visible-focused-element", candidates);
+
+            // Phone panel discovery can cross process boundaries and is intentionally
+            // performed only after the visible state and Start bounds are published.
+            if (!_phonePanelScannedForCurrentOpen)
+            {
+                _phonePanelScannedForCurrentOpen = true;
+                List<AutomationCandidate> phonePanelCandidates = CollectPhonePanelCandidates(startRoot);
+                System.Windows.Rect? phonePanelBounds = UnionBounds(phonePanelCandidates);
+                if (phonePanelCandidates.Count > 0)
+                {
+                    UpdateSnapshot(new StartMenuSnapshot(
+                        true,
+                        startBounds is null ? null : ToRectInt32(startBounds.Value),
+                        true,
+                        phonePanelBounds is null ? null : ToRectInt32(phonePanelBounds.Value)));
+                }
+
+                LogPhonePanelIfChanged(phonePanelCandidates);
+            }
             return;
         }
+
+        LogDesktopRootsIfChanged();
 
         foreach (int processId in processIds)
         {
@@ -154,15 +193,26 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
 
         bool isVisible = candidates.Count > 0;
-        UpdateState(isVisible);
+        if (!isVisible)
+        {
+            _phonePanelScannedForCurrentOpen = false;
+        }
+        System.Windows.Rect? fallbackBounds = SelectStartMenuBounds(candidates);
+        UpdateSnapshot(new StartMenuSnapshot(
+            isVisible,
+            fallbackBounds is null ? null : ToRectInt32(fallbackBounds.Value),
+            false,
+            null));
         string signature = isVisible ? "visible" : "hidden";
         LogSnapshotIfChanged(signature, candidates);
     }
 
     private bool TryCollectFocusedStartMenuElement(
         IReadOnlyCollection<int> startMenuProcessIds,
-        ICollection<AutomationCandidate> candidates)
+        ICollection<AutomationCandidate> candidates,
+        out AutomationElement? startRoot)
     {
+        startRoot = null;
         AutomationElement focusedElement = AutomationElement.FocusedElement;
         AutomationElement.AutomationElementInformation focused = focusedElement.Current;
         string focusedSignature = $"{focused.ProcessId}:{focused.AutomationId}:{focused.Name}";
@@ -191,6 +241,18 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
             try
             {
+                if (currentElement.Current.ControlType == ControlType.Window)
+                {
+                    startRoot = currentElement;
+                }
+            }
+            catch (ElementNotAvailableException)
+            {
+                break;
+            }
+
+            try
+            {
                 currentElement = TreeWalker.RawViewWalker.GetParent(currentElement);
             }
             catch (ElementNotAvailableException)
@@ -201,6 +263,107 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
         return true;
     }
+
+    private static List<AutomationCandidate> CollectPhonePanelCandidates(AutomationElement? startRoot)
+    {
+        if (startRoot is null)
+        {
+            return [];
+        }
+
+        string[] keywords =
+        [
+            "phone", "mobile", "android", "iphone",
+            "スマートフォン", "モバイル", "携帯電話", "電話連携"
+        ];
+        List<AutomationCandidate> candidates = [];
+
+        try
+        {
+            AutomationElementCollection descendants = startRoot.FindAll(
+                TreeScope.Descendants,
+                Condition.TrueCondition);
+
+            foreach (AutomationElement element in descendants)
+            {
+                try
+                {
+                    AutomationElement.AutomationElementInformation current = element.Current;
+                    string searchableText = $"{current.Name} {current.AutomationId}";
+
+                    if (!keywords.Any(keyword =>
+                        searchableText.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
+
+                    System.Windows.Rect rectangle = current.BoundingRectangle;
+                    if (!current.IsOffscreen && !rectangle.IsEmpty)
+                    {
+                        candidates.Add(new AutomationCandidate(
+                            Sanitize(current.Name),
+                            Sanitize(current.AutomationId),
+                            current.ControlType?.ProgrammaticName ?? string.Empty,
+                            current.NativeWindowHandle,
+                            rectangle));
+                    }
+                }
+                catch (ElementNotAvailableException)
+                {
+                    // The panel tree can change while it animates.
+                }
+            }
+        }
+        catch (ElementNotAvailableException)
+        {
+            return [];
+        }
+
+        return candidates;
+    }
+
+    private static System.Windows.Rect? SelectStartMenuBounds(
+        IReadOnlyCollection<AutomationCandidate> candidates)
+    {
+        AutomationCandidate? windowCandidate = candidates
+            .Where(candidate => candidate.ControlType == ControlType.Window.ProgrammaticName)
+            .OrderBy(candidate => candidate.Rectangle.Width * candidate.Rectangle.Height)
+            .FirstOrDefault();
+
+        if (windowCandidate is not null)
+        {
+            return windowCandidate.Rectangle;
+        }
+
+        return candidates
+            .OrderBy(candidate => candidate.Rectangle.Width * candidate.Rectangle.Height)
+            .Select(candidate => (System.Windows.Rect?)candidate.Rectangle)
+            .FirstOrDefault();
+    }
+
+    private static System.Windows.Rect? UnionBounds(
+        IReadOnlyCollection<AutomationCandidate> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        System.Windows.Rect bounds = candidates.First().Rectangle;
+        foreach (AutomationCandidate candidate in candidates.Skip(1))
+        {
+            bounds.Union(candidate.Rectangle);
+        }
+
+        return bounds;
+    }
+
+    private static Windows.Graphics.RectInt32 ToRectInt32(System.Windows.Rect rectangle) =>
+        new(
+            (int)Math.Round(rectangle.X),
+            (int)Math.Round(rectangle.Y),
+            (int)Math.Round(rectangle.Width),
+            (int)Math.Round(rectangle.Height));
 
     private void LogDesktopRootsIfChanged()
     {
@@ -310,11 +473,36 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
     }
 
-    private void UpdateState(bool isVisible)
+    private void UpdateSnapshot(StartMenuSnapshot snapshot)
     {
         lock (_stateLock)
         {
-            _isStartMenuVisible = isVisible;
+            _snapshot = snapshot;
+        }
+    }
+
+    private void LogPhonePanelIfChanged(IReadOnlyCollection<AutomationCandidate> candidates)
+    {
+        string signature = string.Join(
+            '|',
+            candidates.Select(candidate =>
+                $"{candidate.AutomationId}:{candidate.Rectangle.Left:F0}:{candidate.Rectangle.Top:F0}:" +
+                $"{candidate.Rectangle.Width:F0}:{candidate.Rectangle.Height:F0}"));
+
+        if (signature == _lastPhonePanelSignature)
+        {
+            return;
+        }
+
+        _lastPhonePanelSignature = signature;
+        _logger.Write($"[PhonePanel] detected={candidates.Count > 0} candidates={candidates.Count}");
+
+        foreach (AutomationCandidate candidate in candidates)
+        {
+            _logger.Write(
+                $"[PhonePanelCandidate] name=\"{candidate.Name}\" automation-id=\"{candidate.AutomationId}\" " +
+                $"rect=({candidate.Rectangle.Left:F0},{candidate.Rectangle.Top:F0})-" +
+                $"({candidate.Rectangle.Right:F0},{candidate.Rectangle.Bottom:F0})");
         }
     }
 

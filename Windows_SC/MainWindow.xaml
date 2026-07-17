@@ -18,15 +18,25 @@
         CornerRadius="12"
         KeyDown="RootBorder_KeyDown">
         <Grid RowDefinitions="Auto,*" RowSpacing="16">
-            <StackPanel Spacing="4">
-                <TextBlock
-                    FontSize="22"
-                    FontWeight="SemiBold"
-                    Text="Windows_SC" />
-                <TextBlock
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="Windowsキー または Ctrl + Alt + Space で表示／非表示" />
-            </StackPanel>
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel Spacing="4">
+                    <TextBlock
+                        FontSize="22"
+                        FontWeight="SemiBold"
+                        Text="Windows_SC" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Windowsキー または Ctrl + Alt + Space" />
+                </StackPanel>
+
+                <ToggleSwitch
+                    x:Name="PhonePanelToggle"
+                    Grid.Column="1"
+                    Header="スマートフォン連携"
+                    OffContent="なし"
+                    OnContent="あり"
+                    Toggled="PhonePanelToggle_Toggled" />
+            </Grid>
 
             <Grid Grid.Row="1" ColumnDefinitions="*,*" RowDefinitions="*,*" ColumnSpacing="12" RowSpacing="12">
                 <Button HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Content="ショートカット 1" />
