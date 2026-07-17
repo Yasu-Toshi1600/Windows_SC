@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Windows_SC.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Windows_SC 設定">
+
+    <Grid x:Name="RootGrid" Padding="24" RowDefinitions="Auto,*,Auto" RowSpacing="16">
+        <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="4">
+                <TextBlock FontSize="24" FontWeight="SemiBold" Text="ランチャー設定" />
+                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Text="簡易設定画面（アクション詳細は今後追加）" />
+            </StackPanel>
+            <ToggleSwitch Grid.Column="1"
+                          Header="スマートフォン連携"
+                          IsOn="{Binding AssumePhonePanelVisible, Mode=TwoWay}"
+                          OffContent="なし"
+                          OnContent="あり" />
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,12,280">
+            <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
+                <TextBlock FontSize="16" FontWeight="SemiBold" Text="項目" />
+                <ListView Grid.Row="1"
+                          ItemsSource="{Binding Items}"
+                          SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                <TextBlock Text="{Binding Title}" />
+                                <TextBlock Grid.Column="1"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           Text="{Binding KindDisplayName}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+                    <Button Command="{Binding AddButtonCommand}" Content="ボタン追加" />
+                    <Button Command="{Binding AddToggleCommand}" Content="トグル追加" />
+                    <Button Command="{Binding AddSliderCommand}" Content="スライダー追加" />
+                </StackPanel>
+            </Grid>
+
+            <StackPanel Grid.Column="2" Spacing="12">
+                <TextBlock FontSize="16" FontWeight="SemiBold" Text="選択項目" />
+                <TextBox Header="表示名"
+                         Text="{Binding SelectedItem.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <TextBox Header="種類" IsReadOnly="True" Text="{Binding SelectedItem.KindDisplayName}" />
+                <Button HorizontalAlignment="Left"
+                        Command="{Binding DeleteItemCommand}"
+                        Content="選択項目を削除" />
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock VerticalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       Text="{Binding StatusMessage}" />
+            <Button Grid.Column="1"
+                    Command="{Binding SaveCommand}"
+                    Content="保存"
+                    Style="{ThemeResource AccentButtonStyle}" />
+        </Grid>
+    </Grid>
+</Window>

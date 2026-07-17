@@ -5,6 +5,8 @@ using Microsoft.UI.Xaml.Input;
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Windows_SC.Services;
+using Windows_SC.ViewModels;
 using Windows.System;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
@@ -13,23 +15,11 @@ namespace Windows_SC;
 
 public sealed partial class MainWindow : Window
 {
-    private const int HotKeyId = 1;
-    private const uint ModAlt = 0x0001;
-    private const uint ModControl = 0x0002;
-    private const uint ModNoRepeat = 0x4000;
-    private const uint VirtualKeySpace = 0x20;
-    private const uint WmHotKey = 0x0312;
     private const uint WmKeyDown = 0x0100;
     private const int VirtualKeyEscape = 0x1B;
     private const int GwlpWndProc = -4;
-    private const int LauncherWidth = 500;
-    private const int LauncherHeight = 600;
-    private const int LauncherMargin = 12;
-    private const double PhonePanelReservedEffectivePixels = 281;
-    private const double LauncherBottomMarginEffectivePixels = 12;
     private const double WindowAnimationOffsetEffectivePixels = 24;
     private static readonly TimeSpan WindowAnimationDuration = TimeSpan.FromMilliseconds(160);
-    private const uint MonitorDefaultToNearest = 0x00000002;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
@@ -39,11 +29,9 @@ public sealed partial class MainWindow : Window
     private readonly AppWindow _appWindow;
     private readonly WindowProcedure _windowProcedure;
     private readonly DiagnosticLogger _logger;
-    private readonly StartMenuWindowInspector _startMenuWindowInspector;
-    private readonly UiAutomationStartMenuInspector _uiAutomationStartMenuInspector;
-    private readonly GlobalWindowsKeyMonitor _windowsKeyMonitor;
-    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _windowsKeyTimer;
-    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _visibilityTimer;
+    private readonly IStartMenuMonitor _startMenuMonitor;
+    private readonly IGlobalInputService _inputService;
+    private readonly ILauncherPlacementService _placementService;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _windowAnimationTimer;
     private IntPtr _previousWindowProcedure;
     private bool _isVisible;
@@ -53,7 +41,6 @@ public sealed partial class MainWindow : Window
     private bool _startMenuVisibilityConfirmedForCurrentShow;
     private bool? _lastLoggedLauncherFocus;
     private bool? _lastLoggedStartMenuVisibility;
-    private bool _assumePhonePanelVisible = true;
     private StartMenuSnapshot? _lastPlacementStartSnapshot;
     private readonly bool _animationsEnabled;
     private Windows.Graphics.RectInt32 _targetWindowRect;
@@ -65,37 +52,31 @@ public sealed partial class MainWindow : Window
     private bool _isWindowAnimationRunning;
     private bool _isHideAnimation;
     private string _pendingHideReason = string.Empty;
-    private DateTimeOffset _fastVisibilityMonitoringUntil;
+    internal MainWindowViewModel ViewModel { get; }
 
-    private static readonly TimeSpan FastVisibilityMonitoringDuration = TimeSpan.FromMilliseconds(1500);
-    private static readonly TimeSpan FastVisibilityMonitoringInterval = TimeSpan.FromMilliseconds(50);
-    private static readonly TimeSpan VisibleFallbackMonitoringInterval = TimeSpan.FromMilliseconds(250);
-
-    public MainWindow()
+    internal MainWindow(
+        MainWindowViewModel viewModel,
+        DiagnosticLogger logger,
+        IStartMenuMonitor startMenuMonitor,
+        IGlobalInputService inputService,
+        ILauncherPlacementService placementService)
     {
+        ViewModel = viewModel;
         InitializeComponent();
 
         _windowHandle = WindowNative.GetWindowHandle(this);
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(_windowHandle);
         _appWindow = AppWindow.GetFromWindowId(windowId);
         _windowProcedure = WindowMessageHandler;
-        _logger = new DiagnosticLogger();
-        _startMenuWindowInspector = new StartMenuWindowInspector(_logger);
-        _uiAutomationStartMenuInspector = new UiAutomationStartMenuInspector(_logger);
-        _windowsKeyMonitor = new GlobalWindowsKeyMonitor(OnWindowsKeyReleasedAlone, _logger.Write);
-        _windowsKeyTimer = DispatcherQueue.CreateTimer();
-        _windowsKeyTimer.Interval = TimeSpan.FromMilliseconds(180);
-        _windowsKeyTimer.IsRepeating = false;
-        _windowsKeyTimer.Tick += WindowsKeyTimer_Tick;
-        _visibilityTimer = DispatcherQueue.CreateTimer();
-        _visibilityTimer.Interval = FastVisibilityMonitoringInterval;
-        _visibilityTimer.IsRepeating = true;
-        _visibilityTimer.Tick += VisibilityTimer_Tick;
+        _logger = logger;
+        _startMenuMonitor = startMenuMonitor;
+        _inputService = inputService;
+        _placementService = placementService;
         _windowAnimationTimer = DispatcherQueue.CreateTimer();
         _windowAnimationTimer.Interval = TimeSpan.FromMilliseconds(16);
         _windowAnimationTimer.IsRepeating = true;
         _windowAnimationTimer.Tick += WindowAnimationTimer_Tick;
-        PhonePanelToggle.IsOn = _assumePhonePanelVisible;
+        ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         _animationsEnabled = new UISettings().AnimationsEnabled;
     }
 
@@ -109,17 +90,13 @@ public sealed partial class MainWindow : Window
         ConfigureWindow();
         RegisterWindowProcedure();
 
-        if (!RegisterHotKey(_windowHandle, HotKeyId, ModControl | ModAlt | ModNoRepeat, VirtualKeySpace))
-        {
-            throw new Win32Exception(Marshal.GetLastWin32Error(),
-                "Ctrl+Alt+Space のグローバルホットキーを登録できませんでした。");
-        }
-
         Activated += Window_Activated;
         Closed += Window_Closed;
-        _windowsKeyMonitor.Start();
-        _uiAutomationStartMenuInspector.SnapshotChanged += UiAutomationStartMenuInspector_SnapshotChanged;
-        _uiAutomationStartMenuInspector.Start();
+        _inputService.ManualToggleRequested += InputService_ManualToggleRequested;
+        _inputService.WindowsKeyReleasedAlone += InputService_WindowsKeyReleasedAlone;
+        _inputService.Start(_windowHandle);
+        _startMenuMonitor.SnapshotChanged += StartMenuMonitor_SnapshotChanged;
+        _startMenuMonitor.Start();
         _logger.Write("[Application] ===== diagnostic session started =====");
         _logger.Write($"[Application] input-monitor=started log=\"{_logger.LogFilePath}\"");
         _isInitialized = true;
@@ -142,100 +119,26 @@ public sealed partial class MainWindow : Window
 
     private bool PositionWindow(StartMenuSnapshot? startMenuSnapshot)
     {
-        DisplayArea displayArea;
-        int x;
-        int y;
-
-        if (startMenuSnapshot is { IsVisible: true, Bounds: not null } snapshot)
+        if (!_placementService.TryCalculate(
+            startMenuSnapshot,
+            ViewModel.AssumePhonePanelVisible,
+            out LauncherPlacement placement))
         {
-            Windows.Graphics.RectInt32 startBounds = snapshot.Bounds.Value;
-            int anchorRight = startBounds.X + startBounds.Width;
-
-            if (snapshot.PhonePanelBounds is Windows.Graphics.RectInt32 phoneBounds)
-            {
-                anchorRight = Math.Max(anchorRight, phoneBounds.X + phoneBounds.Width);
-            }
-
-            Windows.Graphics.PointInt32 startCenter = new(
-                startBounds.X + (startBounds.Width / 2),
-                startBounds.Y + (startBounds.Height / 2));
-            displayArea = DisplayArea.GetFromPoint(
-                startCenter,
-                DisplayAreaFallback.Nearest) ?? DisplayArea.Primary;
-            Windows.Graphics.RectInt32 targetWorkArea = displayArea.WorkArea;
-            int bottomMargin = ConvertEffectivePixelsToPhysical(
-                LauncherBottomMarginEffectivePixels,
-                startCenter);
-
-            if (_assumePhonePanelVisible && snapshot.PhonePanelBounds is null)
-            {
-                anchorRight += ConvertEffectivePixelsToPhysical(
-                    PhonePanelReservedEffectivePixels,
-                    startCenter);
-            }
-
-            x = anchorRight + LauncherMargin;
-            y = Math.Clamp(
-                startBounds.Y + startBounds.Height - LauncherHeight - bottomMargin,
-                targetWorkArea.Y,
-                targetWorkArea.Y + targetWorkArea.Height - LauncherHeight);
-
-            if (x + LauncherWidth > targetWorkArea.X + targetWorkArea.Width)
-            {
-                _logger.Write(
-                    $"[WindowPlacement] result=failed reason=insufficient-right-space " +
-                    $"start=({startBounds.X},{startBounds.Y},{startBounds.Width},{startBounds.Height}) " +
-                    $"work-area=({targetWorkArea.X},{targetWorkArea.Y},{targetWorkArea.Width},{targetWorkArea.Height}) " +
-                    $"required-width={LauncherWidth}");
-                return false;
-            }
-
-            _placementDpiPoint = startCenter;
-        }
-        else
-        {
-            GetCursorPos(out NativePoint cursorPosition);
-            displayArea = DisplayArea.GetFromPoint(
-                new Windows.Graphics.PointInt32(cursorPosition.X, cursorPosition.Y),
-                DisplayAreaFallback.Nearest) ?? DisplayArea.Primary;
-            Windows.Graphics.RectInt32 targetWorkArea = displayArea.WorkArea;
-            x = targetWorkArea.X + ((targetWorkArea.Width - LauncherWidth) / 2);
-            y = targetWorkArea.Y + ((targetWorkArea.Height - LauncherHeight) / 2);
-            _placementDpiPoint = new Windows.Graphics.PointInt32(
-                cursorPosition.X,
-                cursorPosition.Y);
+            return false;
         }
 
-        Windows.Graphics.RectInt32 workArea = displayArea.WorkArea;
-        _targetWindowRect = new Windows.Graphics.RectInt32(
-            x,
-            y,
-            LauncherWidth,
-            LauncherHeight);
+        _targetWindowRect = placement.TargetRect;
         _currentWindowRect = _targetWindowRect;
+        _placementDpiPoint = placement.DpiPoint;
         _appWindow.MoveAndResize(_targetWindowRect);
         _logger.Write(
-            $"[WindowPlacement] result=success position=({x},{y}) size={LauncherWidth}x{LauncherHeight} " +
-            $"display-work-area=({workArea.X},{workArea.Y},{workArea.Width},{workArea.Height}) " +
-            $"phone-panel-mode={(_assumePhonePanelVisible ? "on" : "off")} " +
+            $"[WindowPlacement] result=success position=({_targetWindowRect.X},{_targetWindowRect.Y}) " +
+            $"size={_targetWindowRect.Width}x{_targetWindowRect.Height} " +
+            $"display-work-area=({placement.WorkArea.X},{placement.WorkArea.Y}," +
+            $"{placement.WorkArea.Width},{placement.WorkArea.Height}) " +
+            $"phone-panel-mode={(ViewModel.AssumePhonePanelVisible ? "on" : "off")} " +
             $"phone-panel-detected={startMenuSnapshot?.IsPhonePanelVisible ?? false}");
         return true;
-    }
-
-    private static int ConvertEffectivePixelsToPhysical(
-        double effectivePixels,
-        Windows.Graphics.PointInt32 point)
-    {
-        NativePoint nativePoint = new() { X = point.X, Y = point.Y };
-        IntPtr monitor = MonitorFromPoint(nativePoint, MonitorDefaultToNearest);
-
-        if (monitor != IntPtr.Zero
-            && GetDpiForMonitor(monitor, 0, out uint dpiX, out _) == 0)
-        {
-            return (int)Math.Round(effectivePixels * dpiX / 96d);
-        }
-
-        return (int)Math.Round(effectivePixels);
     }
 
     private void ToggleWindow(bool activate)
@@ -250,20 +153,14 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnWindowsKeyReleasedAlone()
+    private void InputService_ManualToggleRequested(object? sender, EventArgs args)
     {
-        _logger.Write("[WindowsKey] standalone trigger accepted; scan-delay-ms=180");
-        StartFastVisibilityMonitoring();
-        _uiAutomationStartMenuInspector.RequestScan();
-        _windowsKeyTimer.Stop();
-        _windowsKeyTimer.Start();
+        ToggleWindow(activate: true);
     }
 
-    private void WindowsKeyTimer_Tick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+    private void InputService_WindowsKeyReleasedAlone(object? sender, EventArgs args)
     {
-        _logger.Write("[WindowsKey] delayed scan started");
-        _startMenuWindowInspector.InspectAndLog();
-        _uiAutomationStartMenuInspector.RequestScan();
+        _startMenuMonitor.NotifyWindowsKeyReleased();
     }
 
     private void ShowWindow(bool activate, string reason, StartMenuSnapshot? startMenuSnapshot)
@@ -276,9 +173,11 @@ public sealed partial class MainWindow : Window
         _launcherIsActivated = false;
         _shownInResponseToStartMenu = startMenuSnapshot is { IsVisible: true };
         _startMenuVisibilityConfirmedForCurrentShow = _shownInResponseToStartMenu;
+        LauncherScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
         PrepareWindowShowAnimation();
         _appWindow.Show(activate);
         _isVisible = true;
+        _startMenuMonitor.SetLauncherVisible(true);
         _lastPlacementStartSnapshot = startMenuSnapshot;
         _lastLoggedLauncherFocus = null;
         _lastLoggedStartMenuVisibility = null;
@@ -298,7 +197,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        int offset = ConvertEffectivePixelsToPhysical(
+        int offset = _placementService.ConvertEffectivePixelsToPhysical(
             WindowAnimationOffsetEffectivePixels,
             _placementDpiPoint);
         _animationStartRect = OffsetVertically(_targetWindowRect, offset);
@@ -328,7 +227,7 @@ public sealed partial class MainWindow : Window
         if (_animationsEnabled)
         {
             StopWindowAnimation();
-            int offset = ConvertEffectivePixelsToPhysical(
+            int offset = _placementService.ConvertEffectivePixelsToPhysical(
                 WindowAnimationOffsetEffectivePixels,
                 _placementDpiPoint);
             _animationStartRect = _currentWindowRect;
@@ -354,7 +253,7 @@ public sealed partial class MainWindow : Window
         _startMenuVisibilityConfirmedForCurrentShow = false;
         _lastPlacementStartSnapshot = null;
         _logger.Write($"[Launcher] action=hide reason={reason}");
-        UpdateVisibilityMonitoring();
+        _startMenuMonitor.SetLauncherVisible(false);
     }
 
     private void WindowAnimationTimer_Tick(
@@ -429,11 +328,15 @@ public sealed partial class MainWindow : Window
             SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
     }
 
-    private void PhonePanelToggle_Toggled(object sender, RoutedEventArgs args)
+    private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        _assumePhonePanelVisible = PhonePanelToggle.IsOn;
+        if (args.PropertyName != nameof(MainWindowViewModel.AssumePhonePanelVisible))
+        {
+            return;
+        }
+
         _logger.Write(
-            $"[PhonePanelSetting] source=launcher value={(_assumePhonePanelVisible ? "on" : "off")}");
+            $"[PhonePanelSetting] source=launcher value={(ViewModel.AssumePhonePanelVisible ? "on" : "off")}");
 
         if (_isVisible && _lastPlacementStartSnapshot is StartMenuSnapshot snapshot)
         {
@@ -452,17 +355,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void VisibilityTimer_Tick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
-    {
-        _uiAutomationStartMenuInspector.RequestScan();
-        SynchronizeWithStartMenu();
-        UpdateVisibilityMonitoring();
-    }
-
     private void SynchronizeWithStartMenu()
     {
         bool launcherHasFocus = _launcherIsActivated || GetForegroundWindow() == _windowHandle;
-        bool startMenuIsVisible = _uiAutomationStartMenuInspector.IsStartMenuVisible;
+        StartMenuSnapshot startMenuSnapshot = _startMenuMonitor.Snapshot;
+        bool startMenuIsVisible = startMenuSnapshot.IsVisible;
 
         if (_isVisible && startMenuIsVisible)
         {
@@ -484,8 +381,7 @@ public sealed partial class MainWindow : Window
             ShowWindow(
                 activate: false,
                 "start-menu-detected",
-                _uiAutomationStartMenuInspector.Snapshot);
-            UpdateVisibilityMonitoring();
+                startMenuSnapshot);
             return;
         }
 
@@ -498,47 +394,9 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void UiAutomationStartMenuInspector_SnapshotChanged(object? sender, EventArgs args)
+    private void StartMenuMonitor_SnapshotChanged(object? sender, EventArgs args)
     {
-        DispatcherQueue.TryEnqueue(SynchronizeWithStartMenu);
-    }
-
-    private void StartFastVisibilityMonitoring()
-    {
-        _fastVisibilityMonitoringUntil = DateTimeOffset.UtcNow + FastVisibilityMonitoringDuration;
-        _visibilityTimer.Interval = FastVisibilityMonitoringInterval;
-        _visibilityTimer.Start();
-    }
-
-    private void UpdateVisibilityMonitoring()
-    {
-        if (DateTimeOffset.UtcNow < _fastVisibilityMonitoringUntil)
-        {
-            if (_visibilityTimer.Interval != FastVisibilityMonitoringInterval)
-            {
-                _visibilityTimer.Interval = FastVisibilityMonitoringInterval;
-            }
-            if (!_visibilityTimer.IsRunning)
-            {
-                _visibilityTimer.Start();
-            }
-            return;
-        }
-
-        if (_isVisible)
-        {
-            if (_visibilityTimer.Interval != VisibleFallbackMonitoringInterval)
-            {
-                _visibilityTimer.Interval = VisibleFallbackMonitoringInterval;
-            }
-            if (!_visibilityTimer.IsRunning)
-            {
-                _visibilityTimer.Start();
-            }
-            return;
-        }
-
-        _visibilityTimer.Stop();
+        SynchronizeWithStartMenu();
     }
 
     private void RootBorder_KeyDown(object sender, KeyRoutedEventArgs args)
@@ -552,9 +410,8 @@ public sealed partial class MainWindow : Window
 
     private IntPtr WindowMessageHandler(IntPtr windowHandle, uint message, IntPtr wParam, IntPtr lParam)
     {
-        if (message == WmHotKey && wParam.ToInt32() == HotKeyId)
+        if (_inputService.TryHandleWindowMessage(message, wParam))
         {
-            ToggleWindow(activate: true);
             return IntPtr.Zero;
         }
 
@@ -584,15 +441,14 @@ public sealed partial class MainWindow : Window
 
     private void Window_Closed(object sender, WindowEventArgs args)
     {
-        _windowsKeyTimer.Stop();
-        _visibilityTimer.Stop();
         _windowAnimationTimer.Stop();
-        _windowsKeyMonitor.Dispose();
-        _uiAutomationStartMenuInspector.SnapshotChanged -= UiAutomationStartMenuInspector_SnapshotChanged;
-        _uiAutomationStartMenuInspector.Dispose();
+        ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        _inputService.ManualToggleRequested -= InputService_ManualToggleRequested;
+        _inputService.WindowsKeyReleasedAlone -= InputService_WindowsKeyReleasedAlone;
+        _inputService.Dispose();
+        _startMenuMonitor.SnapshotChanged -= StartMenuMonitor_SnapshotChanged;
+        _startMenuMonitor.Dispose();
         _logger.Write("[Application] input-monitor=stopped; window=closed");
-        UnregisterHotKey(_windowHandle, HotKeyId);
-
         if (_previousWindowProcedure != IntPtr.Zero)
         {
             SetWindowLongPtr(_windowHandle, GwlpWndProc, _previousWindowProcedure);
@@ -602,21 +458,6 @@ public sealed partial class MainWindow : Window
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate IntPtr WindowProcedure(IntPtr windowHandle, uint message, IntPtr wParam, IntPtr lParam);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint
-    {
-        public int X;
-        public int Y;
-    }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool RegisterHotKey(IntPtr windowHandle, int id, uint modifiers, uint virtualKey);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool UnregisterHotKey(IntPtr windowHandle, int id);
 
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
     private static extern IntPtr SetWindowLongPtr(IntPtr windowHandle, int index, IntPtr newLong);
@@ -631,20 +472,6 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetCursorPos(out NativePoint point);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
-
-    [DllImport("shcore.dll")]
-    private static extern int GetDpiForMonitor(
-        IntPtr monitor,
-        int dpiType,
-        out uint dpiX,
-        out uint dpiY);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
