@@ -1,9 +1,11 @@
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using System;
 using System.ComponentModel;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using Windows_SC.Services;
 using Windows_SC.ViewModels;
@@ -185,6 +187,53 @@ public sealed partial class MainWindow : Window
             $"[Launcher] action=show reason={reason} activate={activate} " +
             $"start-linked={_shownInResponseToStartMenu} start-confirmed={_startMenuVisibilityConfirmedForCurrentShow}");
         StartPreparedWindowAnimation();
+        DispatcherQueue.TryEnqueue(
+            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            AnimateLauncherItems);
+    }
+
+    private void AnimateLauncherItems()
+    {
+        if (!_animationsEnabled || !_isVisible)
+        {
+            return;
+        }
+
+        int itemCount = Math.Min(ViewModel.Shortcuts.Count, 12);
+        for (int index = 0; index < itemCount; index++)
+        {
+            if (LauncherItemsControl.ContainerFromIndex(index) is not UIElement element)
+            {
+                continue;
+            }
+
+            Microsoft.UI.Composition.Visual visual = ElementCompositionPreview.GetElementVisual(element);
+            Vector3 restingOffset = visual.Offset;
+            TimeSpan delay = TimeSpan.FromMilliseconds(Math.Min(index, 8) * 22);
+
+            visual.StopAnimation(nameof(visual.Opacity));
+            visual.StopAnimation(nameof(visual.Offset));
+            visual.Opacity = 0;
+
+            Microsoft.UI.Composition.ScalarKeyFrameAnimation opacityAnimation =
+                visual.Compositor.CreateScalarKeyFrameAnimation();
+            opacityAnimation.InsertKeyFrame(0, 0);
+            opacityAnimation.InsertKeyFrame(1, 1);
+            opacityAnimation.Duration = TimeSpan.FromMilliseconds(170);
+            opacityAnimation.DelayTime = delay;
+            opacityAnimation.DelayBehavior = Microsoft.UI.Composition.AnimationDelayBehavior.SetInitialValueBeforeDelay;
+
+            Microsoft.UI.Composition.Vector3KeyFrameAnimation offsetAnimation =
+                visual.Compositor.CreateVector3KeyFrameAnimation();
+            offsetAnimation.InsertKeyFrame(0, restingOffset + new Vector3(0, 12, 0));
+            offsetAnimation.InsertKeyFrame(1, restingOffset);
+            offsetAnimation.Duration = TimeSpan.FromMilliseconds(190);
+            offsetAnimation.DelayTime = delay;
+            offsetAnimation.DelayBehavior = Microsoft.UI.Composition.AnimationDelayBehavior.SetInitialValueBeforeDelay;
+
+            visual.StartAnimation(nameof(visual.Opacity), opacityAnimation);
+            visual.StartAnimation(nameof(visual.Offset), offsetAnimation);
+        }
     }
 
     private void PrepareWindowShowAnimation()

@@ -24,16 +24,16 @@
                     <TextBlock
                         FontSize="22"
                         FontWeight="SemiBold"
-                        Text="{x:Bind ViewModel.Title, Mode=OneWay}" />
+                        Text="{x:Bind ViewModel.Title, Mode=OneTime}" />
                     <TextBlock
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="{x:Bind ViewModel.HotKeyDescription, Mode=OneWay}" />
+                        Text="{x:Bind ViewModel.HotKeyDescription, Mode=OneTime}" />
                 </StackPanel>
 
                 <Button
                     Grid.Column="1"
                     VerticalAlignment="Center"
-                    Command="{x:Bind ViewModel.OpenSettingsCommand, Mode=OneWay}"
+                    Command="{x:Bind ViewModel.OpenSettingsCommand, Mode=OneTime}"
                     Content="設定" />
             </Grid>
 
@@ -44,25 +44,84 @@
                 HorizontalScrollMode="Disabled"
                 VerticalScrollBarVisibility="Auto"
                 VerticalScrollMode="Enabled">
-                <ItemsRepeater ItemsSource="{x:Bind ViewModel.Shortcuts, Mode=OneWay}">
-                    <ItemsRepeater.Layout>
-                        <UniformGridLayout
-                            MaximumRowsOrColumns="2"
-                            MinColumnSpacing="12"
-                            MinItemHeight="220"
-                            MinItemWidth="220"
-                            MinRowSpacing="12"
-                            Orientation="Horizontal" />
-                    </ItemsRepeater.Layout>
-                    <ItemsRepeater.ItemTemplate>
-                        <DataTemplate x:DataType="viewModels:LauncherItemViewModel">
-                            <Button
-                                HorizontalAlignment="Stretch"
-                                VerticalAlignment="Stretch"
-                                Content="{x:Bind Title, Mode=OneWay}" />
+                <ItemsControl
+                    x:Name="LauncherItemsControl"
+                    ItemsSource="{x:Bind ViewModel.Shortcuts, Mode=OneTime}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsWrapGrid
+                                ItemHeight="160"
+                                ItemWidth="220"
+                                MaximumRowsOrColumns="2"
+                                Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Height="160" Width="220">
+                                <Button
+                                    Margin="6"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Stretch"
+                                    Content="{Binding Title, Mode=OneTime}"
+                                    FontSize="16"
+                                    FontWeight="SemiBold"
+                                    Visibility="{Binding ButtonVisibility, Mode=OneTime}" />
+
+                                <Border
+                                    Margin="6"
+                                    Padding="16"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Visibility="{Binding ToggleVisibility, Mode=OneTime}">
+                                    <Grid RowDefinitions="*,Auto">
+                                        <TextBlock
+                                            FontSize="16"
+                                            FontWeight="SemiBold"
+                                            Text="{Binding Title, Mode=OneTime}"
+                                            TextWrapping="Wrap" />
+                                        <ToggleSwitch
+                                            Grid.Row="1"
+                                            HorizontalAlignment="Right"
+                                            IsOn="{Binding IsOn, Mode=TwoWay}"
+                                            OffContent="オフ"
+                                            OnContent="オン" />
+                                    </Grid>
+                                </Border>
+
+                                <Border
+                                    Margin="6"
+                                    Padding="16"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Visibility="{Binding SliderVisibility, Mode=OneTime}">
+                                    <Grid RowDefinitions="Auto,*,Auto">
+                                        <TextBlock
+                                            FontSize="16"
+                                            FontWeight="SemiBold"
+                                            Text="{Binding Title, Mode=OneTime}"
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            Grid.Row="1"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{Binding SliderValue, Mode=OneWay}" />
+                                        <Slider
+                                            Grid.Row="2"
+                                            Maximum="100"
+                                            Minimum="0"
+                                            Value="{Binding SliderValue, Mode=TwoWay}" />
+                                    </Grid>
+                                </Border>
+                            </Grid>
                         </DataTemplate>
-                    </ItemsRepeater.ItemTemplate>
-                </ItemsRepeater>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </ScrollViewer>
         </Grid>
     </Border>
