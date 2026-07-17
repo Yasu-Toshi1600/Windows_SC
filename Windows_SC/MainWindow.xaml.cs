@@ -49,7 +49,8 @@ public sealed partial class MainWindow : Window
     private bool _isVisible;
     private bool _isInitialized;
     private bool _launcherIsActivated;
-    private DateTimeOffset _automaticHideAllowedAt;
+    private bool _shownInResponseToStartMenu;
+    private bool _startMenuVisibilityConfirmedForCurrentShow;
     private bool? _lastLoggedLauncherFocus;
     private bool? _lastLoggedStartMenuVisibility;
     private bool _assumePhonePanelVisible = true;
@@ -64,6 +65,11 @@ public sealed partial class MainWindow : Window
     private bool _isWindowAnimationRunning;
     private bool _isHideAnimation;
     private string _pendingHideReason = string.Empty;
+    private DateTimeOffset _fastVisibilityMonitoringUntil;
+
+    private static readonly TimeSpan FastVisibilityMonitoringDuration = TimeSpan.FromMilliseconds(1500);
+    private static readonly TimeSpan FastVisibilityMonitoringInterval = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan VisibleFallbackMonitoringInterval = TimeSpan.FromMilliseconds(250);
 
     public MainWindow()
     {
@@ -82,7 +88,7 @@ public sealed partial class MainWindow : Window
         _windowsKeyTimer.IsRepeating = false;
         _windowsKeyTimer.Tick += WindowsKeyTimer_Tick;
         _visibilityTimer = DispatcherQueue.CreateTimer();
-        _visibilityTimer.Interval = TimeSpan.FromMilliseconds(33);
+        _visibilityTimer.Interval = FastVisibilityMonitoringInterval;
         _visibilityTimer.IsRepeating = true;
         _visibilityTimer.Tick += VisibilityTimer_Tick;
         _windowAnimationTimer = DispatcherQueue.CreateTimer();
@@ -112,8 +118,8 @@ public sealed partial class MainWindow : Window
         Activated += Window_Activated;
         Closed += Window_Closed;
         _windowsKeyMonitor.Start();
+        _uiAutomationStartMenuInspector.SnapshotChanged += UiAutomationStartMenuInspector_SnapshotChanged;
         _uiAutomationStartMenuInspector.Start();
-        _visibilityTimer.Start();
         _logger.Write("[Application] ===== diagnostic session started =====");
         _logger.Write($"[Application] input-monitor=started log=\"{_logger.LogFilePath}\"");
         _isInitialized = true;
@@ -247,6 +253,7 @@ public sealed partial class MainWindow : Window
     private void OnWindowsKeyReleasedAlone()
     {
         _logger.Write("[WindowsKey] standalone trigger accepted; scan-delay-ms=180");
+        StartFastVisibilityMonitoring();
         _uiAutomationStartMenuInspector.RequestScan();
         _windowsKeyTimer.Stop();
         _windowsKeyTimer.Start();
@@ -267,14 +274,17 @@ public sealed partial class MainWindow : Window
             return;
         }
         _launcherIsActivated = false;
-        _automaticHideAllowedAt = DateTimeOffset.UtcNow.AddMilliseconds(750);
+        _shownInResponseToStartMenu = startMenuSnapshot is { IsVisible: true };
+        _startMenuVisibilityConfirmedForCurrentShow = _shownInResponseToStartMenu;
         PrepareWindowShowAnimation();
         _appWindow.Show(activate);
         _isVisible = true;
         _lastPlacementStartSnapshot = startMenuSnapshot;
         _lastLoggedLauncherFocus = null;
         _lastLoggedStartMenuVisibility = null;
-        _logger.Write($"[Launcher] action=show reason={reason} activate={activate} auto-hide-grace-ms=750");
+        _logger.Write(
+            $"[Launcher] action=show reason={reason} activate={activate} " +
+            $"start-linked={_shownInResponseToStartMenu} start-confirmed={_startMenuVisibilityConfirmedForCurrentShow}");
         StartPreparedWindowAnimation();
     }
 
@@ -340,8 +350,11 @@ public sealed partial class MainWindow : Window
         _appWindow.Hide();
         _isVisible = false;
         _launcherIsActivated = false;
+        _shownInResponseToStartMenu = false;
+        _startMenuVisibilityConfirmedForCurrentShow = false;
         _lastPlacementStartSnapshot = null;
         _logger.Write($"[Launcher] action=hide reason={reason}");
+        UpdateVisibilityMonitoring();
     }
 
     private void WindowAnimationTimer_Tick(
@@ -441,14 +454,20 @@ public sealed partial class MainWindow : Window
 
     private void VisibilityTimer_Tick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
     {
+        _uiAutomationStartMenuInspector.RequestScan();
         SynchronizeWithStartMenu();
+        UpdateVisibilityMonitoring();
     }
 
     private void SynchronizeWithStartMenu()
     {
-        _uiAutomationStartMenuInspector.RequestScan();
         bool launcherHasFocus = _launcherIsActivated || GetForegroundWindow() == _windowHandle;
         bool startMenuIsVisible = _uiAutomationStartMenuInspector.IsStartMenuVisible;
+
+        if (_isVisible && startMenuIsVisible)
+        {
+            _startMenuVisibilityConfirmedForCurrentShow = true;
+        }
 
         if (_lastLoggedLauncherFocus != launcherHasFocus
             || _lastLoggedStartMenuVisibility != startMenuIsVisible)
@@ -466,16 +485,60 @@ public sealed partial class MainWindow : Window
                 activate: false,
                 "start-menu-detected",
                 _uiAutomationStartMenuInspector.Snapshot);
+            UpdateVisibilityMonitoring();
             return;
         }
 
         if (_isVisible
-            && DateTimeOffset.UtcNow >= _automaticHideAllowedAt
             && !launcherHasFocus
-            && !startMenuIsVisible)
+            && !startMenuIsVisible
+            && (!_shownInResponseToStartMenu || _startMenuVisibilityConfirmedForCurrentShow))
         {
             HideWindow("launcher-unfocused-and-start-menu-hidden");
         }
+    }
+
+    private void UiAutomationStartMenuInspector_SnapshotChanged(object? sender, EventArgs args)
+    {
+        DispatcherQueue.TryEnqueue(SynchronizeWithStartMenu);
+    }
+
+    private void StartFastVisibilityMonitoring()
+    {
+        _fastVisibilityMonitoringUntil = DateTimeOffset.UtcNow + FastVisibilityMonitoringDuration;
+        _visibilityTimer.Interval = FastVisibilityMonitoringInterval;
+        _visibilityTimer.Start();
+    }
+
+    private void UpdateVisibilityMonitoring()
+    {
+        if (DateTimeOffset.UtcNow < _fastVisibilityMonitoringUntil)
+        {
+            if (_visibilityTimer.Interval != FastVisibilityMonitoringInterval)
+            {
+                _visibilityTimer.Interval = FastVisibilityMonitoringInterval;
+            }
+            if (!_visibilityTimer.IsRunning)
+            {
+                _visibilityTimer.Start();
+            }
+            return;
+        }
+
+        if (_isVisible)
+        {
+            if (_visibilityTimer.Interval != VisibleFallbackMonitoringInterval)
+            {
+                _visibilityTimer.Interval = VisibleFallbackMonitoringInterval;
+            }
+            if (!_visibilityTimer.IsRunning)
+            {
+                _visibilityTimer.Start();
+            }
+            return;
+        }
+
+        _visibilityTimer.Stop();
     }
 
     private void RootBorder_KeyDown(object sender, KeyRoutedEventArgs args)
@@ -525,6 +588,7 @@ public sealed partial class MainWindow : Window
         _visibilityTimer.Stop();
         _windowAnimationTimer.Stop();
         _windowsKeyMonitor.Dispose();
+        _uiAutomationStartMenuInspector.SnapshotChanged -= UiAutomationStartMenuInspector_SnapshotChanged;
         _uiAutomationStartMenuInspector.Dispose();
         _logger.Write("[Application] input-monitor=stopped; window=closed");
         UnregisterHotKey(_windowHandle, HotKeyId);

@@ -24,6 +24,9 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     private string _lastFocusedElementSignature = string.Empty;
     private string _lastPhonePanelSignature = "<not-scanned>";
     private bool _phonePanelScannedForCurrentOpen;
+    private AutomationFocusChangedEventHandler? _focusChangedHandler;
+
+    public event EventHandler? SnapshotChanged;
 
     public UiAutomationStartMenuInspector(DiagnosticLogger logger)
     {
@@ -88,25 +91,43 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     private void WorkerLoop()
     {
-        while (true)
+        _focusChangedHandler = (_, _) => RequestScan();
+
+        try
         {
-            _scanRequested.WaitOne(TimeSpan.FromMilliseconds(100));
+            Automation.AddAutomationFocusChangedEventHandler(_focusChangedHandler);
+            _logger.Write("[UIAutomation] focus-event=registered");
 
-            if (_isDisposed)
+            while (true)
             {
-                return;
-            }
+                // Scans are event driven while idle. MainWindow requests bounded
+                // fallback scans after the Windows key and while the launcher is open.
+                _scanRequested.WaitOne();
 
-            try
-            {
-                ScanDesktopAutomationTree();
+                if (_isDisposed)
+                {
+                    return;
+                }
+
+                try
+                {
+                    ScanDesktopAutomationTree();
+                }
+                catch (Exception exception) when (exception is ElementNotAvailableException
+                    or InvalidOperationException
+                    or System.Runtime.InteropServices.COMException)
+                {
+                    UpdateSnapshot(StartMenuSnapshot.Hidden);
+                    _logger.Write($"[UIAutomation] scan=failed exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+                }
             }
-            catch (Exception exception) when (exception is ElementNotAvailableException
-                or InvalidOperationException
-                or System.Runtime.InteropServices.COMException)
+        }
+        finally
+        {
+            if (_focusChangedHandler is not null)
             {
-                UpdateSnapshot(StartMenuSnapshot.Hidden);
-                _logger.Write($"[UIAutomation] scan=failed exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+                Automation.RemoveAutomationFocusChangedEventHandler(_focusChangedHandler);
+                _logger.Write("[UIAutomation] focus-event=unregistered");
             }
         }
     }
@@ -475,9 +496,16 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     private void UpdateSnapshot(StartMenuSnapshot snapshot)
     {
+        bool changed;
         lock (_stateLock)
         {
+            changed = _snapshot != snapshot;
             _snapshot = snapshot;
+        }
+
+        if (changed)
+        {
+            SnapshotChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
