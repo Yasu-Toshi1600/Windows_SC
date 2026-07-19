@@ -1,6 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using System;
@@ -37,6 +38,7 @@ public sealed partial class MainWindow : Window
     private Windows.Graphics.PointInt32 _placementDpiPoint;
     private bool _firstVisualPresentationCompleted;
     private bool _animateItemsForCurrentShow;
+    private bool _isActionErrorDialogOpen;
     internal MainWindowViewModel ViewModel { get; }
 
     internal MainWindow(
@@ -60,6 +62,7 @@ public sealed partial class MainWindow : Window
         _placementService = placementService;
         _windowInteropService = windowInteropService;
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+        ViewModel.LauncherItemExecuted += ViewModel_LauncherItemExecuted;
         _animationsEnabled = new UISettings().AnimationsEnabled;
         _windowAnimationService = new WindowAnimationService(
             _windowHandle,
@@ -166,6 +169,7 @@ public sealed partial class MainWindow : Window
         _animateItemsForCurrentShow = _firstVisualPresentationCompleted;
         _shownInResponseToStartMenu = startMenuSnapshot is { IsVisible: true };
         _startMenuVisibilityConfirmedForCurrentShow = _shownInResponseToStartMenu;
+        ViewModel.RefreshAudioOutputState();
         Bindings.Update();
         LauncherScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
         _windowAnimationService.PrepareShow(_targetWindowRect, _placementDpiPoint);
@@ -362,6 +366,39 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void ViewModel_LauncherItemExecuted(
+        object? sender,
+        LauncherItemExecutedEventArgs args)
+    {
+        if (args.Result.IsSuccess)
+        {
+            HideWindow("action-executed");
+            return;
+        }
+
+        if (_isActionErrorDialogOpen || RootBorder.XamlRoot is null)
+        {
+            return;
+        }
+
+        _isActionErrorDialogOpen = true;
+        try
+        {
+            ContentDialog dialog = new()
+            {
+                Title = "操作を実行できませんでした",
+                Content = args.Result.ErrorMessage,
+                CloseButtonText = "閉じる",
+                XamlRoot = RootBorder.XamlRoot
+            };
+            await dialog.ShowAsync();
+        }
+        finally
+        {
+            _isActionErrorDialogOpen = false;
+        }
+    }
+
     private void Window_Activated(object sender, WindowActivatedEventArgs args)
     {
         _launcherIsActivated = args.WindowActivationState != WindowActivationState.Deactivated;
@@ -438,6 +475,7 @@ public sealed partial class MainWindow : Window
         _windowAnimationService.Dispose();
         RootBorder.Loaded -= RootBorder_Loaded;
         ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        ViewModel.LauncherItemExecuted -= ViewModel_LauncherItemExecuted;
         _inputService.ManualToggleRequested -= InputService_ManualToggleRequested;
         _inputService.WindowsKeyReleasedAlone -= InputService_WindowsKeyReleasedAlone;
         _startMenuMonitor.SnapshotChanged -= StartMenuMonitor_SnapshotChanged;

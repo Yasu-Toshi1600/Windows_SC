@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System;
 using System.Linq;
 using Windows_SC.Models;
+using Windows_SC.Services;
 
 namespace Windows_SC.ViewModels;
 
@@ -11,15 +12,22 @@ internal sealed class MainWindowViewModel : ObservableObject
     private bool _startWithWindows;
 
     private LauncherSettings _settings = LauncherSettings.CreateDefault();
+    private readonly IActionExecutionService _actionExecutionService;
 
-    public MainWindowViewModel()
+    public MainWindowViewModel(
+        IActionExecutionService actionExecutionService,
+        IAudioOutputService audioOutputService)
     {
+        _actionExecutionService = actionExecutionService;
+        AudioOutputService = audioOutputService;
         OpenSettingsCommand = new RelayCommand(
             () => SettingsRequested?.Invoke(this, EventArgs.Empty));
         ApplySettings(_settings);
     }
 
     public event EventHandler? SettingsRequested;
+
+    public event EventHandler<LauncherItemExecutedEventArgs>? LauncherItemExecuted;
 
     public string Title => "Windows_SC";
 
@@ -28,6 +36,8 @@ internal sealed class MainWindowViewModel : ObservableObject
     public ObservableCollection<LauncherItemViewModel> Shortcuts { get; } = [];
 
     public RelayCommand OpenSettingsCommand { get; }
+
+    internal IAudioOutputService AudioOutputService { get; }
 
     public bool AssumePhonePanelVisible
     {
@@ -43,6 +53,11 @@ internal sealed class MainWindowViewModel : ObservableObject
 
     public void ApplySettings(LauncherSettings settings)
     {
+        foreach (LauncherItemViewModel shortcut in Shortcuts)
+        {
+            shortcut.Executed -= Shortcut_Executed;
+        }
+
         _settings = settings;
         AssumePhonePanelVisible = settings.AssumePhonePanelVisible;
         StartWithWindows = settings.StartWithWindows;
@@ -56,7 +71,20 @@ internal sealed class MainWindowViewModel : ObservableObject
 
         foreach (LauncherItemDefinition item in firstPage.Items)
         {
-            Shortcuts.Add(new LauncherItemViewModel(item.Id, item.Kind, item.Title));
+            LauncherItemViewModel shortcut = new(
+                item,
+                _actionExecutionService,
+                AudioOutputService);
+            shortcut.Executed += Shortcut_Executed;
+            Shortcuts.Add(shortcut);
+        }
+    }
+
+    public void RefreshAudioOutputState()
+    {
+        foreach (LauncherItemViewModel shortcut in Shortcuts)
+        {
+            shortcut.RefreshAudioOutputState();
         }
     }
 
@@ -66,4 +94,7 @@ internal sealed class MainWindowViewModel : ObservableObject
         _settings.StartWithWindows = StartWithWindows;
         return _settings;
     }
+
+    private void Shortcut_Executed(object? sender, LauncherItemExecutedEventArgs args) =>
+        LauncherItemExecuted?.Invoke(sender, args);
 }

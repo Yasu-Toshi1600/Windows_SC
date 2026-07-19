@@ -37,7 +37,9 @@ public partial class App : Application
         }
 
         _settingsRepository = new JsonSettingsRepository(logger);
-        _viewModel = new MainWindowViewModel();
+        IActionExecutionService actionExecutionService = new ActionExecutionService(logger);
+        IAudioOutputService audioOutputService = new WindowsAudioOutputService(logger);
+        _viewModel = new MainWindowViewModel(actionExecutionService, audioOutputService);
         LauncherSettings settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
         _viewModel.ApplySettings(settings);
         _startupService = new RegistryStartupService(logger);
@@ -136,7 +138,8 @@ public partial class App : Application
         _settingsViewModel = new SettingsViewModel(
             _settingsRepository,
             _viewModel,
-            _startupService);
+            _startupService,
+            _viewModel.AudioOutputService);
         _settingsViewModel.ExitApplicationRequested += SettingsViewModel_ExitApplicationRequested;
         _settingsWindow = new SettingsWindow(_settingsViewModel);
         _settingsWindow.Closed += SettingsWindow_Closed;
