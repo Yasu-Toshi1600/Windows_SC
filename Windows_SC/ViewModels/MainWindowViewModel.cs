@@ -14,9 +14,12 @@ internal sealed class MainWindowViewModel : ObservableObject
     private LauncherSettings _settings = LauncherSettings.CreateDefault();
     private readonly IActionExecutionService _actionExecutionService;
 
-    public MainWindowViewModel(IActionExecutionService actionExecutionService)
+    public MainWindowViewModel(
+        IActionExecutionService actionExecutionService,
+        IAudioOutputService audioOutputService)
     {
         _actionExecutionService = actionExecutionService;
+        AudioOutputService = audioOutputService;
         OpenSettingsCommand = new RelayCommand(
             () => SettingsRequested?.Invoke(this, EventArgs.Empty));
         ApplySettings(_settings);
@@ -33,6 +36,8 @@ internal sealed class MainWindowViewModel : ObservableObject
     public ObservableCollection<LauncherItemViewModel> Shortcuts { get; } = [];
 
     public RelayCommand OpenSettingsCommand { get; }
+
+    internal IAudioOutputService AudioOutputService { get; }
 
     public bool AssumePhonePanelVisible
     {
@@ -66,9 +71,20 @@ internal sealed class MainWindowViewModel : ObservableObject
 
         foreach (LauncherItemDefinition item in firstPage.Items)
         {
-            LauncherItemViewModel shortcut = new(item, _actionExecutionService);
+            LauncherItemViewModel shortcut = new(
+                item,
+                _actionExecutionService,
+                AudioOutputService);
             shortcut.Executed += Shortcut_Executed;
             Shortcuts.Add(shortcut);
+        }
+    }
+
+    public void RefreshAudioOutputState()
+    {
+        foreach (LauncherItemViewModel shortcut in Shortcuts)
+        {
+            shortcut.RefreshAudioOutputState();
         }
     }
 

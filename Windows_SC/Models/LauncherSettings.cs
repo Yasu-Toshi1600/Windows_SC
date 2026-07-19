@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Windows_SC.Models;
 
@@ -97,9 +98,34 @@ internal enum LauncherActionKind
 
 internal sealed class AudioDeviceToggleDefinition
 {
+    public List<string> DeviceIds { get; set; } = [];
+
+    // Schema v1 compatibility for settings created before multi-device cycling.
     public string FirstDeviceId { get; set; } = string.Empty;
 
     public string SecondDeviceId { get; set; } = string.Empty;
+
+    public IReadOnlyList<string> GetOrderedDeviceIds()
+    {
+        if (DeviceIds is { Count: > 0 })
+        {
+            return DeviceIds;
+        }
+
+        List<string> legacyDeviceIds = [];
+        if (!string.IsNullOrWhiteSpace(FirstDeviceId))
+        {
+            legacyDeviceIds.Add(FirstDeviceId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(SecondDeviceId)
+            && !legacyDeviceIds.Contains(SecondDeviceId, StringComparer.OrdinalIgnoreCase))
+        {
+            legacyDeviceIds.Add(SecondDeviceId);
+        }
+
+        return legacyDeviceIds;
+    }
 }
 
 internal sealed class VolumeSliderDefinition

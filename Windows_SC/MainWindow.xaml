@@ -77,18 +77,24 @@
                                     BorderThickness="1"
                                     CornerRadius="8"
                                     Visibility="{Binding ToggleVisibility, Mode=OneTime}">
-                                    <Grid RowDefinitions="*,Auto">
+                                    <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
                                         <TextBlock
                                             FontSize="16"
                                             FontWeight="SemiBold"
                                             Text="{Binding Title, Mode=OneTime}"
                                             TextWrapping="Wrap" />
-                                        <ToggleSwitch
+                                        <TextBlock
                                             Grid.Row="1"
+                                            VerticalAlignment="Center"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{Binding CurrentAudioDeviceName, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis"
+                                            TextWrapping="Wrap" />
+                                        <Button
+                                            Grid.Row="2"
                                             HorizontalAlignment="Right"
-                                            IsOn="{Binding IsOn, Mode=TwoWay}"
-                                            OffContent="オフ"
-                                            OnContent="オン" />
+                                            Command="{Binding CycleAudioOutputCommand, Mode=OneTime}"
+                                            Content="次へ" />
                                     </Grid>
                                 </Border>
 
@@ -111,11 +117,13 @@
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Center"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                            Text="{Binding SliderValue, Mode=OneWay}" />
+                                            Text="{Binding SliderValueDisplay, Mode=OneWay}" />
                                         <Slider
                                             Grid.Row="2"
-                                            Maximum="100"
-                                            Minimum="0"
+                                            IsEnabled="{Binding CanAdjustVolume, Mode=OneWay}"
+                                            Maximum="{Binding SliderMaximum, Mode=OneTime}"
+                                            Minimum="{Binding SliderMinimum, Mode=OneTime}"
+                                            StepFrequency="1"
                                             Value="{Binding SliderValue, Mode=TwoWay}" />
                                     </Grid>
                                 </Border>

@@ -169,6 +169,7 @@ public sealed partial class MainWindow : Window
         _animateItemsForCurrentShow = _firstVisualPresentationCompleted;
         _shownInResponseToStartMenu = startMenuSnapshot is { IsVisible: true };
         _startMenuVisibilityConfirmedForCurrentShow = _shownInResponseToStartMenu;
+        ViewModel.RefreshAudioOutputState();
         Bindings.Update();
         LauncherScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
         _windowAnimationService.PrepareShow(_targetWindowRect, _placementDpiPoint);
@@ -385,7 +386,7 @@ public sealed partial class MainWindow : Window
         {
             ContentDialog dialog = new()
             {
-                Title = "ショートカットを実行できませんでした",
+                Title = "操作を実行できませんでした",
                 Content = args.Result.ErrorMessage,
                 CloseButtonText = "閉じる",
                 XamlRoot = RootBorder.XamlRoot

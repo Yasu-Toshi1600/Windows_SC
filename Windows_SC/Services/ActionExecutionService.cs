@@ -59,7 +59,13 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
                 workingDirectory,
                 action.HideCommandWindow),
             LauncherActionKind.BatchFile => CreateCommandStartInfo(
-                BuildBatchCommandLine(target, action.Arguments),
+                BuildCommandScriptLine(target, action.Arguments),
+                string.IsNullOrWhiteSpace(workingDirectory)
+                    ? Path.GetDirectoryName(target) ?? string.Empty
+                    : workingDirectory,
+                action.HideCommandWindow),
+            _ when IsCommandScript(target) => CreateCommandStartInfo(
+                BuildCommandScriptLine(target, action.Arguments),
                 string.IsNullOrWhiteSpace(workingDirectory)
                     ? Path.GetDirectoryName(target) ?? string.Empty
                     : workingDirectory,
@@ -102,13 +108,17 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
     private static string BuildCommandLine(string command, string arguments) =>
         string.IsNullOrWhiteSpace(arguments) ? command : $"{command} {arguments}";
 
-    private static string BuildBatchCommandLine(string path, string arguments)
+    private static string BuildCommandScriptLine(string path, string arguments)
     {
         string escapedPath = path.Replace("\"", "\"\"");
         return string.IsNullOrWhiteSpace(arguments)
             ? $"call \"{escapedPath}\""
             : $"call \"{escapedPath}\" {arguments}";
     }
+
+    private static bool IsCommandScript(string target) =>
+        target.EndsWith(".bat", StringComparison.OrdinalIgnoreCase)
+        || target.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase);
 
     private static string Sanitize(string value) =>
         value.Replace('\r', ' ').Replace('\n', ' ').Replace('"', '\'');

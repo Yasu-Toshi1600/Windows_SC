@@ -43,7 +43,7 @@
                 </ListView>
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
                     <Button Command="{Binding AddButtonCommand}" Content="ボタン追加" />
-                    <Button Command="{Binding AddToggleCommand}" Content="トグル追加" />
+                    <Button Command="{Binding AddToggleCommand}" Content="音声切り替え追加" />
                     <Button Command="{Binding AddSliderCommand}" Content="スライダー追加" />
                 </StackPanel>
             </Grid>
@@ -54,25 +54,64 @@
                     <TextBox Header="表示名"
                              Text="{Binding SelectedItem.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                     <TextBox Header="種類" IsReadOnly="True" Text="{Binding SelectedItem.KindDisplayName}" />
-                    <ComboBox Header="実行種類"
-                              DisplayMemberPath="DisplayName"
-                              IsEnabled="{Binding SelectedItem.IsButton}"
-                              ItemsSource="{Binding ActionKinds}"
-                              SelectedValue="{Binding SelectedItem.ActionKind, Mode=TwoWay}"
-                              SelectedValuePath="Value" />
-                    <TextBox Header="起動対象"
-                             IsEnabled="{Binding SelectedItem.IsButton}"
-                             PlaceholderText="アプリ、ファイル、URL、コマンド、batのパス"
-                             Text="{Binding SelectedItem.Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <TextBox Header="引数"
-                             IsEnabled="{Binding SelectedItem.IsButton}"
-                             Text="{Binding SelectedItem.Arguments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <TextBox Header="作業フォルダー"
-                             IsEnabled="{Binding SelectedItem.IsButton}"
-                             Text="{Binding SelectedItem.WorkingDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <CheckBox Content="コマンド画面を表示しない"
-                              IsChecked="{Binding SelectedItem.HideCommandWindow, Mode=TwoWay}"
-                              IsEnabled="{Binding SelectedItem.IsButton}" />
+                    <StackPanel Spacing="12"
+                                Visibility="{Binding SelectedItem.ButtonSettingsVisibility}">
+                        <ComboBox Header="実行種類"
+                                  DisplayMemberPath="DisplayName"
+                                  ItemsSource="{Binding ActionKinds}"
+                                  SelectedItem="{Binding SelectedActionKind, Mode=TwoWay}" />
+                        <TextBox Header="起動対象"
+                                 PlaceholderText="アプリ名、ファイルのパス、URL"
+                                 Text="{Binding SelectedItem.Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="引数"
+                                 Text="{Binding SelectedItem.Arguments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="作業フォルダー（通常は空欄）"
+                                 Text="{Binding SelectedItem.WorkingDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <CheckBox Content="コマンド／batの画面を表示しない"
+                                  IsChecked="{Binding SelectedItem.HideCommandWindow, Mode=TwoWay}" />
+                    </StackPanel>
+                    <StackPanel Spacing="12"
+                                Visibility="{Binding SelectedItem.AudioDeviceSettingsVisibility}">
+                        <TextBlock FontWeight="SemiBold" Text="音声出力の切り替え順" />
+                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="2台以上登録すると、上から順番に切り替えます。"
+                                   TextWrapping="Wrap" />
+                        <ComboBox Header="追加するデバイス"
+                                  DisplayMemberPath="DisplayLabel"
+                                  ItemsSource="{Binding AvailableAudioOutputDevices}"
+                                  SelectedItem="{Binding AudioDeviceToAdd, Mode=TwoWay}" />
+                        <Button HorizontalAlignment="Left"
+                                Command="{Binding AddAudioDeviceCommand}"
+                                Content="一覧に追加" />
+                        <ListView Height="180"
+                                  ItemsSource="{Binding SelectedItem.RegisteredAudioDevices}"
+                                  SelectedItem="{Binding SelectedRegisteredAudioDevice, Mode=TwoWay}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
+                                        <TextBlock VerticalAlignment="Center"
+                                                   Text="{Binding DisplayLabel}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <Button Grid.Column="1"
+                                                Click="AudioDeviceMoveUp_Click"
+                                                Content="↑"
+                                                Padding="8,4"
+                                                ToolTipService.ToolTip="上へ移動" />
+                                        <Button Grid.Column="2"
+                                                Click="AudioDeviceMoveDown_Click"
+                                                Content="↓"
+                                                Padding="8,4"
+                                                ToolTipService.ToolTip="下へ移動" />
+                                        <Button Grid.Column="3"
+                                                Click="AudioDeviceRemove_Click"
+                                                Content="×"
+                                                Padding="8,4"
+                                                ToolTipService.ToolTip="削除" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
                     <Button HorizontalAlignment="Left"
                             Command="{Binding DeleteItemCommand}"
                             Content="選択項目を削除" />
