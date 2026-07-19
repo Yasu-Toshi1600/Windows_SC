@@ -10,21 +10,26 @@ internal sealed class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsRepository _settingsRepository;
     private readonly MainWindowViewModel _mainWindowViewModel;
+    private readonly IStartupService _startupService;
     private readonly Guid _pageId;
     private LauncherItemEditorViewModel? _selectedItem;
     private bool _assumePhonePanelVisible;
+    private bool _startWithWindows;
     private string _statusMessage = string.Empty;
     private bool _isSaving;
 
     public SettingsViewModel(
         ISettingsRepository settingsRepository,
-        MainWindowViewModel mainWindowViewModel)
+        MainWindowViewModel mainWindowViewModel,
+        IStartupService startupService)
     {
         _settingsRepository = settingsRepository;
         _mainWindowViewModel = mainWindowViewModel;
+        _startupService = startupService;
 
         LauncherSettings settings = mainWindowViewModel.ExportSettings();
         _assumePhonePanelVisible = settings.AssumePhonePanelVisible;
+        _startWithWindows = settings.StartWithWindows;
         LauncherPageDefinition page = settings.Pages.FirstOrDefault()
             ?? new LauncherPageDefinition { Name = "メイン" };
         _pageId = page.Id;
@@ -39,8 +44,12 @@ internal sealed class SettingsViewModel : ObservableObject
         AddSliderCommand = new RelayCommand(() => AddItem(LauncherItemKind.Slider));
         DeleteItemCommand = new RelayCommand(DeleteSelectedItem, () => SelectedItem is not null);
         SaveCommand = new RelayCommand(() => _ = SaveAsync(), () => !_isSaving);
+        ExitApplicationCommand = new RelayCommand(
+            () => ExitApplicationRequested?.Invoke(this, EventArgs.Empty));
         SelectedItem = Items.FirstOrDefault();
     }
+
+    public event EventHandler? ExitApplicationRequested;
 
     public ObservableCollection<LauncherItemEditorViewModel> Items { get; } = [];
 
@@ -62,6 +71,12 @@ internal sealed class SettingsViewModel : ObservableObject
         set => SetProperty(ref _assumePhonePanelVisible, value);
     }
 
+    public bool StartWithWindows
+    {
+        get => _startWithWindows;
+        set => SetProperty(ref _startWithWindows, value);
+    }
+
     public string StatusMessage
     {
         get => _statusMessage;
@@ -73,6 +88,7 @@ internal sealed class SettingsViewModel : ObservableObject
     public RelayCommand AddSliderCommand { get; }
     public RelayCommand DeleteItemCommand { get; }
     public RelayCommand SaveCommand { get; }
+    public RelayCommand ExitApplicationCommand { get; }
 
     private void AddItem(LauncherItemKind kind)
     {
@@ -114,6 +130,7 @@ internal sealed class SettingsViewModel : ObservableObject
             LauncherSettings settings = new()
             {
                 AssumePhonePanelVisible = AssumePhonePanelVisible,
+                StartWithWindows = StartWithWindows,
                 Pages =
                 [
                     new LauncherPageDefinition
@@ -124,6 +141,7 @@ internal sealed class SettingsViewModel : ObservableObject
                     }
                 ]
             };
+            _startupService.SetEnabled(settings.StartWithWindows);
             await _settingsRepository.SaveAsync(settings);
             _mainWindowViewModel.ApplySettings(settings);
             StatusMessage = "保存しました。";

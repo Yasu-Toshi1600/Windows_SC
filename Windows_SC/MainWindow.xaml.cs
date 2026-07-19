@@ -6,7 +6,6 @@ using Microsoft.UI.Xaml.Input;
 using System;
 using System.ComponentModel;
 using System.Numerics;
-using System.Runtime.InteropServices;
 using Windows_SC.Services;
 using Windows_SC.ViewModels;
 using Windows.System;
@@ -17,25 +16,14 @@ namespace Windows_SC;
 
 public sealed partial class MainWindow : Window
 {
-    private const uint WmKeyDown = 0x0100;
-    private const int VirtualKeyEscape = 0x1B;
-    private const int GwlpWndProc = -4;
-    private const double WindowAnimationOffsetEffectivePixels = 24;
-    private static readonly TimeSpan WindowAnimationDuration = TimeSpan.FromMilliseconds(160);
-    private const uint SwpNoSize = 0x0001;
-    private const uint SwpNoZOrder = 0x0004;
-    private const uint SwpNoActivate = 0x0010;
-    private const uint SwpNoOwnerZOrder = 0x0200;
-
     private readonly IntPtr _windowHandle;
     private readonly AppWindow _appWindow;
-    private readonly WindowProcedure _windowProcedure;
     private readonly DiagnosticLogger _logger;
     private readonly IStartMenuMonitor _startMenuMonitor;
     private readonly IGlobalInputService _inputService;
     private readonly ILauncherPlacementService _placementService;
-    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _windowAnimationTimer;
-    private IntPtr _previousWindowProcedure;
+    private readonly IWindowInteropService _windowInteropService;
+    private readonly IWindowAnimationService _windowAnimationService;
     private bool _isVisible;
     private bool _isInitialized;
     private bool _launcherIsActivated;
@@ -46,14 +34,7 @@ public sealed partial class MainWindow : Window
     private StartMenuSnapshot? _lastPlacementStartSnapshot;
     private readonly bool _animationsEnabled;
     private Windows.Graphics.RectInt32 _targetWindowRect;
-    private Windows.Graphics.RectInt32 _currentWindowRect;
     private Windows.Graphics.PointInt32 _placementDpiPoint;
-    private Windows.Graphics.RectInt32 _animationStartRect;
-    private Windows.Graphics.RectInt32 _animationEndRect;
-    private DateTimeOffset _windowAnimationStartedAt;
-    private bool _isWindowAnimationRunning;
-    private bool _isHideAnimation;
-    private string _pendingHideReason = string.Empty;
     internal MainWindowViewModel ViewModel { get; }
 
     internal MainWindow(
@@ -61,7 +42,8 @@ public sealed partial class MainWindow : Window
         DiagnosticLogger logger,
         IStartMenuMonitor startMenuMonitor,
         IGlobalInputService inputService,
-        ILauncherPlacementService placementService)
+        ILauncherPlacementService placementService,
+        IWindowInteropService windowInteropService)
     {
         ViewModel = viewModel;
         InitializeComponent();
@@ -69,17 +51,20 @@ public sealed partial class MainWindow : Window
         _windowHandle = WindowNative.GetWindowHandle(this);
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(_windowHandle);
         _appWindow = AppWindow.GetFromWindowId(windowId);
-        _windowProcedure = WindowMessageHandler;
         _logger = logger;
         _startMenuMonitor = startMenuMonitor;
         _inputService = inputService;
         _placementService = placementService;
-        _windowAnimationTimer = DispatcherQueue.CreateTimer();
-        _windowAnimationTimer.Interval = TimeSpan.FromMilliseconds(16);
-        _windowAnimationTimer.IsRepeating = true;
-        _windowAnimationTimer.Tick += WindowAnimationTimer_Tick;
+        _windowInteropService = windowInteropService;
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         _animationsEnabled = new UISettings().AnimationsEnabled;
+        _windowAnimationService = new WindowAnimationService(
+            _windowHandle,
+            DispatcherQueue,
+            _windowInteropService,
+            _placementService,
+            _animationsEnabled);
+        _windowAnimationService.HideCompleted += WindowAnimationService_HideCompleted;
     }
 
     public void InitializeBackgroundWindow()
@@ -90,7 +75,8 @@ public sealed partial class MainWindow : Window
         }
 
         ConfigureWindow();
-        RegisterWindowProcedure();
+        _windowInteropService.EscapePressed += WindowInteropService_EscapePressed;
+        _windowInteropService.Start(_windowHandle);
 
         Activated += Window_Activated;
         Closed += Window_Closed;
@@ -130,9 +116,9 @@ public sealed partial class MainWindow : Window
         }
 
         _targetWindowRect = placement.TargetRect;
-        _currentWindowRect = _targetWindowRect;
         _placementDpiPoint = placement.DpiPoint;
         _appWindow.MoveAndResize(_targetWindowRect);
+        _windowAnimationService.SetPosition(_targetWindowRect);
         _logger.Write(
             $"[WindowPlacement] result=success position=({_targetWindowRect.X},{_targetWindowRect.Y}) " +
             $"size={_targetWindowRect.Width}x{_targetWindowRect.Height} " +
@@ -176,7 +162,7 @@ public sealed partial class MainWindow : Window
         _shownInResponseToStartMenu = startMenuSnapshot is { IsVisible: true };
         _startMenuVisibilityConfirmedForCurrentShow = _shownInResponseToStartMenu;
         LauncherScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
-        PrepareWindowShowAnimation();
+        _windowAnimationService.PrepareShow(_targetWindowRect, _placementDpiPoint);
         _appWindow.Show(activate);
         _isVisible = true;
         _startMenuMonitor.SetLauncherVisible(true);
@@ -186,7 +172,7 @@ public sealed partial class MainWindow : Window
         _logger.Write(
             $"[Launcher] action=show reason={reason} activate={activate} " +
             $"start-linked={_shownInResponseToStartMenu} start-confirmed={_startMenuVisibilityConfirmedForCurrentShow}");
-        StartPreparedWindowAnimation();
+        _windowAnimationService.StartShow();
         DispatcherQueue.TryEnqueue(
             Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
             AnimateLauncherItems);
@@ -236,56 +222,18 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void PrepareWindowShowAnimation()
-    {
-        StopWindowAnimation();
-
-        if (!_animationsEnabled)
-        {
-            _currentWindowRect = _targetWindowRect;
-            return;
-        }
-
-        int offset = _placementService.ConvertEffectivePixelsToPhysical(
-            WindowAnimationOffsetEffectivePixels,
-            _placementDpiPoint);
-        _animationStartRect = OffsetVertically(_targetWindowRect, offset);
-        _animationEndRect = _targetWindowRect;
-        _currentWindowRect = _animationStartRect;
-        MoveWindowForAnimation(_animationStartRect);
-        _isHideAnimation = false;
-    }
-
-    private void StartPreparedWindowAnimation()
-    {
-        if (_animationsEnabled)
-        {
-            _windowAnimationStartedAt = DateTimeOffset.UtcNow;
-            _isWindowAnimationRunning = true;
-            _windowAnimationTimer.Start();
-        }
-    }
-
     private void HideWindow(string reason)
     {
-        if (!_isVisible || (_isWindowAnimationRunning && _isHideAnimation))
+        if (!_isVisible || _windowAnimationService.IsHideRunning)
         {
             return;
         }
 
-        if (_animationsEnabled)
+        if (_windowAnimationService.StartHide(
+            _targetWindowRect,
+            _placementDpiPoint,
+            reason))
         {
-            StopWindowAnimation();
-            int offset = _placementService.ConvertEffectivePixelsToPhysical(
-                WindowAnimationOffsetEffectivePixels,
-                _placementDpiPoint);
-            _animationStartRect = _currentWindowRect;
-            _animationEndRect = OffsetVertically(_targetWindowRect, offset);
-            _windowAnimationStartedAt = DateTimeOffset.UtcNow;
-            _isHideAnimation = true;
-            _isWindowAnimationRunning = true;
-            _pendingHideReason = reason;
-            _windowAnimationTimer.Start();
             _logger.Write($"[Launcher] action=hide-animation-start reason={reason}");
             return;
         }
@@ -305,76 +253,11 @@ public sealed partial class MainWindow : Window
         _startMenuMonitor.SetLauncherVisible(false);
     }
 
-    private void WindowAnimationTimer_Tick(
-        Microsoft.UI.Dispatching.DispatcherQueueTimer sender,
-        object args)
+    private void WindowAnimationService_HideCompleted(
+        object? sender,
+        WindowHideCompletedEventArgs args)
     {
-        double progress = Math.Clamp(
-            (DateTimeOffset.UtcNow - _windowAnimationStartedAt).TotalMilliseconds
-                / WindowAnimationDuration.TotalMilliseconds,
-            0,
-            1);
-        double easedProgress = _isHideAnimation
-            ? progress * progress * progress
-            : 1 - Math.Pow(1 - progress, 3);
-
-        _currentWindowRect = InterpolateRectangle(
-            _animationStartRect,
-            _animationEndRect,
-            easedProgress);
-        MoveWindowForAnimation(_currentWindowRect);
-
-        if (progress < 1)
-        {
-            return;
-        }
-
-        bool completedHideAnimation = _isHideAnimation;
-        string hideReason = _pendingHideReason;
-        StopWindowAnimation();
-
-        if (completedHideAnimation)
-        {
-            CompleteHide(hideReason);
-        }
-    }
-
-    private void StopWindowAnimation()
-    {
-        _windowAnimationTimer.Stop();
-        _isWindowAnimationRunning = false;
-        _isHideAnimation = false;
-        _pendingHideReason = string.Empty;
-    }
-
-    private static Windows.Graphics.RectInt32 OffsetVertically(
-        Windows.Graphics.RectInt32 rectangle,
-        int offset) =>
-        new(rectangle.X, rectangle.Y + offset, rectangle.Width, rectangle.Height);
-
-    private static Windows.Graphics.RectInt32 InterpolateRectangle(
-        Windows.Graphics.RectInt32 start,
-        Windows.Graphics.RectInt32 end,
-        double progress) =>
-        new(
-            Interpolate(start.X, end.X, progress),
-            Interpolate(start.Y, end.Y, progress),
-            Interpolate(start.Width, end.Width, progress),
-            Interpolate(start.Height, end.Height, progress));
-
-    private static int Interpolate(int start, int end, double progress) =>
-        (int)Math.Round(start + ((end - start) * progress));
-
-    private void MoveWindowForAnimation(Windows.Graphics.RectInt32 rectangle)
-    {
-        _ = SetWindowPos(
-            _windowHandle,
-            IntPtr.Zero,
-            rectangle.X,
-            rectangle.Y,
-            0,
-            0,
-            SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+        CompleteHide(args.Reason);
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs args)
@@ -406,7 +289,8 @@ public sealed partial class MainWindow : Window
 
     private void SynchronizeWithStartMenu()
     {
-        bool launcherHasFocus = _launcherIsActivated || GetForegroundWindow() == _windowHandle;
+        bool launcherHasFocus = _launcherIsActivated
+            || _windowInteropService.IsForeground(_windowHandle);
         StartMenuSnapshot startMenuSnapshot = _startMenuMonitor.Snapshot;
         bool startMenuIsVisible = startMenuSnapshot.IsVisible;
 
@@ -457,79 +341,23 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private IntPtr WindowMessageHandler(IntPtr windowHandle, uint message, IntPtr wParam, IntPtr lParam)
+    private void WindowInteropService_EscapePressed(object? sender, EventArgs args)
     {
-        if (_inputService.TryHandleWindowMessage(message, wParam))
-        {
-            return IntPtr.Zero;
-        }
-
-        if (message == WmKeyDown && wParam.ToInt32() == VirtualKeyEscape)
-        {
-            HideWindow("escape-key-win32");
-            return IntPtr.Zero;
-        }
-
-        return CallWindowProc(_previousWindowProcedure, windowHandle, message, wParam, lParam);
-    }
-
-    private void RegisterWindowProcedure()
-    {
-        IntPtr procedurePointer = Marshal.GetFunctionPointerForDelegate(_windowProcedure);
-        _previousWindowProcedure = SetWindowLongPtr(_windowHandle, GwlpWndProc, procedurePointer);
-
-        if (_previousWindowProcedure == IntPtr.Zero)
-        {
-            int error = Marshal.GetLastWin32Error();
-            if (error != 0)
-            {
-                throw new Win32Exception(error, "ウィンドウメッセージの監視を開始できませんでした。");
-            }
-        }
+        HideWindow("escape-key-win32");
     }
 
     private void Window_Closed(object sender, WindowEventArgs args)
     {
-        _windowAnimationTimer.Stop();
+        _windowAnimationService.HideCompleted -= WindowAnimationService_HideCompleted;
+        _windowAnimationService.Dispose();
         ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
         _inputService.ManualToggleRequested -= InputService_ManualToggleRequested;
         _inputService.WindowsKeyReleasedAlone -= InputService_WindowsKeyReleasedAlone;
-        _inputService.Dispose();
         _startMenuMonitor.SnapshotChanged -= StartMenuMonitor_SnapshotChanged;
         _startMenuMonitor.Dispose();
+        _windowInteropService.EscapePressed -= WindowInteropService_EscapePressed;
+        _windowInteropService.Dispose();
+        _inputService.Dispose();
         _logger.Write("[Application] input-monitor=stopped; window=closed");
-        if (_previousWindowProcedure != IntPtr.Zero)
-        {
-            SetWindowLongPtr(_windowHandle, GwlpWndProc, _previousWindowProcedure);
-            _previousWindowProcedure = IntPtr.Zero;
-        }
     }
-
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
-    private delegate IntPtr WindowProcedure(IntPtr windowHandle, uint message, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-    private static extern IntPtr SetWindowLongPtr(IntPtr windowHandle, int index, IntPtr newLong);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr CallWindowProc(
-        IntPtr previousWindowProcedure,
-        IntPtr windowHandle,
-        uint message,
-        IntPtr wParam,
-        IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowPos(
-        IntPtr windowHandle,
-        IntPtr insertAfter,
-        int x,
-        int y,
-        int width,
-        int height,
-        uint flags);
 }

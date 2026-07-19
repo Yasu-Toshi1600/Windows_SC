@@ -8,6 +8,7 @@ namespace Windows_SC.ViewModels;
 internal sealed class MainWindowViewModel : ObservableObject
 {
     private bool _assumePhonePanelVisible = true;
+    private bool _startWithWindows;
 
     private LauncherSettings _settings = LauncherSettings.CreateDefault();
 
@@ -34,10 +35,17 @@ internal sealed class MainWindowViewModel : ObservableObject
         set => SetProperty(ref _assumePhonePanelVisible, value);
     }
 
+    public bool StartWithWindows
+    {
+        get => _startWithWindows;
+        set => SetProperty(ref _startWithWindows, value);
+    }
+
     public void ApplySettings(LauncherSettings settings)
     {
         _settings = settings;
         AssumePhonePanelVisible = settings.AssumePhonePanelVisible;
+        StartWithWindows = settings.StartWithWindows;
         Shortcuts.Clear();
 
         LauncherPageDefinition? firstPage = settings.Pages.FirstOrDefault();
@@ -55,6 +63,7 @@ internal sealed class MainWindowViewModel : ObservableObject
     public LauncherSettings ExportSettings()
     {
         _settings.AssumePhonePanelVisible = AssumePhonePanelVisible;
+        _settings.StartWithWindows = StartWithWindows;
         return _settings;
     }
 }
