@@ -35,6 +35,8 @@ public sealed partial class MainWindow : Window
     private readonly bool _animationsEnabled;
     private Windows.Graphics.RectInt32 _targetWindowRect;
     private Windows.Graphics.PointInt32 _placementDpiPoint;
+    private bool _firstVisualPresentationCompleted;
+    private bool _animateItemsForCurrentShow;
     internal MainWindowViewModel ViewModel { get; }
 
     internal MainWindow(
@@ -47,6 +49,7 @@ public sealed partial class MainWindow : Window
     {
         ViewModel = viewModel;
         InitializeComponent();
+        Bindings.Update();
 
         _windowHandle = WindowNative.GetWindowHandle(this);
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(_windowHandle);
@@ -65,6 +68,7 @@ public sealed partial class MainWindow : Window
             _placementService,
             _animationsEnabled);
         _windowAnimationService.HideCompleted += WindowAnimationService_HideCompleted;
+        RootBorder.Loaded += RootBorder_Loaded;
     }
 
     public void InitializeBackgroundWindow()
@@ -159,14 +163,16 @@ public sealed partial class MainWindow : Window
             return;
         }
         _launcherIsActivated = false;
+        _animateItemsForCurrentShow = _firstVisualPresentationCompleted;
         _shownInResponseToStartMenu = startMenuSnapshot is { IsVisible: true };
         _startMenuVisibilityConfirmedForCurrentShow = _shownInResponseToStartMenu;
+        Bindings.Update();
         LauncherScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
         _windowAnimationService.PrepareShow(_targetWindowRect, _placementDpiPoint);
+        _isVisible = true;
         _appWindow.Show(activate);
         RootBorder.UpdateLayout();
         _windowInteropService.RequestRedraw(_windowHandle);
-        _isVisible = true;
         _startMenuMonitor.SetLauncherVisible(true);
         _lastPlacementStartSnapshot = startMenuSnapshot;
         _lastLoggedLauncherFocus = null;
@@ -179,10 +185,83 @@ public sealed partial class MainWindow : Window
             Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
             () =>
             {
-                RootBorder.UpdateLayout();
-                _windowInteropService.RequestRedraw(_windowHandle);
-                AnimateLauncherItems();
+                CompleteVisualPresentation("dispatcher");
             });
+    }
+
+    private void RootBorder_Loaded(object sender, RoutedEventArgs args)
+    {
+        _logger.Write(
+            $"[LauncherVisual] event=loaded size={RootBorder.ActualWidth:F0}x{RootBorder.ActualHeight:F0} " +
+            $"shortcuts={ViewModel.Shortcuts.Count}");
+
+        if (_isVisible)
+        {
+            CompleteVisualPresentation("loaded");
+        }
+    }
+
+    private void CompleteVisualPresentation(string source)
+    {
+        if (!_isVisible)
+        {
+            return;
+        }
+
+        Bindings.Update();
+        RootBorder.UpdateLayout();
+        _windowInteropService.RequestRedraw(_windowHandle);
+
+        if (!RootBorder.IsLoaded)
+        {
+            _logger.Write($"[LauncherVisual] presentation=waiting-for-loaded source={source}");
+            return;
+        }
+
+        if (!_firstVisualPresentationCompleted)
+        {
+            ResetLauncherItemVisuals();
+            _firstVisualPresentationCompleted = true;
+            _logger.Write(
+                $"[LauncherVisual] presentation=first source={source} " +
+                $"containers={CountRealizedItemContainers()}");
+            return;
+        }
+
+        if (_animateItemsForCurrentShow)
+        {
+            AnimateLauncherItems();
+        }
+    }
+
+    private void ResetLauncherItemVisuals()
+    {
+        for (int index = 0; index < ViewModel.Shortcuts.Count; index++)
+        {
+            if (LauncherItemsControl.ContainerFromIndex(index) is not UIElement element)
+            {
+                continue;
+            }
+
+            Microsoft.UI.Composition.Visual visual = ElementCompositionPreview.GetElementVisual(element);
+            visual.StopAnimation(nameof(visual.Opacity));
+            visual.StopAnimation(nameof(visual.Offset));
+            visual.Opacity = 1;
+        }
+    }
+
+    private int CountRealizedItemContainers()
+    {
+        int count = 0;
+        for (int index = 0; index < ViewModel.Shortcuts.Count; index++)
+        {
+            if (LauncherItemsControl.ContainerFromIndex(index) is not null)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private void AnimateLauncherItems()
@@ -357,6 +436,7 @@ public sealed partial class MainWindow : Window
     {
         _windowAnimationService.HideCompleted -= WindowAnimationService_HideCompleted;
         _windowAnimationService.Dispose();
+        RootBorder.Loaded -= RootBorder_Loaded;
         ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
         _inputService.ManualToggleRequested -= InputService_ManualToggleRequested;
         _inputService.WindowsKeyReleasedAlone -= InputService_WindowsKeyReleasedAlone;
