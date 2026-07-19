@@ -1,20 +1,41 @@
 using System;
 using Microsoft.UI.Xaml;
 using Windows_SC.Models;
+using Windows_SC.Services;
 
 namespace Windows_SC.ViewModels;
 
-internal sealed class LauncherItemViewModel(Guid id, LauncherItemKind kind, string title)
-    : ObservableObject
+internal sealed class LauncherItemViewModel : ObservableObject
 {
+    private readonly IActionExecutionService _actionExecutionService;
+    private readonly LauncherActionDefinition? _action;
     private bool _isOn;
     private double _sliderValue = 50;
+    private bool _isExecuting;
 
-    public Guid Id { get; } = id;
+    public LauncherItemViewModel(
+        LauncherItemDefinition definition,
+        IActionExecutionService actionExecutionService)
+    {
+        Id = definition.Id;
+        Kind = definition.Kind;
+        Title = definition.Title;
+        _action = definition.Action;
+        _actionExecutionService = actionExecutionService;
+        ExecuteCommand = new RelayCommand(
+            () => _ = ExecuteAsync(),
+            () => Kind == LauncherItemKind.Button && !_isExecuting);
+    }
 
-    public LauncherItemKind Kind { get; } = kind;
+    public event EventHandler<LauncherItemExecutedEventArgs>? Executed;
 
-    public string Title { get; } = title;
+    public Guid Id { get; }
+
+    public LauncherItemKind Kind { get; }
+
+    public string Title { get; }
+
+    public RelayCommand ExecuteCommand { get; }
 
     public Visibility ButtonVisibility => Kind == LauncherItemKind.Button
         ? Visibility.Visible
@@ -39,4 +60,35 @@ internal sealed class LauncherItemViewModel(Guid id, LauncherItemKind kind, stri
         get => _sliderValue;
         set => SetProperty(ref _sliderValue, value);
     }
+
+    private async System.Threading.Tasks.Task ExecuteAsync()
+    {
+        if (_action is null || _isExecuting)
+        {
+            Executed?.Invoke(
+                this,
+                new LauncherItemExecutedEventArgs(
+                    ActionExecutionResult.Failure("このボタンには実行内容が設定されていません。")));
+            return;
+        }
+
+        _isExecuting = true;
+        ExecuteCommand.NotifyCanExecuteChanged();
+
+        try
+        {
+            ActionExecutionResult result = await _actionExecutionService.ExecuteAsync(_action);
+            Executed?.Invoke(this, new LauncherItemExecutedEventArgs(result));
+        }
+        finally
+        {
+            _isExecuting = false;
+            ExecuteCommand.NotifyCanExecuteChanged();
+        }
+    }
+}
+
+internal sealed class LauncherItemExecutedEventArgs(ActionExecutionResult result) : EventArgs
+{
+    public ActionExecutionResult Result { get; } = result;
 }

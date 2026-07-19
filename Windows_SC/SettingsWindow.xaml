@@ -10,7 +10,7 @@
             <StackPanel Spacing="4">
                 <TextBlock FontSize="24" FontWeight="SemiBold" Text="ランチャー設定" />
                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           Text="簡易設定画面（アクション詳細は今後追加）" />
+                           Text="項目とボタンの実行内容を編集します" />
             </StackPanel>
             <ToggleSwitch Grid.Column="1"
                           Header="スマートフォン連携"
@@ -48,15 +48,36 @@
                 </StackPanel>
             </Grid>
 
-            <StackPanel Grid.Column="2" Spacing="12">
-                <TextBlock FontSize="16" FontWeight="SemiBold" Text="選択項目" />
-                <TextBox Header="表示名"
-                         Text="{Binding SelectedItem.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                <TextBox Header="種類" IsReadOnly="True" Text="{Binding SelectedItem.KindDisplayName}" />
-                <Button HorizontalAlignment="Left"
-                        Command="{Binding DeleteItemCommand}"
-                        Content="選択項目を削除" />
-            </StackPanel>
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="12">
+                    <TextBlock FontSize="16" FontWeight="SemiBold" Text="選択項目" />
+                    <TextBox Header="表示名"
+                             Text="{Binding SelectedItem.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBox Header="種類" IsReadOnly="True" Text="{Binding SelectedItem.KindDisplayName}" />
+                    <ComboBox Header="実行種類"
+                              DisplayMemberPath="DisplayName"
+                              IsEnabled="{Binding SelectedItem.IsButton}"
+                              ItemsSource="{Binding ActionKinds}"
+                              SelectedValue="{Binding SelectedItem.ActionKind, Mode=TwoWay}"
+                              SelectedValuePath="Value" />
+                    <TextBox Header="起動対象"
+                             IsEnabled="{Binding SelectedItem.IsButton}"
+                             PlaceholderText="アプリ、ファイル、URL、コマンド、batのパス"
+                             Text="{Binding SelectedItem.Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBox Header="引数"
+                             IsEnabled="{Binding SelectedItem.IsButton}"
+                             Text="{Binding SelectedItem.Arguments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBox Header="作業フォルダー"
+                             IsEnabled="{Binding SelectedItem.IsButton}"
+                             Text="{Binding SelectedItem.WorkingDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <CheckBox Content="コマンド画面を表示しない"
+                              IsChecked="{Binding SelectedItem.HideCommandWindow, Mode=TwoWay}"
+                              IsEnabled="{Binding SelectedItem.IsButton}" />
+                    <Button HorizontalAlignment="Left"
+                            Command="{Binding DeleteItemCommand}"
+                            Content="選択項目を削除" />
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
 
         <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">

@@ -64,6 +64,7 @@
                                     HorizontalAlignment="Stretch"
                                     VerticalAlignment="Stretch"
                                     Content="{Binding Title, Mode=OneTime}"
+                                    Command="{Binding ExecuteCommand, Mode=OneTime}"
                                     FontSize="16"
                                     FontWeight="SemiBold"
                                     Visibility="{Binding ButtonVisibility, Mode=OneTime}" />

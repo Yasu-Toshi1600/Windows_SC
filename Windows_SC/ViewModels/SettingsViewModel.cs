@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Windows_SC.Models;
@@ -52,6 +53,15 @@ internal sealed class SettingsViewModel : ObservableObject
     public event EventHandler? ExitApplicationRequested;
 
     public ObservableCollection<LauncherItemEditorViewModel> Items { get; } = [];
+
+    public IReadOnlyList<ActionKindOption> ActionKinds { get; } =
+    [
+        new(LauncherActionKind.Application, "アプリ"),
+        new(LauncherActionKind.File, "ファイル"),
+        new(LauncherActionKind.Url, "URL"),
+        new(LauncherActionKind.Command, "コマンド"),
+        new(LauncherActionKind.BatchFile, "batファイル")
+    ];
 
     public LauncherItemEditorViewModel? SelectedItem
     {
@@ -161,14 +171,23 @@ internal sealed class SettingsViewModel : ObservableObject
 internal sealed class LauncherItemEditorViewModel : ObservableObject
 {
     private string _title;
-    private readonly LauncherActionDefinition? _action;
+    private LauncherActionKind _actionKind;
+    private string _target = string.Empty;
+    private string _arguments = string.Empty;
+    private string _workingDirectory = string.Empty;
+    private bool _hideCommandWindow = true;
     private readonly AudioDeviceToggleDefinition? _audioDeviceToggle;
     private readonly VolumeSliderDefinition? _volumeSlider;
 
     public LauncherItemEditorViewModel(LauncherItemDefinition definition)
         : this(definition.Id, definition.Kind, definition.Title)
     {
-        _action = definition.Action;
+        LauncherActionDefinition action = definition.Action ?? new LauncherActionDefinition();
+        _actionKind = action.Kind;
+        _target = action.Target;
+        _arguments = action.Arguments;
+        _workingDirectory = action.WorkingDirectory;
+        _hideCommandWindow = action.HideCommandWindow;
         _audioDeviceToggle = definition.AudioDeviceToggle;
         _volumeSlider = definition.VolumeSlider;
     }
@@ -182,6 +201,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
 
     public Guid Id { get; }
     public LauncherItemKind Kind { get; }
+    public bool IsButton => Kind == LauncherItemKind.Button;
     public string KindDisplayName => Kind switch
     {
         LauncherItemKind.Toggle => "トグル",
@@ -195,13 +215,50 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         set => SetProperty(ref _title, value);
     }
 
+    public LauncherActionKind ActionKind
+    {
+        get => _actionKind;
+        set => SetProperty(ref _actionKind, value);
+    }
+
+    public string Target
+    {
+        get => _target;
+        set => SetProperty(ref _target, value);
+    }
+
+    public string Arguments
+    {
+        get => _arguments;
+        set => SetProperty(ref _arguments, value);
+    }
+
+    public string WorkingDirectory
+    {
+        get => _workingDirectory;
+        set => SetProperty(ref _workingDirectory, value);
+    }
+
+    public bool HideCommandWindow
+    {
+        get => _hideCommandWindow;
+        set => SetProperty(ref _hideCommandWindow, value);
+    }
+
     public LauncherItemDefinition ToDefinition() => new()
     {
         Id = Id,
         Kind = Kind,
         Title = Title,
         Action = Kind == LauncherItemKind.Button
-            ? _action ?? new LauncherActionDefinition()
+            ? new LauncherActionDefinition
+            {
+                Kind = ActionKind,
+                Target = Target,
+                Arguments = Arguments,
+                WorkingDirectory = WorkingDirectory,
+                HideCommandWindow = HideCommandWindow
+            }
             : null,
         AudioDeviceToggle = Kind == LauncherItemKind.Toggle
             ? _audioDeviceToggle ?? new AudioDeviceToggleDefinition()
@@ -211,3 +268,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
             : null
     };
 }
+
+internal sealed record ActionKindOption(
+    LauncherActionKind Value,
+    string DisplayName);

@@ -37,7 +37,8 @@ public partial class App : Application
         }
 
         _settingsRepository = new JsonSettingsRepository(logger);
-        _viewModel = new MainWindowViewModel();
+        IActionExecutionService actionExecutionService = new ActionExecutionService(logger);
+        _viewModel = new MainWindowViewModel(actionExecutionService);
         LauncherSettings settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
         _viewModel.ApplySettings(settings);
         _startupService = new RegistryStartupService(logger);
