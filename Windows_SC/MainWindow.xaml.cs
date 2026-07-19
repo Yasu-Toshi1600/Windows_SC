@@ -164,6 +164,8 @@ public sealed partial class MainWindow : Window
         LauncherScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
         _windowAnimationService.PrepareShow(_targetWindowRect, _placementDpiPoint);
         _appWindow.Show(activate);
+        RootBorder.UpdateLayout();
+        _windowInteropService.RequestRedraw(_windowHandle);
         _isVisible = true;
         _startMenuMonitor.SetLauncherVisible(true);
         _lastPlacementStartSnapshot = startMenuSnapshot;
@@ -175,7 +177,12 @@ public sealed partial class MainWindow : Window
         _windowAnimationService.StartShow();
         DispatcherQueue.TryEnqueue(
             Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            AnimateLauncherItems);
+            () =>
+            {
+                RootBorder.UpdateLayout();
+                _windowInteropService.RequestRedraw(_windowHandle);
+                AnimateLauncherItems();
+            });
     }
 
     private void AnimateLauncherItems()

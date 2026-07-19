@@ -11,4 +11,6 @@ internal interface IWindowInteropService : IDisposable
     bool IsForeground(IntPtr windowHandle);
 
     void Move(IntPtr windowHandle, int x, int y);
+
+    void RequestRedraw(IntPtr windowHandle);
 }

@@ -13,6 +13,10 @@ internal sealed class WindowInteropService(IGlobalInputService inputService) : I
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoOwnerZOrder = 0x0200;
+    private const uint RdwInvalidate = 0x0001;
+    private const uint RdwAllChildren = 0x0080;
+    private const uint RdwUpdateNow = 0x0100;
+    private const uint RdwFrame = 0x0400;
 
     private WindowProcedure? _activeWindowProcedure;
     private IntPtr _windowHandle;
@@ -57,6 +61,15 @@ internal sealed class WindowInteropService(IGlobalInputService inputService) : I
             0,
             0,
             SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
+    }
+
+    public void RequestRedraw(IntPtr windowHandle)
+    {
+        _ = RedrawWindow(
+            windowHandle,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            RdwInvalidate | RdwAllChildren | RdwUpdateNow | RdwFrame);
     }
 
     public void Dispose()
@@ -127,5 +140,13 @@ internal sealed class WindowInteropService(IGlobalInputService inputService) : I
         int y,
         int width,
         int height,
+        uint flags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RedrawWindow(
+        IntPtr windowHandle,
+        IntPtr updateRectangle,
+        IntPtr updateRegion,
         uint flags);
 }
