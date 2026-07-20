@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using Windows.Graphics;
 
 namespace Windows_SC;
 
@@ -13,8 +14,15 @@ internal sealed class StartMenuWindowInspector
     private static readonly HashSet<string> CandidateProcesses = new(StringComparer.OrdinalIgnoreCase)
     {
         "StartMenuExperienceHost",
+        "SearchHost",
         "ShellExperienceHost",
         "PhoneExperienceHost"
+    };
+
+    private static readonly HashSet<string> StartMenuProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "StartMenuExperienceHost",
+        "SearchHost"
     };
 
     private readonly DiagnosticLogger _logger;
@@ -72,15 +80,20 @@ internal sealed class StartMenuWindowInspector
     }
 
     public bool IsStartMenuVisible()
+        => TryGetStartMenuBounds(out _);
+
+    public bool TryGetStartMenuBounds(out RectInt32 bounds)
     {
         IntPtr foregroundWindow = GetForegroundWindow();
         if (foregroundWindow != IntPtr.Zero
             && TryGetProcessName(foregroundWindow, out string foregroundProcessName)
-            && foregroundProcessName.Equals("StartMenuExperienceHost", StringComparison.OrdinalIgnoreCase))
+            && StartMenuProcesses.Contains(foregroundProcessName)
+            && TryGetUsableBounds(foregroundWindow, out bounds))
         {
             return true;
         }
 
+        RectInt32 detectedBounds = default;
         bool isVisible = false;
 
         EnumWindows((windowHandle, _) =>
@@ -88,10 +101,8 @@ internal sealed class StartMenuWindowInspector
             if (!IsWindowVisible(windowHandle)
                 || IsWindowCloaked(windowHandle)
                 || !TryGetProcessName(windowHandle, out string processName)
-                || !processName.Equals("StartMenuExperienceHost", StringComparison.OrdinalIgnoreCase)
-                || !GetWindowRect(windowHandle, out NativeRectangle rectangle)
-                || rectangle.Right <= rectangle.Left
-                || rectangle.Bottom <= rectangle.Top)
+                || !StartMenuProcesses.Contains(processName)
+                || !TryGetUsableBounds(windowHandle, out detectedBounds))
             {
                 return true;
             }
@@ -100,7 +111,27 @@ internal sealed class StartMenuWindowInspector
             return false;
         }, IntPtr.Zero);
 
+        bounds = detectedBounds;
         return isVisible;
+    }
+
+    private static bool TryGetUsableBounds(IntPtr windowHandle, out RectInt32 bounds)
+    {
+        bounds = default;
+        if (!GetWindowRect(windowHandle, out NativeRectangle rectangle))
+        {
+            return false;
+        }
+
+        int width = rectangle.Right - rectangle.Left;
+        int height = rectangle.Bottom - rectangle.Top;
+        if (width < 200 || height < 100)
+        {
+            return false;
+        }
+
+        bounds = new RectInt32(rectangle.Left, rectangle.Top, width, height);
+        return true;
     }
 
     private static bool IsWindowCloaked(IntPtr windowHandle)

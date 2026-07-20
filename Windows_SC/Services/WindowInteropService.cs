@@ -9,14 +9,6 @@ internal sealed class WindowInteropService(IGlobalInputService inputService) : I
     private const uint WmKeyDown = 0x0100;
     private const int VirtualKeyEscape = 0x1B;
     private const int GwlpWndProc = -4;
-    private const uint SwpNoSize = 0x0001;
-    private const uint SwpNoZOrder = 0x0004;
-    private const uint SwpNoActivate = 0x0010;
-    private const uint SwpNoOwnerZOrder = 0x0200;
-    private const uint RdwInvalidate = 0x0001;
-    private const uint RdwAllChildren = 0x0080;
-    private const uint RdwUpdateNow = 0x0100;
-    private const uint RdwFrame = 0x0400;
 
     private WindowProcedure? _activeWindowProcedure;
     private IntPtr _windowHandle;
@@ -50,27 +42,6 @@ internal sealed class WindowInteropService(IGlobalInputService inputService) : I
     }
 
     public bool IsForeground(IntPtr windowHandle) => GetForegroundWindow() == windowHandle;
-
-    public void Move(IntPtr windowHandle, int x, int y)
-    {
-        _ = SetWindowPos(
-            windowHandle,
-            IntPtr.Zero,
-            x,
-            y,
-            0,
-            0,
-            SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder);
-    }
-
-    public void RequestRedraw(IntPtr windowHandle)
-    {
-        _ = RedrawWindow(
-            windowHandle,
-            IntPtr.Zero,
-            IntPtr.Zero,
-            RdwInvalidate | RdwAllChildren | RdwUpdateNow | RdwFrame);
-    }
 
     public void Dispose()
     {
@@ -131,22 +102,4 @@ internal sealed class WindowInteropService(IGlobalInputService inputService) : I
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowPos(
-        IntPtr windowHandle,
-        IntPtr insertAfter,
-        int x,
-        int y,
-        int width,
-        int height,
-        uint flags);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool RedrawWindow(
-        IntPtr windowHandle,
-        IntPtr updateRectangle,
-        IntPtr updateRegion,
-        uint flags);
 }

@@ -14,23 +14,26 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     private const double MinimumCandidateHeight = 100;
 
     private readonly DiagnosticLogger _logger;
+    private readonly StartMenuWindowInspector _windowInspector;
     private readonly AutoResetEvent _scanRequested = new(false);
     private readonly Thread _workerThread;
     private readonly object _stateLock = new();
     private StartMenuSnapshot _snapshot = StartMenuSnapshot.Hidden;
     private bool _isDisposed;
     private string _lastSnapshotSignature = string.Empty;
-    private string _lastDesktopRootSignature = string.Empty;
     private string _lastFocusedElementSignature = string.Empty;
-    private string _lastPhonePanelSignature = "<not-scanned>";
-    private bool _phonePanelScannedForCurrentOpen;
+    private int _monitoringActive;
+    private int _isReady;
     private AutomationFocusChangedEventHandler? _focusChangedHandler;
 
     public event EventHandler? SnapshotChanged;
 
+    public event EventHandler? ReadyChanged;
+
     public UiAutomationStartMenuInspector(DiagnosticLogger logger)
     {
         _logger = logger;
+        _windowInspector = new StartMenuWindowInspector(logger);
         _workerThread = new Thread(WorkerLoop)
         {
             IsBackground = true,
@@ -49,6 +52,8 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             }
         }
     }
+
+    public bool IsReady => Volatile.Read(ref _isReady) != 0;
 
     public StartMenuSnapshot Snapshot
     {
@@ -76,6 +81,20 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
     }
 
+    public void SetMonitoringActive(bool isActive)
+    {
+        Interlocked.Exchange(ref _monitoringActive, isActive ? 1 : 0);
+        if (isActive)
+        {
+            RequestScan();
+        }
+    }
+
+    public void AssumeHidden()
+    {
+        UpdateSnapshot(StartMenuSnapshot.Hidden);
+    }
+
     public void Dispose()
     {
         if (_isDisposed)
@@ -91,11 +110,20 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     private void WorkerLoop()
     {
-        _focusChangedHandler = (_, _) => RequestScan();
+        _focusChangedHandler = (_, _) =>
+        {
+            if (Volatile.Read(ref _monitoringActive) != 0
+                || _windowInspector.IsStartMenuVisible())
+            {
+                RequestScan();
+            }
+        };
 
         try
         {
             Automation.AddAutomationFocusChangedEventHandler(_focusChangedHandler);
+            Interlocked.Exchange(ref _isReady, 1);
+            ReadyChanged?.Invoke(this, EventArgs.Empty);
             _logger.Write("[UIAutomation] focus-event=registered");
 
             while (true)
@@ -111,7 +139,14 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
                 try
                 {
+                    long scanStartedTimestamp = Stopwatch.GetTimestamp();
                     ScanDesktopAutomationTree();
+                    TimeSpan scanElapsed = Stopwatch.GetElapsedTime(scanStartedTimestamp);
+                    if (scanElapsed >= TimeSpan.FromMilliseconds(50))
+                    {
+                        _logger.Write(
+                            $"[UIAutomation] scan=slow elapsed-ms={scanElapsed.TotalMilliseconds:F1}");
+                    }
                 }
                 catch (Exception exception) when (exception is ElementNotAvailableException
                     or InvalidOperationException
@@ -124,6 +159,8 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
         finally
         {
+            Interlocked.Exchange(ref _isReady, 0);
+            ReadyChanged?.Invoke(this, EventArgs.Empty);
             if (_focusChangedHandler is not null)
             {
                 Automation.RemoveAutomationFocusChangedEventHandler(_focusChangedHandler);
@@ -134,6 +171,13 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     private void ScanDesktopAutomationTree()
     {
+        if (_windowInspector.TryGetStartMenuBounds(out Windows.Graphics.RectInt32 windowBounds))
+        {
+            UpdateSnapshot(new StartMenuSnapshot(true, windowBounds, false, null));
+            LogSnapshotIfChanged("visible-win32-window", []);
+            return;
+        }
+
         int[] processIds = new[] { "StartMenuExperienceHost", "SearchHost" }
             .SelectMany(Process.GetProcessesByName)
             .Select(process =>
@@ -147,7 +191,6 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
         if (processIds.Length == 0)
         {
-            _phonePanelScannedForCurrentOpen = false;
             UpdateSnapshot(StartMenuSnapshot.Hidden);
             LogSnapshotIfChanged("process-not-found", []);
             return;
@@ -155,85 +198,26 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
         List<AutomationCandidate> candidates = [];
 
-        if (TryCollectFocusedStartMenuElement(processIds, candidates, out AutomationElement? startRoot))
+        if (TryCollectFocusedStartMenuElement(processIds, candidates))
         {
             System.Windows.Rect? startBounds = SelectStartMenuBounds(candidates);
-            StartMenuSnapshot previousSnapshot = Snapshot;
             UpdateSnapshot(new StartMenuSnapshot(
                 true,
                 startBounds is null ? null : ToRectInt32(startBounds.Value),
-                previousSnapshot.IsPhonePanelVisible,
-                previousSnapshot.PhonePanelBounds));
+                false,
+                null));
             LogSnapshotIfChanged("visible-focused-element", candidates);
-
-            // Phone panel discovery can cross process boundaries and is intentionally
-            // performed only after the visible state and Start bounds are published.
-            if (!_phonePanelScannedForCurrentOpen)
-            {
-                _phonePanelScannedForCurrentOpen = true;
-                List<AutomationCandidate> phonePanelCandidates = CollectPhonePanelCandidates(startRoot);
-                System.Windows.Rect? phonePanelBounds = UnionBounds(phonePanelCandidates);
-                if (phonePanelCandidates.Count > 0)
-                {
-                    UpdateSnapshot(new StartMenuSnapshot(
-                        true,
-                        startBounds is null ? null : ToRectInt32(startBounds.Value),
-                        true,
-                        phonePanelBounds is null ? null : ToRectInt32(phonePanelBounds.Value)));
-                }
-
-                LogPhonePanelIfChanged(phonePanelCandidates);
-            }
             return;
         }
 
-        LogDesktopRootsIfChanged();
-
-        foreach (int processId in processIds)
-        {
-            Condition processCondition = new PropertyCondition(
-                AutomationElement.ProcessIdProperty,
-                processId);
-            AutomationElementCollection roots = AutomationElement.RootElement.FindAll(
-                TreeScope.Children,
-                processCondition);
-
-            foreach (AutomationElement root in roots)
-            {
-                TryAddCandidate(root, candidates);
-
-                AutomationElementCollection descendants = root.FindAll(
-                    TreeScope.Descendants,
-                    Condition.TrueCondition);
-
-                foreach (AutomationElement descendant in descendants)
-                {
-                    TryAddCandidate(descendant, candidates);
-                }
-            }
-        }
-
-        bool isVisible = candidates.Count > 0;
-        if (!isVisible)
-        {
-            _phonePanelScannedForCurrentOpen = false;
-        }
-        System.Windows.Rect? fallbackBounds = SelectStartMenuBounds(candidates);
-        UpdateSnapshot(new StartMenuSnapshot(
-            isVisible,
-            fallbackBounds is null ? null : ToRectInt32(fallbackBounds.Value),
-            false,
-            null));
-        string signature = isVisible ? "visible" : "hidden";
-        LogSnapshotIfChanged(signature, candidates);
+        UpdateSnapshot(StartMenuSnapshot.Hidden);
+        LogSnapshotIfChanged("hidden", candidates);
     }
 
     private bool TryCollectFocusedStartMenuElement(
         IReadOnlyCollection<int> startMenuProcessIds,
-        ICollection<AutomationCandidate> candidates,
-        out AutomationElement? startRoot)
+        ICollection<AutomationCandidate> candidates)
     {
-        startRoot = null;
         AutomationElement focusedElement = AutomationElement.FocusedElement;
         AutomationElement.AutomationElementInformation focused = focusedElement.Current;
         string focusedSignature = $"{focused.ProcessId}:{focused.AutomationId}:{focused.Name}";
@@ -262,18 +246,6 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
             try
             {
-                if (currentElement.Current.ControlType == ControlType.Window)
-                {
-                    startRoot = currentElement;
-                }
-            }
-            catch (ElementNotAvailableException)
-            {
-                break;
-            }
-
-            try
-            {
                 currentElement = TreeWalker.RawViewWalker.GetParent(currentElement);
             }
             catch (ElementNotAvailableException)
@@ -283,64 +255,6 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
 
         return true;
-    }
-
-    private static List<AutomationCandidate> CollectPhonePanelCandidates(AutomationElement? startRoot)
-    {
-        if (startRoot is null)
-        {
-            return [];
-        }
-
-        string[] keywords =
-        [
-            "phone", "mobile", "android", "iphone",
-            "スマートフォン", "モバイル", "携帯電話", "電話連携"
-        ];
-        List<AutomationCandidate> candidates = [];
-
-        try
-        {
-            AutomationElementCollection descendants = startRoot.FindAll(
-                TreeScope.Descendants,
-                Condition.TrueCondition);
-
-            foreach (AutomationElement element in descendants)
-            {
-                try
-                {
-                    AutomationElement.AutomationElementInformation current = element.Current;
-                    string searchableText = $"{current.Name} {current.AutomationId}";
-
-                    if (!keywords.Any(keyword =>
-                        searchableText.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        continue;
-                    }
-
-                    System.Windows.Rect rectangle = current.BoundingRectangle;
-                    if (!current.IsOffscreen && !rectangle.IsEmpty)
-                    {
-                        candidates.Add(new AutomationCandidate(
-                            Sanitize(current.Name),
-                            Sanitize(current.AutomationId),
-                            current.ControlType?.ProgrammaticName ?? string.Empty,
-                            current.NativeWindowHandle,
-                            rectangle));
-                    }
-                }
-                catch (ElementNotAvailableException)
-                {
-                    // The panel tree can change while it animates.
-                }
-            }
-        }
-        catch (ElementNotAvailableException)
-        {
-            return [];
-        }
-
-        return candidates;
     }
 
     private static System.Windows.Rect? SelectStartMenuBounds(
@@ -362,92 +276,12 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             .FirstOrDefault();
     }
 
-    private static System.Windows.Rect? UnionBounds(
-        IReadOnlyCollection<AutomationCandidate> candidates)
-    {
-        if (candidates.Count == 0)
-        {
-            return null;
-        }
-
-        System.Windows.Rect bounds = candidates.First().Rectangle;
-        foreach (AutomationCandidate candidate in candidates.Skip(1))
-        {
-            bounds.Union(candidate.Rectangle);
-        }
-
-        return bounds;
-    }
-
     private static Windows.Graphics.RectInt32 ToRectInt32(System.Windows.Rect rectangle) =>
         new(
             (int)Math.Round(rectangle.X),
             (int)Math.Round(rectangle.Y),
             (int)Math.Round(rectangle.Width),
             (int)Math.Round(rectangle.Height));
-
-    private void LogDesktopRootsIfChanged()
-    {
-        AutomationElementCollection roots = AutomationElement.RootElement.FindAll(
-            TreeScope.Children,
-            Condition.TrueCondition);
-        List<DesktopRootCandidate> candidates = [];
-
-        foreach (AutomationElement root in roots)
-        {
-            try
-            {
-                AutomationElement.AutomationElementInformation current = root.Current;
-                System.Windows.Rect rectangle = current.BoundingRectangle;
-
-                if (current.IsOffscreen
-                    || rectangle.IsEmpty
-                    || rectangle.Width < MinimumCandidateWidth
-                    || rectangle.Height < MinimumCandidateHeight)
-                {
-                    continue;
-                }
-
-                candidates.Add(new DesktopRootCandidate(
-                    current.ProcessId,
-                    GetProcessName(current.ProcessId),
-                    Sanitize(current.Name),
-                    Sanitize(current.AutomationId),
-                    current.ControlType?.ProgrammaticName ?? string.Empty,
-                    current.NativeWindowHandle,
-                    rectangle));
-            }
-            catch (ElementNotAvailableException)
-            {
-                // The desktop tree can change during enumeration.
-            }
-        }
-
-        string signature = string.Join(
-            '|',
-            candidates.Select(candidate =>
-                $"{candidate.ProcessId}:{candidate.AutomationId}:{candidate.Rectangle.Left:F0}:" +
-                $"{candidate.Rectangle.Top:F0}:{candidate.Rectangle.Width:F0}:{candidate.Rectangle.Height:F0}"));
-
-        if (signature == _lastDesktopRootSignature)
-        {
-            return;
-        }
-
-        _lastDesktopRootSignature = signature;
-        _logger.Write($"[UIAutomationDesktop] visible-roots={candidates.Count}");
-
-        foreach (DesktopRootCandidate candidate in candidates)
-        {
-            _logger.Write(
-                $"[UIAutomationDesktopRoot] process={candidate.ProcessName} pid={candidate.ProcessId} " +
-                $"name=\"{candidate.Name}\" automation-id=\"{candidate.AutomationId}\" " +
-                $"control-type=\"{candidate.ControlType}\" hwnd=0x{candidate.NativeWindowHandle:X} " +
-                $"rect=({candidate.Rectangle.Left:F0},{candidate.Rectangle.Top:F0})-" +
-                $"({candidate.Rectangle.Right:F0},{candidate.Rectangle.Bottom:F0}) " +
-                $"size={candidate.Rectangle.Width:F0}x{candidate.Rectangle.Height:F0}");
-        }
-    }
 
     private static string GetProcessName(int processId)
     {
@@ -509,31 +343,6 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
     }
 
-    private void LogPhonePanelIfChanged(IReadOnlyCollection<AutomationCandidate> candidates)
-    {
-        string signature = string.Join(
-            '|',
-            candidates.Select(candidate =>
-                $"{candidate.AutomationId}:{candidate.Rectangle.Left:F0}:{candidate.Rectangle.Top:F0}:" +
-                $"{candidate.Rectangle.Width:F0}:{candidate.Rectangle.Height:F0}"));
-
-        if (signature == _lastPhonePanelSignature)
-        {
-            return;
-        }
-
-        _lastPhonePanelSignature = signature;
-        _logger.Write($"[PhonePanel] detected={candidates.Count > 0} candidates={candidates.Count}");
-
-        foreach (AutomationCandidate candidate in candidates)
-        {
-            _logger.Write(
-                $"[PhonePanelCandidate] name=\"{candidate.Name}\" automation-id=\"{candidate.AutomationId}\" " +
-                $"rect=({candidate.Rectangle.Left:F0},{candidate.Rectangle.Top:F0})-" +
-                $"({candidate.Rectangle.Right:F0},{candidate.Rectangle.Bottom:F0})");
-        }
-    }
-
     private void LogSnapshotIfChanged(string state, IReadOnlyCollection<AutomationCandidate> candidates)
     {
         string candidateSignature = string.Join(
@@ -581,12 +390,4 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         int NativeWindowHandle,
         System.Windows.Rect Rectangle);
 
-    private sealed record DesktopRootCandidate(
-        int ProcessId,
-        string ProcessName,
-        string Name,
-        string AutomationId,
-        string ControlType,
-        int NativeWindowHandle,
-        System.Windows.Rect Rectangle);
 }

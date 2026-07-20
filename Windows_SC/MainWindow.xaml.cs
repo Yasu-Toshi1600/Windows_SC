@@ -2,11 +2,10 @@ using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using System;
 using System.ComponentModel;
-using System.Numerics;
+using System.Diagnostics;
 using Windows_SC.Services;
 using Windows_SC.ViewModels;
 using Windows.System;
@@ -24,21 +23,23 @@ public sealed partial class MainWindow : Window
     private readonly IGlobalInputService _inputService;
     private readonly ILauncherPlacementService _placementService;
     private readonly IWindowInteropService _windowInteropService;
-    private readonly IWindowAnimationService _windowAnimationService;
+    private readonly ILauncherMotionService _motionService;
+    private readonly LauncherMotionCoordinator _motionCoordinator;
+    private readonly UISettings _uiSettings;
     private bool _isVisible;
     private bool _isInitialized;
     private bool _launcherIsActivated;
-    private bool _shownInResponseToStartMenu;
-    private bool _startMenuVisibilityConfirmedForCurrentShow;
     private bool? _lastLoggedLauncherFocus;
     private bool? _lastLoggedStartMenuVisibility;
+    private bool _isActionErrorDialogOpen;
     private StartMenuSnapshot? _lastPlacementStartSnapshot;
-    private readonly bool _animationsEnabled;
     private Windows.Graphics.RectInt32 _targetWindowRect;
     private Windows.Graphics.PointInt32 _placementDpiPoint;
-    private bool _firstVisualPresentationCompleted;
-    private bool _animateItemsForCurrentShow;
-    private bool _isActionErrorDialogOpen;
+    private long _windowsKeyReleasedTimestamp;
+    private long _startDetectedTimestamp;
+    private long _showRequestedTimestamp;
+    private bool _startReopenRequestedDuringExit;
+
     internal MainWindowViewModel ViewModel { get; }
 
     internal MainWindow(
@@ -51,26 +52,35 @@ public sealed partial class MainWindow : Window
     {
         ViewModel = viewModel;
         InitializeComponent();
+        // Window is created hidden, so initialize compiled bindings once before the
+        // first presentation. This stays outside the launcher display hot path.
         Bindings.Update();
 
         _windowHandle = WindowNative.GetWindowHandle(this);
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(_windowHandle);
         _appWindow = AppWindow.GetFromWindowId(windowId);
         _logger = logger;
+        _logger.Write(
+            $"[LauncherVisual] compiled-bindings=initialized items={LauncherItemsControl.Items.Count}");
         _startMenuMonitor = startMenuMonitor;
         _inputService = inputService;
         _placementService = placementService;
         _windowInteropService = windowInteropService;
+        _motionCoordinator = new LauncherMotionCoordinator(logger);
+        _uiSettings = new UISettings();
+        _motionService = new CompositionLauncherMotionService(
+            DispatcherQueue,
+            _uiSettings.AnimationsEnabled);
+        _motionService.Attach(LauncherSurface);
+
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         ViewModel.LauncherItemExecuted += ViewModel_LauncherItemExecuted;
-        _animationsEnabled = new UISettings().AnimationsEnabled;
-        _windowAnimationService = new WindowAnimationService(
-            _windowHandle,
-            DispatcherQueue,
-            _windowInteropService,
-            _placementService,
-            _animationsEnabled);
-        _windowAnimationService.HideCompleted += WindowAnimationService_HideCompleted;
+        ViewModel.AudioOutputService.StateChanged += AudioOutputService_StateChanged;
+        _motionService.Completed += MotionService_Completed;
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+        {
+            _uiSettings.AnimationsEnabledChanged += UISettings_AnimationsEnabledChanged;
+        }
         RootBorder.Loaded += RootBorder_Loaded;
     }
 
@@ -91,9 +101,14 @@ public sealed partial class MainWindow : Window
         _inputService.WindowsKeyReleasedAlone += InputService_WindowsKeyReleasedAlone;
         _inputService.Start(_windowHandle);
         _startMenuMonitor.SnapshotChanged += StartMenuMonitor_SnapshotChanged;
+        _startMenuMonitor.ReadyChanged += StartMenuMonitor_ReadyChanged;
+        _startMenuMonitor.StartConfirmationExpired += StartMenuMonitor_StartConfirmationExpired;
         _startMenuMonitor.Start();
         _logger.Write("[Application] ===== diagnostic session started =====");
         _logger.Write($"[Application] input-monitor=started log=\"{_logger.LogFilePath}\"");
+        _logger.Write(
+            $"[Motion] engine=composition animations-enabled={_motionService.AnimationsEnabled} " +
+            "card-animation=disabled hwnd-frame-move=disabled");
         _isInitialized = true;
     }
 
@@ -109,7 +124,10 @@ public sealed partial class MainWindow : Window
         }
 
         _appWindow.IsShownInSwitchers = false;
-        PositionWindow(null);
+        if (PositionWindow(null))
+        {
+            _motionService.SetHidden(GetEntranceTranslation(startLinked: true));
+        }
     }
 
     private bool PositionWindow(StartMenuSnapshot? startMenuSnapshot)
@@ -126,7 +144,6 @@ public sealed partial class MainWindow : Window
         _targetWindowRect = placement.TargetRect;
         _placementDpiPoint = placement.DpiPoint;
         _appWindow.MoveAndResize(_targetWindowRect);
-        _windowAnimationService.SetPosition(_targetWindowRect);
         _logger.Write(
             $"[WindowPlacement] result=success position=({_targetWindowRect.X},{_targetWindowRect.Y}) " +
             $"size={_targetWindowRect.Width}x{_targetWindowRect.Height} " +
@@ -137,195 +154,112 @@ public sealed partial class MainWindow : Window
         return true;
     }
 
-    private void ToggleWindow(bool activate)
+    private void ToggleWindow()
     {
-        if (_isVisible)
+        if (_motionCoordinator.State == LauncherMotionState.Exiting)
         {
-            HideWindow("toggle-request");
+            ShowWindow(activate: true, "manual-reverse", null);
+        }
+        else if (_motionCoordinator.IsWindowVisible)
+        {
+            RequestExit("toggle-request");
         }
         else
         {
-            ShowWindow(activate, "manual-hotkey", null);
+            ShowWindow(activate: true, "manual-hotkey", null);
         }
     }
 
-    private void InputService_ManualToggleRequested(object? sender, EventArgs args)
-    {
-        ToggleWindow(activate: true);
-    }
+    private void InputService_ManualToggleRequested(object? sender, EventArgs args) =>
+        ToggleWindow();
 
     private void InputService_WindowsKeyReleasedAlone(object? sender, EventArgs args)
     {
+        _windowsKeyReleasedTimestamp = Stopwatch.GetTimestamp();
+
+        // When the launcher is following an already-visible Start surface, a
+        // standalone Windows key closes Start. Do not wait for the slower UIA
+        // hidden-state confirmation before beginning the launcher exit.
+        if (_motionCoordinator.State is LauncherMotionState.EnteringWithStart
+            or LauncherMotionState.VisibleWithStart)
+        {
+            _logger.Write("[LaunchTiming] event=windows-key-close action=exit-immediate");
+            _startMenuMonitor.NotifyStartMenuClosing();
+            RequestExit("windows-key-close");
+            return;
+        }
+
+        if (!_motionCoordinator.IsWindowVisible)
+        {
+            _motionCoordinator.AwaitStartConfirmation();
+        }
+        else if (_motionCoordinator.State == LauncherMotionState.Exiting)
+        {
+            _startReopenRequestedDuringExit = true;
+        }
+
         _startMenuMonitor.NotifyWindowsKeyReleased();
     }
 
     private void ShowWindow(bool activate, string reason, StartMenuSnapshot? startMenuSnapshot)
     {
-        if (!PositionWindow(startMenuSnapshot))
+        bool reversingExit = _motionCoordinator.State == LauncherMotionState.Exiting;
+        if (!_isVisible && !PositionWindow(startMenuSnapshot))
         {
+            _motionCoordinator.CancelStartConfirmation("placement-failed");
             _logger.Write($"[Launcher] action=show-cancelled reason={reason} placement-failed=true");
             return;
         }
+
+        bool startLinked = startMenuSnapshot is { IsVisible: true, Bounds: not null };
+        float entranceTranslation = GetEntranceTranslation(startLinked);
         _launcherIsActivated = false;
-        _animateItemsForCurrentShow = _firstVisualPresentationCompleted;
-        _shownInResponseToStartMenu = startMenuSnapshot is { IsVisible: true };
-        _startMenuVisibilityConfirmedForCurrentShow = _shownInResponseToStartMenu;
         ViewModel.RefreshAudioOutputState();
-        Bindings.Update();
         LauncherScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
-        _windowAnimationService.PrepareShow(_targetWindowRect, _placementDpiPoint);
-        _isVisible = true;
-        _appWindow.Show(activate);
-        RootBorder.UpdateLayout();
-        _windowInteropService.RequestRedraw(_windowHandle);
-        _startMenuMonitor.SetLauncherVisible(true);
+
+        if (!reversingExit)
+        {
+            _motionService.PrepareEntrance(entranceTranslation, startLinked);
+        }
+
+        _motionCoordinator.BeginEntrance(startLinked, reason);
+        _startReopenRequestedDuringExit = false;
         _lastPlacementStartSnapshot = startMenuSnapshot;
         _lastLoggedLauncherFocus = null;
         _lastLoggedStartMenuVisibility = null;
-        _logger.Write(
-            $"[Launcher] action=show reason={reason} activate={activate} " +
-            $"start-linked={_shownInResponseToStartMenu} start-confirmed={_startMenuVisibilityConfirmedForCurrentShow}");
-        _windowAnimationService.StartShow();
-        DispatcherQueue.TryEnqueue(
-            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            () =>
-            {
-                CompleteVisualPresentation("dispatcher");
-            });
-    }
+        _showRequestedTimestamp = Stopwatch.GetTimestamp();
 
-    private void RootBorder_Loaded(object sender, RoutedEventArgs args)
-    {
-        _logger.Write(
-            $"[LauncherVisual] event=loaded size={RootBorder.ActualWidth:F0}x{RootBorder.ActualHeight:F0} " +
-            $"shortcuts={ViewModel.Shortcuts.Count}");
-
-        if (_isVisible)
-        {
-            CompleteVisualPresentation("loaded");
-        }
-    }
-
-    private void CompleteVisualPresentation(string source)
-    {
         if (!_isVisible)
         {
-            return;
+            _isVisible = true;
+            _appWindow.Show(activate);
+            _startMenuMonitor.SetLauncherVisible(true);
         }
 
-        Bindings.Update();
-        RootBorder.UpdateLayout();
-        _windowInteropService.RequestRedraw(_windowHandle);
+        _logger.Write(
+            $"[Launcher] action=show-request reason={reason} activate={activate} " +
+            $"start-linked={startLinked} reverse={reversingExit} " +
+            $"detect-to-request-ms={ElapsedMilliseconds(_startDetectedTimestamp):F1}");
 
-        if (!RootBorder.IsLoaded)
+        if (!_motionService.StartEntrance(entranceTranslation, startLinked))
         {
-            _logger.Write($"[LauncherVisual] presentation=waiting-for-loaded source={source}");
-            return;
-        }
-
-        if (!_firstVisualPresentationCompleted)
-        {
-            ResetLauncherItemVisuals();
-            _firstVisualPresentationCompleted = true;
-            _logger.Write(
-                $"[LauncherVisual] presentation=first source={source} " +
-                $"containers={CountRealizedItemContainers()}");
-            return;
-        }
-
-        if (_animateItemsForCurrentShow)
-        {
-            AnimateLauncherItems();
+            _motionCoordinator.CompleteEntrance();
+            LogEntranceCompleted(TimeSpan.Zero);
         }
     }
 
-    private void ResetLauncherItemVisuals()
+    private void RequestExit(string reason)
     {
-        for (int index = 0; index < ViewModel.Shortcuts.Count; index++)
-        {
-            if (LauncherItemsControl.ContainerFromIndex(index) is not UIElement element)
-            {
-                continue;
-            }
-
-            Microsoft.UI.Composition.Visual visual = ElementCompositionPreview.GetElementVisual(element);
-            visual.StopAnimation(nameof(visual.Opacity));
-            visual.StopAnimation(nameof(visual.Offset));
-            visual.Opacity = 1;
-        }
-    }
-
-    private int CountRealizedItemContainers()
-    {
-        int count = 0;
-        for (int index = 0; index < ViewModel.Shortcuts.Count; index++)
-        {
-            if (LauncherItemsControl.ContainerFromIndex(index) is not null)
-            {
-                count++;
-            }
-        }
-
-        return count;
-    }
-
-    private void AnimateLauncherItems()
-    {
-        if (!_animationsEnabled || !_isVisible)
+        if (!_motionCoordinator.BeginExit(reason))
         {
             return;
         }
 
-        int itemCount = Math.Min(ViewModel.Shortcuts.Count, 12);
-        for (int index = 0; index < itemCount; index++)
+        float exitTranslation = GetEntranceTranslation(
+            _lastPlacementStartSnapshot is { IsVisible: true });
+        if (_motionService.StartExit(exitTranslation, reason))
         {
-            if (LauncherItemsControl.ContainerFromIndex(index) is not UIElement element)
-            {
-                continue;
-            }
-
-            Microsoft.UI.Composition.Visual visual = ElementCompositionPreview.GetElementVisual(element);
-            Vector3 restingOffset = visual.Offset;
-            TimeSpan delay = TimeSpan.FromMilliseconds(Math.Min(index, 8) * 22);
-
-            visual.StopAnimation(nameof(visual.Opacity));
-            visual.StopAnimation(nameof(visual.Offset));
-            visual.Opacity = 0;
-
-            Microsoft.UI.Composition.ScalarKeyFrameAnimation opacityAnimation =
-                visual.Compositor.CreateScalarKeyFrameAnimation();
-            opacityAnimation.InsertKeyFrame(0, 0);
-            opacityAnimation.InsertKeyFrame(1, 1);
-            opacityAnimation.Duration = TimeSpan.FromMilliseconds(170);
-            opacityAnimation.DelayTime = delay;
-            opacityAnimation.DelayBehavior = Microsoft.UI.Composition.AnimationDelayBehavior.SetInitialValueBeforeDelay;
-
-            Microsoft.UI.Composition.Vector3KeyFrameAnimation offsetAnimation =
-                visual.Compositor.CreateVector3KeyFrameAnimation();
-            offsetAnimation.InsertKeyFrame(0, restingOffset + new Vector3(0, 12, 0));
-            offsetAnimation.InsertKeyFrame(1, restingOffset);
-            offsetAnimation.Duration = TimeSpan.FromMilliseconds(190);
-            offsetAnimation.DelayTime = delay;
-            offsetAnimation.DelayBehavior = Microsoft.UI.Composition.AnimationDelayBehavior.SetInitialValueBeforeDelay;
-
-            visual.StartAnimation(nameof(visual.Opacity), opacityAnimation);
-            visual.StartAnimation(nameof(visual.Offset), offsetAnimation);
-        }
-    }
-
-    private void HideWindow(string reason)
-    {
-        if (!_isVisible || _windowAnimationService.IsHideRunning)
-        {
-            return;
-        }
-
-        if (_windowAnimationService.StartHide(
-            _targetWindowRect,
-            _placementDpiPoint,
-            reason))
-        {
-            _logger.Write($"[Launcher] action=hide-animation-start reason={reason}");
+            _logger.Write($"[Launcher] action=exit-request reason={reason}");
             return;
         }
 
@@ -337,18 +271,181 @@ public sealed partial class MainWindow : Window
         _appWindow.Hide();
         _isVisible = false;
         _launcherIsActivated = false;
-        _shownInResponseToStartMenu = false;
-        _startMenuVisibilityConfirmedForCurrentShow = false;
         _lastPlacementStartSnapshot = null;
-        _logger.Write($"[Launcher] action=hide reason={reason}");
+        _startReopenRequestedDuringExit = false;
+        _motionCoordinator.CompleteExit(reason);
+        _logger.Write($"[Launcher] action=hidden reason={reason}");
         _startMenuMonitor.SetLauncherVisible(false);
     }
 
-    private void WindowAnimationService_HideCompleted(
+    private void MotionService_Completed(
         object? sender,
-        WindowHideCompletedEventArgs args)
+        LauncherMotionCompletedEventArgs args)
     {
-        CompleteHide(args.Reason);
+        _logger.Write(
+            $"[Motion] direction={args.Direction} completed=true " +
+            $"elapsed-ms={args.Elapsed.TotalMilliseconds:F1} reason={args.Reason}");
+
+        if (args.Direction == LauncherMotionDirection.Exit)
+        {
+            CompleteHide(args.Reason);
+            return;
+        }
+
+        _motionCoordinator.CompleteEntrance();
+        LogEntranceCompleted(args.Elapsed);
+    }
+
+    private void LogEntranceCompleted(TimeSpan motionElapsed)
+    {
+        _logger.Write(
+            $"[LaunchTiming] key-to-start-ms={ElapsedBetweenMilliseconds(_windowsKeyReleasedTimestamp, _startDetectedTimestamp):F1} " +
+            $"start-to-request-ms={ElapsedBetweenMilliseconds(_startDetectedTimestamp, _showRequestedTimestamp):F1} " +
+            $"request-to-complete-ms={ElapsedMilliseconds(_showRequestedTimestamp):F1} " +
+            $"motion-ms={motionElapsed.TotalMilliseconds:F1}");
+    }
+
+    private void RootBorder_Loaded(object sender, RoutedEventArgs args)
+    {
+        _logger.Write(
+            $"[LauncherVisual] event=loaded size={RootBorder.ActualWidth:F0}x{RootBorder.ActualHeight:F0} " +
+            $"shortcuts={ViewModel.Shortcuts.Count} request-to-loaded-ms={ElapsedMilliseconds(_showRequestedTimestamp):F1}");
+    }
+
+    private void RootBorder_PointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        if (_isVisible)
+        {
+            MarkLauncherInteractive("pointer-pressed");
+        }
+    }
+
+    private void Window_Activated(object sender, WindowActivatedEventArgs args)
+    {
+        _launcherIsActivated = args.WindowActivationState != WindowActivationState.Deactivated;
+        _logger.Write($"[Launcher] activation-state={args.WindowActivationState}");
+
+        if (!_isVisible)
+        {
+            return;
+        }
+
+        if (_launcherIsActivated)
+        {
+            MarkLauncherInteractive("window-activated");
+        }
+        else if (_motionCoordinator.IsInteractive)
+        {
+            RequestExit("outside-click");
+        }
+        else
+        {
+            SynchronizeWithStartMenu();
+        }
+    }
+
+    private void SynchronizeWithStartMenu()
+    {
+        bool launcherHasFocus = _launcherIsActivated
+            || _windowInteropService.IsForeground(_windowHandle);
+        StartMenuSnapshot snapshot = _startMenuMonitor.Snapshot;
+        bool startMenuIsVisible = snapshot.IsVisible && snapshot.Bounds is not null;
+
+        if (_lastLoggedLauncherFocus != launcherHasFocus
+            || _lastLoggedStartMenuVisibility != startMenuIsVisible)
+        {
+            _logger.Write(
+                $"[VisibilityState] state={_motionCoordinator.State} launcher-focus={launcherHasFocus} " +
+                $"start-menu-visible={startMenuIsVisible}");
+            _lastLoggedLauncherFocus = launcherHasFocus;
+            _lastLoggedStartMenuVisibility = startMenuIsVisible;
+        }
+
+        if (launcherHasFocus)
+        {
+            MarkLauncherInteractive("focus-detected");
+        }
+
+        if (startMenuIsVisible
+            && (_motionCoordinator.State == LauncherMotionState.Hidden
+                || _motionCoordinator.State == LauncherMotionState.AwaitingStartConfirmation
+                || (_motionCoordinator.State == LauncherMotionState.Exiting
+                    && _startReopenRequestedDuringExit)))
+        {
+            bool openedWithoutWindowsKey = _motionCoordinator.State == LauncherMotionState.Hidden;
+            if (openedWithoutWindowsKey)
+            {
+                _windowsKeyReleasedTimestamp = 0;
+            }
+
+            _startDetectedTimestamp = Stopwatch.GetTimestamp();
+            _logger.Write(
+                $"[LaunchTiming] event=start-confirmed key-to-start-ms={ElapsedMilliseconds(_windowsKeyReleasedTimestamp):F1}");
+            ShowWindow(
+                activate: false,
+                openedWithoutWindowsKey ? "start-menu-click-detected" : "start-menu-detected",
+                snapshot);
+            return;
+        }
+
+        if (!startMenuIsVisible
+            && _motionCoordinator.State is LauncherMotionState.EnteringWithStart
+                or LauncherMotionState.VisibleWithStart)
+        {
+            RequestExit("start-menu-hidden");
+        }
+    }
+
+    private void MarkLauncherInteractive(string reason)
+    {
+        _motionCoordinator.MarkInteractive(reason);
+        if (_motionCoordinator.IsInteractive)
+        {
+            _startMenuMonitor.SetLauncherInteractive(true);
+        }
+    }
+
+    private void StartMenuMonitor_SnapshotChanged(object? sender, EventArgs args) =>
+        SynchronizeWithStartMenu();
+
+    private void StartMenuMonitor_ReadyChanged(object? sender, EventArgs args) =>
+        _logger.Write($"[StartMenuMonitor] ready={_startMenuMonitor.IsReady}");
+
+    private void StartMenuMonitor_StartConfirmationExpired(object? sender, EventArgs args)
+    {
+        _startReopenRequestedDuringExit = false;
+        _motionCoordinator.CancelStartConfirmation("start-confirmation-timeout");
+        _logger.Write("[Launcher] start-confirmation=expired action=none");
+    }
+
+    private void AudioOutputService_StateChanged(object? sender, EventArgs args)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            ViewModel.RefreshAudioOutputState();
+        });
+    }
+
+    private void UISettings_AnimationsEnabledChanged(
+        UISettings sender,
+        UISettingsAnimationsEnabledChangedEventArgs args)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _motionService.AnimationsEnabled = sender.AnimationsEnabled;
+            _logger.Write($"[Motion] animations-enabled={sender.AnimationsEnabled}");
+            if (!sender.AnimationsEnabled && _motionCoordinator.State == LauncherMotionState.Exiting)
+            {
+                _motionService.SetHidden(GetEntranceTranslation(
+                    _lastPlacementStartSnapshot is { IsVisible: true }));
+                CompleteHide("animations-disabled");
+            }
+            else if (!sender.AnimationsEnabled && _motionCoordinator.IsWindowVisible)
+            {
+                _motionService.SetVisible();
+                _motionCoordinator.CompleteEntrance();
+            }
+        });
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs args)
@@ -359,17 +456,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (args.PropertyName == nameof(MainWindowViewModel.AssumePhonePanelVisible))
-        {
-            _logger.Write(
-                $"[PhonePanelSetting] source=launcher value={(ViewModel.AssumePhonePanelVisible ? "on" : "off")}");
-        }
-        else
-        {
-            _logger.Write($"[LayoutSetting] source=settings value={ViewModel.LayoutMode}");
-        }
+        _logger.Write(
+            args.PropertyName == nameof(MainWindowViewModel.AssumePhonePanelVisible)
+                ? $"[PhonePanelSetting] source=launcher value={(ViewModel.AssumePhonePanelVisible ? "on" : "off")}"
+                : $"[LayoutSetting] source=settings value={ViewModel.LayoutMode}");
 
-        if (_isVisible)
+        if (_isVisible && !_motionService.IsRunning)
         {
             _ = PositionWindow(_lastPlacementStartSnapshot);
         }
@@ -381,7 +473,7 @@ public sealed partial class MainWindow : Window
     {
         if (args.Result.IsSuccess)
         {
-            HideWindow("action-executed");
+            RequestExit("action-executed");
             return;
         }
 
@@ -408,86 +500,62 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void Window_Activated(object sender, WindowActivatedEventArgs args)
-    {
-        _launcherIsActivated = args.WindowActivationState != WindowActivationState.Deactivated;
-        _logger.Write($"[Launcher] activation-state={args.WindowActivationState}");
-
-        if (_isVisible && !_launcherIsActivated)
-        {
-            SynchronizeWithStartMenu();
-        }
-    }
-
-    private void SynchronizeWithStartMenu()
-    {
-        bool launcherHasFocus = _launcherIsActivated
-            || _windowInteropService.IsForeground(_windowHandle);
-        StartMenuSnapshot startMenuSnapshot = _startMenuMonitor.Snapshot;
-        bool startMenuIsVisible = startMenuSnapshot.IsVisible;
-
-        if (_isVisible && startMenuIsVisible)
-        {
-            _startMenuVisibilityConfirmedForCurrentShow = true;
-        }
-
-        if (_lastLoggedLauncherFocus != launcherHasFocus
-            || _lastLoggedStartMenuVisibility != startMenuIsVisible)
-        {
-            _logger.Write(
-                $"[VisibilityState] launcher-visible={_isVisible} launcher-focus={launcherHasFocus} " +
-                $"start-menu-visible={startMenuIsVisible}");
-            _lastLoggedLauncherFocus = launcherHasFocus;
-            _lastLoggedStartMenuVisibility = startMenuIsVisible;
-        }
-
-        if (startMenuIsVisible && !_isVisible)
-        {
-            ShowWindow(
-                activate: false,
-                "start-menu-detected",
-                startMenuSnapshot);
-            return;
-        }
-
-        if (_isVisible
-            && !launcherHasFocus
-            && !startMenuIsVisible
-            && (!_shownInResponseToStartMenu || _startMenuVisibilityConfirmedForCurrentShow))
-        {
-            HideWindow("launcher-unfocused-and-start-menu-hidden");
-        }
-    }
-
-    private void StartMenuMonitor_SnapshotChanged(object? sender, EventArgs args)
-    {
-        SynchronizeWithStartMenu();
-    }
-
     private void RootBorder_KeyDown(object sender, KeyRoutedEventArgs args)
     {
         if (args.Key == VirtualKey.Escape)
         {
             args.Handled = true;
-            HideWindow("escape-key-xaml");
+            RequestExit("escape-key-xaml");
         }
     }
 
-    private void WindowInteropService_EscapePressed(object? sender, EventArgs args)
+    private void WindowInteropService_EscapePressed(object? sender, EventArgs args) =>
+        RequestExit("escape-key-win32");
+
+    private float GetEntranceTranslation(bool startLinked)
     {
-        HideWindow("escape-key-win32");
+        if (!startLinked)
+        {
+            return 24;
+        }
+
+        if (RootBorder.ActualHeight > 1)
+        {
+            return (float)RootBorder.ActualHeight;
+        }
+
+        return (float)_placementService.ConvertPhysicalPixelsToEffective(
+            _targetWindowRect.Height,
+            _placementDpiPoint);
     }
+
+    private static double ElapsedMilliseconds(long startedTimestamp) =>
+        startedTimestamp == 0
+            ? -1
+            : Stopwatch.GetElapsedTime(startedTimestamp).TotalMilliseconds;
+
+    private static double ElapsedBetweenMilliseconds(long start, long end) =>
+        start == 0 || end == 0 || end < start
+            ? -1
+            : Stopwatch.GetElapsedTime(start, end).TotalMilliseconds;
 
     private void Window_Closed(object sender, WindowEventArgs args)
     {
-        _windowAnimationService.HideCompleted -= WindowAnimationService_HideCompleted;
-        _windowAnimationService.Dispose();
+        _motionService.Completed -= MotionService_Completed;
+        _motionService.Dispose();
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+        {
+            _uiSettings.AnimationsEnabledChanged -= UISettings_AnimationsEnabledChanged;
+        }
         RootBorder.Loaded -= RootBorder_Loaded;
         ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
         ViewModel.LauncherItemExecuted -= ViewModel_LauncherItemExecuted;
+        ViewModel.AudioOutputService.StateChanged -= AudioOutputService_StateChanged;
         _inputService.ManualToggleRequested -= InputService_ManualToggleRequested;
         _inputService.WindowsKeyReleasedAlone -= InputService_WindowsKeyReleasedAlone;
         _startMenuMonitor.SnapshotChanged -= StartMenuMonitor_SnapshotChanged;
+        _startMenuMonitor.ReadyChanged -= StartMenuMonitor_ReadyChanged;
+        _startMenuMonitor.StartConfirmationExpired -= StartMenuMonitor_StartConfirmationExpired;
         _startMenuMonitor.Dispose();
         _windowInteropService.EscapePressed -= WindowInteropService_EscapePressed;
         _windowInteropService.Dispose();

@@ -5,13 +5,17 @@ using System.Threading.Tasks;
 
 namespace Windows_SC.Services;
 
-internal interface IAudioOutputService
+internal interface IAudioOutputService : IDisposable
 {
-    IReadOnlyList<AudioOutputDevice> GetDevices();
+    event EventHandler? StateChanged;
 
-    AudioOutputDevice? GetDefaultDevice();
+    IReadOnlyList<AudioOutputDevice> GetCachedDevices();
 
-    AudioMasterVolumeResult GetMasterVolume();
+    AudioOutputDevice? GetCachedDefaultDevice();
+
+    AudioMasterVolumeResult GetCachedMasterVolume();
+
+    Task RefreshAsync(CancellationToken cancellationToken = default);
 
     Task<AudioMasterVolumeResult> SetMasterVolumeAsync(
         double volumePercent,

@@ -12,6 +12,8 @@ internal interface ILauncherPlacementService
         out LauncherPlacement placement);
 
     int ConvertEffectivePixelsToPhysical(double effectivePixels, PointInt32 point);
+
+    double ConvertPhysicalPixelsToEffective(int physicalPixels, PointInt32 point);
 }
 
 internal readonly record struct LauncherPlacement(

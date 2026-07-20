@@ -38,7 +38,7 @@ internal sealed class SettingsViewModel : ObservableObject
         _startupService = startupService;
         _audioOutputService = audioOutputService;
 
-        foreach (AudioOutputDevice device in _audioOutputService.GetDevices())
+        foreach (AudioOutputDevice device in _audioOutputService.GetCachedDevices())
         {
             AvailableAudioOutputDevices.Add(new AudioOutputDeviceOption(
                 device.Id,

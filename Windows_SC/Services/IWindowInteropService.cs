@@ -9,8 +9,4 @@ internal interface IWindowInteropService : IDisposable
     void Start(IntPtr windowHandle);
 
     bool IsForeground(IntPtr windowHandle);
-
-    void Move(IntPtr windowHandle, int x, int y);
-
-    void RequestRedraw(IntPtr windowHandle);
 }

@@ -18,6 +18,7 @@ public partial class App : Application
     private MainWindowViewModel? _viewModel;
     private DiagnosticLogger? _logger;
     private IStartupService? _startupService;
+    private IAudioOutputService? _audioOutputService;
 
     public App()
     {
@@ -32,14 +33,16 @@ public partial class App : Application
         if (!_singleInstanceService.TryAcquire())
         {
             logger.Write("[Application] startup=cancelled reason=another-instance-running");
+            logger.Dispose();
+            _logger = null;
             Exit();
             return;
         }
 
         _settingsRepository = new JsonSettingsRepository(logger);
         IActionExecutionService actionExecutionService = new ActionExecutionService(logger);
-        IAudioOutputService audioOutputService = new WindowsAudioOutputService(logger);
-        _viewModel = new MainWindowViewModel(actionExecutionService, audioOutputService);
+        _audioOutputService = new WindowsAudioOutputService(logger);
+        _viewModel = new MainWindowViewModel(actionExecutionService, _audioOutputService);
         LauncherSettings settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
         _viewModel.ApplySettings(settings);
         _startupService = new RegistryStartupService(logger);
@@ -86,6 +89,10 @@ public partial class App : Application
 
             _singleInstanceService?.Dispose();
             _singleInstanceService = null;
+            _audioOutputService?.Dispose();
+            _audioOutputService = null;
+            _logger?.Dispose();
+            _logger = null;
             Exit();
         }
     }

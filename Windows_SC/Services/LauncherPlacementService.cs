@@ -142,6 +142,21 @@ internal sealed class LauncherPlacementService(DiagnosticLogger logger) : ILaunc
         return (int)Math.Round(effectivePixels);
     }
 
+    public double ConvertPhysicalPixelsToEffective(int physicalPixels, PointInt32 point)
+    {
+        NativePoint nativePoint = new() { X = point.X, Y = point.Y };
+        IntPtr monitor = MonitorFromPoint(nativePoint, MonitorDefaultToNearest);
+
+        if (monitor != IntPtr.Zero
+            && GetDpiForMonitor(monitor, 0, out uint dpiX, out _) == 0
+            && dpiX > 0)
+        {
+            return physicalPixels * 96d / dpiX;
+        }
+
+        return physicalPixels;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint
     {

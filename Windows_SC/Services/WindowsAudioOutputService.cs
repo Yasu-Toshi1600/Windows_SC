@@ -9,9 +9,41 @@ using Windows.Media.Devices;
 
 namespace Windows_SC.Services;
 
-internal sealed class WindowsAudioOutputService(DiagnosticLogger logger) : IAudioOutputService
+internal sealed class WindowsAudioOutputService : IAudioOutputService
 {
-    public IReadOnlyList<AudioOutputDevice> GetDevices()
+    private readonly DiagnosticLogger _logger;
+    private readonly object _cacheLock = new();
+    private readonly DeviceWatcher _deviceWatcher = DeviceInformation.CreateWatcher(
+        MediaDevice.GetAudioRenderSelector());
+    private IReadOnlyList<AudioOutputDevice> _cachedDevices = [];
+    private AudioOutputDevice? _cachedDefaultDevice;
+    private AudioMasterVolumeResult _cachedMasterVolume =
+        AudioMasterVolumeResult.Failure("音量情報を準備しています。");
+    private int _refreshPending;
+    private bool _isDisposed;
+
+    public event EventHandler? StateChanged;
+
+    public WindowsAudioOutputService(DiagnosticLogger logger)
+    {
+        _logger = logger;
+        RefreshCacheCore();
+        MediaDevice.DefaultAudioRenderDeviceChanged += DefaultAudioRenderDeviceChanged;
+        _deviceWatcher.Added += DeviceWatcher_Added;
+        _deviceWatcher.Removed += DeviceWatcher_Removed;
+        _deviceWatcher.Updated += DeviceWatcher_Updated;
+        _deviceWatcher.Start();
+    }
+
+    public IReadOnlyList<AudioOutputDevice> GetCachedDevices()
+    {
+        lock (_cacheLock)
+        {
+            return _cachedDevices;
+        }
+    }
+
+    private IReadOnlyList<AudioOutputDevice> QueryDevices()
     {
         try
         {
@@ -21,14 +53,22 @@ internal sealed class WindowsAudioOutputService(DiagnosticLogger logger) : IAudi
             or InvalidCastException
             or InvalidOperationException)
         {
-            logger.Write(
+            _logger.Write(
                 $"[AudioOutput] action=enumerate result=failed exception={exception.GetType().Name} " +
                 $"message=\"{Sanitize(exception.Message)}\"");
             return [];
         }
     }
 
-    public AudioOutputDevice? GetDefaultDevice()
+    public AudioOutputDevice? GetCachedDefaultDevice()
+    {
+        lock (_cacheLock)
+        {
+            return _cachedDefaultDevice;
+        }
+    }
+
+    private AudioOutputDevice? QueryDefaultDevice()
     {
         IMMDeviceEnumerator? enumerator = null;
         IMMDevice? device = null;
@@ -43,7 +83,7 @@ internal sealed class WindowsAudioOutputService(DiagnosticLogger logger) : IAudi
         }
         catch (COMException exception)
         {
-            logger.Write(
+            _logger.Write(
                 $"[AudioOutput] action=get-default result=failed hresult=0x{exception.HResult:X8} " +
                 $"message=\"{Sanitize(exception.Message)}\"");
             return null;
@@ -55,7 +95,15 @@ internal sealed class WindowsAudioOutputService(DiagnosticLogger logger) : IAudi
         }
     }
 
-    public AudioMasterVolumeResult GetMasterVolume()
+    public AudioMasterVolumeResult GetCachedMasterVolume()
+    {
+        lock (_cacheLock)
+        {
+            return _cachedMasterVolume;
+        }
+    }
+
+    private AudioMasterVolumeResult QueryMasterVolume()
     {
         try
         {
@@ -70,13 +118,22 @@ internal sealed class WindowsAudioOutputService(DiagnosticLogger logger) : IAudi
             or InvalidCastException
             or InvalidOperationException)
         {
-            logger.Write(
+            _logger.Write(
                 $"[AudioVolume] action=get result=failed exception={exception.GetType().Name} " +
                 $"message=\"{Sanitize(exception.Message)}\"");
             return AudioMasterVolumeResult.Failure(
                 $"現在の音量を取得できませんでした。\n{exception.Message}");
         }
     }
+
+    public Task RefreshAsync(CancellationToken cancellationToken = default) =>
+        Task.Run(
+            () =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                RefreshCacheCore();
+            },
+            cancellationToken);
 
     public Task<AudioMasterVolumeResult> SetMasterVolumeAsync(
         double volumePercent,
@@ -95,14 +152,20 @@ internal sealed class WindowsAudioOutputService(DiagnosticLogger logger) : IAudi
                     ref eventContext));
                 return true;
             });
-            logger.Write($"[AudioVolume] action=set result=success value={clampedPercent:F0}");
+            lock (_cacheLock)
+            {
+                _cachedMasterVolume = AudioMasterVolumeResult.Success(clampedPercent);
+            }
+
+            StateChanged?.Invoke(this, EventArgs.Empty);
+            _logger.Write($"[AudioVolume] action=set result=success value={clampedPercent:F0}");
             return Task.FromResult(AudioMasterVolumeResult.Success(clampedPercent));
         }
         catch (Exception exception) when (exception is COMException
             or InvalidCastException
             or InvalidOperationException)
         {
-            logger.Write(
+            _logger.Write(
                 $"[AudioVolume] action=set result=failed exception={exception.GetType().Name} " +
                 $"message=\"{Sanitize(exception.Message)}\"");
             return Task.FromResult(AudioMasterVolumeResult.Failure(
@@ -131,7 +194,7 @@ internal sealed class WindowsAudioOutputService(DiagnosticLogger logger) : IAudi
 
             Dictionary<string, AudioOutputDevice> devices = EnumerateDevices()
                 .ToDictionary(device => device.Id, StringComparer.OrdinalIgnoreCase);
-            string? currentDeviceId = GetDefaultDevice()?.Id;
+            string? currentDeviceId = QueryDefaultDevice()?.Id;
             int currentIndex = currentDeviceId is null
                 ? -1
                 : orderedIds.FindIndex(id => string.Equals(
@@ -151,7 +214,14 @@ internal sealed class WindowsAudioOutputService(DiagnosticLogger logger) : IAudi
             }
 
             SetDefaultDevice(nextDevice.Id);
-            logger.Write(
+            lock (_cacheLock)
+            {
+                _cachedDefaultDevice = nextDevice;
+            }
+
+            StateChanged?.Invoke(this, EventArgs.Empty);
+            QueueRefresh();
+            _logger.Write(
                 $"[AudioOutput] action=cycle result=success device-id=\"{Sanitize(nextDevice.Id)}\" " +
                 $"device-name=\"{Sanitize(nextDevice.DisplayName)}\"");
             return Task.FromResult(AudioDeviceCycleResult.Success(nextDevice));
@@ -160,13 +230,81 @@ internal sealed class WindowsAudioOutputService(DiagnosticLogger logger) : IAudi
             or InvalidCastException
             or InvalidOperationException)
         {
-            logger.Write(
+            _logger.Write(
                 $"[AudioOutput] action=cycle result=failed exception={exception.GetType().Name} " +
                 $"message=\"{Sanitize(exception.Message)}\"");
             return Task.FromResult(AudioDeviceCycleResult.Failure(
                 $"音声出力デバイスを切り替えられませんでした。\n{exception.Message}"));
         }
     }
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        _isDisposed = true;
+        MediaDevice.DefaultAudioRenderDeviceChanged -= DefaultAudioRenderDeviceChanged;
+        _deviceWatcher.Added -= DeviceWatcher_Added;
+        _deviceWatcher.Removed -= DeviceWatcher_Removed;
+        _deviceWatcher.Updated -= DeviceWatcher_Updated;
+        if (_deviceWatcher.Status is DeviceWatcherStatus.Started
+            or DeviceWatcherStatus.EnumerationCompleted)
+        {
+            _deviceWatcher.Stop();
+        }
+    }
+
+    private void RefreshCacheCore()
+    {
+        IReadOnlyList<AudioOutputDevice> devices = QueryDevices();
+        AudioOutputDevice? defaultDevice = QueryDefaultDevice();
+        AudioMasterVolumeResult masterVolume = QueryMasterVolume();
+
+        lock (_cacheLock)
+        {
+            _cachedDevices = devices;
+            _cachedDefaultDevice = defaultDevice;
+            _cachedMasterVolume = masterVolume;
+        }
+
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void QueueRefresh()
+    {
+        if (_isDisposed || Interlocked.Exchange(ref _refreshPending, 1) != 0)
+        {
+            return;
+        }
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                RefreshCacheCore();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _refreshPending, 0);
+            }
+        });
+    }
+
+    private void DefaultAudioRenderDeviceChanged(
+        object sender,
+        DefaultAudioRenderDeviceChangedEventArgs args) => QueueRefresh();
+
+    private void DeviceWatcher_Added(DeviceWatcher sender, DeviceInformation args) =>
+        QueueRefresh();
+
+    private void DeviceWatcher_Removed(DeviceWatcher sender, DeviceInformationUpdate args) =>
+        QueueRefresh();
+
+    private void DeviceWatcher_Updated(DeviceWatcher sender, DeviceInformationUpdate args) =>
+        QueueRefresh();
 
     private static AudioOutputDevice? FindNextAvailableDevice(
         IReadOnlyList<string> orderedIds,

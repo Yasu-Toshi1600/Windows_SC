@@ -7,18 +7,17 @@
     xmlns:viewModels="using:Windows_SC.ViewModels"
     Title="Windows_SC">
 
-    <Window.SystemBackdrop>
-        <MicaBackdrop Kind="BaseAlt" />
-    </Window.SystemBackdrop>
-
-    <Border
-        x:Name="RootBorder"
-        Padding="20"
-        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-        BorderThickness="1"
-        CornerRadius="12"
-        KeyDown="RootBorder_KeyDown">
+    <Grid x:Name="MotionViewport" Background="Transparent">
+        <Grid x:Name="LauncherSurface">
+            <Border
+                x:Name="RootBorder"
+                Padding="20"
+                Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="12"
+                KeyDown="RootBorder_KeyDown"
+                PointerPressed="RootBorder_PointerPressed">
         <Grid RowDefinitions="Auto,*" RowSpacing="16">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                 <StackPanel Spacing="4">
@@ -130,5 +129,7 @@
                 </ItemsControl>
             </ScrollViewer>
         </Grid>
-    </Border>
+            </Border>
+        </Grid>
+    </Grid>
 </Window>

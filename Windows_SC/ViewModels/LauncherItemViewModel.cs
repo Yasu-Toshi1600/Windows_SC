@@ -139,7 +139,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     {
         if (Kind == LauncherItemKind.Slider)
         {
-            AudioMasterVolumeResult volumeResult = _audioOutputService.GetMasterVolume();
+            AudioMasterVolumeResult volumeResult = _audioOutputService.GetCachedMasterVolume();
             CanAdjustVolume = volumeResult.IsSuccess;
             if (volumeResult.IsSuccess)
             {
@@ -168,14 +168,14 @@ internal sealed class LauncherItemViewModel : ObservableObject
             return;
         }
 
-        AudioOutputDevice? currentDevice = _audioOutputService.GetDefaultDevice();
+        AudioOutputDevice? currentDevice = _audioOutputService.GetCachedDefaultDevice();
         CycleStatusText = currentDevice?.DisplayName ?? "現在の出力を取得できません";
 
         IReadOnlyList<string> registeredIds = (_cycleAction?.AudioDeviceIds ?? [])
             .Select(AudioDeviceId.Normalize)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        HashSet<string> availableIds = _audioOutputService.GetDevices()
+        HashSet<string> availableIds = _audioOutputService.GetCachedDevices()
             .Where(device => device.IsAvailable)
             .Select(device => device.Id)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
