@@ -5,7 +5,9 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Windows.Graphics;
 using Windows_SC.Models;
 using Windows_SC.Services;
 
@@ -356,9 +358,72 @@ internal sealed class SettingsViewModel : ObservableObject
         information.AppendLine($"OSアーキテクチャ: {RuntimeInformation.OSArchitecture}");
         information.AppendLine($"プロセスアーキテクチャ: {RuntimeInformation.ProcessArchitecture}");
         information.AppendLine($".NET: {RuntimeInformation.FrameworkDescription}");
+        AppendMonitorInformation(information);
         information.AppendLine(
             $"詳細診断ログ: {(_logger.IsDetailedLoggingEnabled ? "有効" : "無効")}");
         return information.ToString();
+    }
+
+    private static void AppendMonitorInformation(StringBuilder information)
+    {
+        IReadOnlyList<DisplayArea> displayAreas = DisplayArea.FindAll();
+        information.AppendLine($"モニター数: {displayAreas.Count}");
+
+        for (int index = 0; index < displayAreas.Count; index++)
+        {
+            DisplayArea displayArea = displayAreas[index];
+            RectInt32 bounds = displayArea.OuterBounds;
+            RectInt32 workArea = displayArea.WorkArea;
+            (uint dpi, int refreshRate) = GetMonitorDetails(bounds);
+            int scalePercent = (int)Math.Round(dpi * 100d / 96d);
+            string refreshRateText = refreshRate > 1
+                ? $", リフレッシュレート={refreshRate}Hz"
+                : string.Empty;
+            information.AppendLine(
+                $"モニター {index + 1}: " +
+                $"{(displayArea.IsPrimary ? "メイン, " : string.Empty)}" +
+                $"解像度={bounds.Width}x{bounds.Height}, " +
+                $"配置=({bounds.X},{bounds.Y}), " +
+                $"作業領域={workArea.Width}x{workArea.Height}, " +
+                $"DPI={dpi}, 拡大率={scalePercent}%" +
+                refreshRateText);
+        }
+    }
+
+    private static (uint Dpi, int RefreshRate) GetMonitorDetails(RectInt32 bounds)
+    {
+        NativePoint center = new()
+        {
+            X = bounds.X + (bounds.Width / 2),
+            Y = bounds.Y + (bounds.Height / 2)
+        };
+        nint monitor = MonitorFromPoint(center, MonitorDefaultToNearest);
+        uint dpi = monitor != nint.Zero
+            && GetDpiForMonitor(monitor, 0, out uint dpiX, out _) == 0
+                ? dpiX
+                : 96;
+        int refreshRate = 0;
+
+        MonitorInfoEx monitorInfo = new()
+        {
+            Size = (uint)Marshal.SizeOf<MonitorInfoEx>(),
+            DeviceName = string.Empty
+        };
+        if (monitor != nint.Zero && GetMonitorInfo(monitor, ref monitorInfo))
+        {
+            nint deviceContext = CreateDC(
+                "DISPLAY",
+                monitorInfo.DeviceName,
+                null,
+                nint.Zero);
+            if (deviceContext != nint.Zero)
+            {
+                refreshRate = GetDeviceCaps(deviceContext, VerticalRefreshRate);
+                _ = DeleteDC(deviceContext);
+            }
+        }
+
+        return (dpi, refreshRate);
     }
 
     internal void ReportEnvironmentInformationCopied() =>
@@ -680,6 +745,65 @@ internal sealed class SettingsViewModel : ObservableObject
             SaveCommand.NotifyCanExecuteChanged();
         }
     }
+
+    private const uint MonitorDefaultToNearest = 0x00000002;
+    private const int VerticalRefreshRate = 116;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct MonitorInfoEx
+    {
+        public uint Size;
+        public NativeRect Monitor;
+        public NativeRect WorkArea;
+        public uint Flags;
+
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string DeviceName;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern nint MonitorFromPoint(NativePoint point, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfoEx monitorInfo);
+
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint CreateDC(
+        string driver,
+        string device,
+        string? output,
+        nint initializationData);
+
+    [DllImport("gdi32.dll")]
+    private static extern int GetDeviceCaps(nint deviceContext, int index);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteDC(nint deviceContext);
+
+    [DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(
+        nint monitor,
+        int dpiType,
+        out uint dpiX,
+        out uint dpiY);
 }
 
 internal sealed class LauncherItemEditorViewModel : ObservableObject
@@ -770,6 +894,17 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         LauncherItemKind.Slider => "スライダー",
         _ => "ボタン"
     };
+    public string KindSummary => $"種類：{KindDisplayName}";
+    public Visibility CommandButtonSettingsVisibility => IsButton
+        && ActionKind == LauncherActionKind.Command
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    public string TargetHeader => ActionKind == LauncherActionKind.Command
+        ? "コマンド"
+        : "起動対象";
+    public string TargetPlaceholderText => ActionKind == LauncherActionKind.Command
+        ? "例：systeminfo"
+        : "例：notepad.exe";
 
     public string Title
     {
@@ -780,7 +915,15 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     public LauncherActionKind ActionKind
     {
         get => _actionKind;
-        set => SetProperty(ref _actionKind, value);
+        set
+        {
+            if (SetProperty(ref _actionKind, value))
+            {
+                OnPropertyChanged(nameof(CommandButtonSettingsVisibility));
+                OnPropertyChanged(nameof(TargetHeader));
+                OnPropertyChanged(nameof(TargetPlaceholderText));
+            }
+        }
     }
 
     public string Target

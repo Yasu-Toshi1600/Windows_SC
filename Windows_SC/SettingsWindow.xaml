@@ -97,9 +97,10 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Spacing="12">
                     <TextBlock FontSize="16" FontWeight="SemiBold" Text="選択項目" />
+                    <TextBlock FontWeight="SemiBold"
+                               Text="{Binding SelectedItem.KindSummary}" />
                     <TextBox Header="表示名"
                              Text="{Binding SelectedItem.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <TextBox Header="種類" IsReadOnly="True" Text="{Binding SelectedItem.KindDisplayName}" />
                     <ComboBox Header="実行後"
                               DisplayMemberPath="DisplayName"
                               ItemsSource="{Binding PostExecutionBehaviors}"
@@ -112,15 +113,16 @@
                                   DisplayMemberPath="DisplayName"
                                   ItemsSource="{Binding ActionKinds}"
                                   SelectedItem="{Binding SelectedActionKind, Mode=TwoWay}" />
-                        <TextBox Header="起動対象"
-                                 PlaceholderText="アプリ名、ファイルのパス、URL"
+                        <TextBox Header="{Binding SelectedItem.TargetHeader}"
+                                 PlaceholderText="{Binding SelectedItem.TargetPlaceholderText}"
                                  Text="{Binding SelectedItem.Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         <TextBox Header="引数"
                                  Text="{Binding SelectedItem.Arguments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         <TextBox Header="作業フォルダー（通常は空欄）"
                                  Text="{Binding SelectedItem.WorkingDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         <CheckBox Content="コマンド／batの画面を表示しない"
-                                  IsChecked="{Binding SelectedItem.HideCommandWindow, Mode=TwoWay}" />
+                                  IsChecked="{Binding SelectedItem.HideCommandWindow, Mode=TwoWay}"
+                                  Visibility="{Binding SelectedItem.CommandButtonSettingsVisibility}" />
                     </StackPanel>
                     <StackPanel Spacing="12"
                                 Visibility="{Binding SelectedItem.CycleSettingsVisibility}">
