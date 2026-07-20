@@ -221,8 +221,10 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
 
             StateChanged?.Invoke(this, EventArgs.Empty);
             QueueRefresh();
-            _logger.Write(
-                $"[AudioOutput] action=cycle result=success device-id=\"{Sanitize(nextDevice.Id)}\" " +
+            _logger.Write("[AudioOutput] action=cycle result=success");
+            _logger.WriteDetailed(
+                $"[AudioOutputDetail] action=cycle result=success " +
+                $"device-id=\"{Sanitize(nextDevice.Id)}\" " +
                 $"device-name=\"{Sanitize(nextDevice.DisplayName)}\"");
             return Task.FromResult(AudioDeviceCycleResult.Success(nextDevice));
         }

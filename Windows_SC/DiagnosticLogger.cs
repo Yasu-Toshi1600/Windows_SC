@@ -10,22 +10,34 @@ namespace Windows_SC;
 internal sealed class DiagnosticLogger : IDisposable
 {
     private const long MaximumLogSize = 2 * 1024 * 1024;
+    private readonly string _logDirectoryPath;
     private readonly string _logFilePath;
-    private readonly ConcurrentQueue<string> _pendingLines = new();
+    private readonly string _previousLogFilePath;
+    private readonly string _detailedLogFilePath;
+    private readonly string _previousDetailedLogFilePath;
+    private readonly ConcurrentQueue<LogEntry> _pendingEntries = new();
     private readonly AutoResetEvent _writeRequested = new(false);
     private readonly Thread _writerThread;
+    private readonly object _fileGate = new();
+    private long _detailedLoggingExpiresUtcTicks;
     private int _isDisposed;
 
     public DiagnosticLogger()
     {
-        string logDirectory = Path.Combine(
+        _logDirectoryPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Windows_SC",
             "Logs");
 
-        Directory.CreateDirectory(logDirectory);
-        _logFilePath = Path.Combine(logDirectory, "window-diagnostics.log");
-        RotateIfNeeded();
+        Directory.CreateDirectory(_logDirectoryPath);
+        _logFilePath = Path.Combine(_logDirectoryPath, "window-diagnostics.log");
+        _previousLogFilePath = Path.Combine(_logDirectoryPath, "window-diagnostics.previous.log");
+        _detailedLogFilePath = Path.Combine(_logDirectoryPath, "window-diagnostics.detail.log");
+        _previousDetailedLogFilePath = Path.Combine(
+            _logDirectoryPath,
+            "window-diagnostics.detail.previous.log");
+        RotateIfNeeded(_logFilePath, _previousLogFilePath);
+        RotateIfNeeded(_detailedLogFilePath, _previousDetailedLogFilePath);
         _writerThread = new Thread(WriterLoop)
         {
             IsBackground = true,
@@ -36,15 +48,73 @@ internal sealed class DiagnosticLogger : IDisposable
 
     public string LogFilePath => _logFilePath;
 
+    public string DetailedLogFilePath => _detailedLogFilePath;
+
+    public string LogDirectoryPath => _logDirectoryPath;
+
+    public bool IsDetailedLoggingEnabled =>
+        Volatile.Read(ref _detailedLoggingExpiresUtcTicks) > DateTime.UtcNow.Ticks;
+
+    public DateTimeOffset? DetailedLoggingExpiresAt
+    {
+        get
+        {
+            long ticks = Volatile.Read(ref _detailedLoggingExpiresUtcTicks);
+            return ticks <= DateTime.UtcNow.Ticks
+                ? null
+                : new DateTimeOffset(ticks, TimeSpan.Zero);
+        }
+    }
+
+    public void ConfigureDetailedLogging(DateTimeOffset? expiresAt)
+    {
+        long ticks = expiresAt is { } expiration && expiration > DateTimeOffset.UtcNow
+            ? expiration.UtcDateTime.Ticks
+            : 0;
+        Interlocked.Exchange(ref _detailedLoggingExpiresUtcTicks, ticks);
+        Write(
+            ticks == 0
+                ? "[Diagnostics] detailed-logging=disabled"
+                : $"[Diagnostics] detailed-logging=enabled expires-at={new DateTimeOffset(ticks, TimeSpan.Zero):O}");
+    }
+
     public void Write(string message)
+    {
+        Enqueue(message, includeNormalLog: true, includeDetailedLog: IsDetailedLoggingEnabled);
+    }
+
+    public void WriteDetailed(string message)
+    {
+        if (IsDetailedLoggingEnabled)
+        {
+            Enqueue(message, includeNormalLog: false, includeDetailedLog: true);
+        }
+    }
+
+    public void ClearLogs()
+    {
+        FlushPendingEntries();
+        lock (_fileGate)
+        {
+            DeleteIfExists(_logFilePath);
+            DeleteIfExists(_previousLogFilePath);
+            DeleteIfExists(_detailedLogFilePath);
+            DeleteIfExists(_previousDetailedLogFilePath);
+        }
+    }
+
+    private void Enqueue(string message, bool includeNormalLog, bool includeDetailedLog)
     {
         if (Volatile.Read(ref _isDisposed) != 0)
         {
             return;
         }
 
-        _pendingLines.Enqueue(
-            $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} {message}{Environment.NewLine}");
+        _pendingEntries.Enqueue(new LogEntry(
+            $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} " +
+            $"{Services.LogPrivacySanitizer.Sanitize(message)}{Environment.NewLine}",
+            includeNormalLog,
+            includeDetailedLog));
         _writeRequested.Set();
     }
 
@@ -65,31 +135,41 @@ internal sealed class DiagnosticLogger : IDisposable
         while (Volatile.Read(ref _isDisposed) == 0)
         {
             _writeRequested.WaitOne();
-            FlushPendingLines();
+            FlushPendingEntries();
         }
 
-        FlushPendingLines();
+        FlushPendingEntries();
     }
 
-    private void FlushPendingLines()
+    private void FlushPendingEntries()
     {
-        if (_pendingLines.IsEmpty)
+        if (_pendingEntries.IsEmpty)
         {
             return;
         }
 
-        StringBuilder batch = new();
-        while (_pendingLines.TryDequeue(out string? line))
+        StringBuilder normalBatch = new();
+        StringBuilder detailedBatch = new();
+        while (_pendingEntries.TryDequeue(out LogEntry entry))
         {
-            batch.Append(line);
+            if (entry.IncludeNormalLog)
+            {
+                normalBatch.Append(entry.Line);
+            }
+
+            if (entry.IncludeDetailedLog)
+            {
+                detailedBatch.Append(entry.Line);
+            }
         }
 
         try
         {
-            File.AppendAllText(
-                _logFilePath,
-                batch.ToString(),
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            lock (_fileGate)
+            {
+                AppendIfNotEmpty(_logFilePath, normalBatch);
+                AppendIfNotEmpty(_detailedLogFilePath, detailedBatch);
+            }
         }
         catch (Exception exception) when (exception is IOException
             or UnauthorizedAccessException)
@@ -98,17 +178,35 @@ internal sealed class DiagnosticLogger : IDisposable
         }
     }
 
-    private void RotateIfNeeded()
+    private static void AppendIfNotEmpty(string path, StringBuilder batch)
     {
-        if (!File.Exists(_logFilePath) || new FileInfo(_logFilePath).Length < MaximumLogSize)
+        if (batch.Length > 0)
         {
-            return;
+            File.AppendAllText(
+                path,
+                batch.ToString(),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
-
-        string previousLogPath = Path.Combine(
-            Path.GetDirectoryName(_logFilePath)!,
-            "window-diagnostics.previous.log");
-
-        File.Move(_logFilePath, previousLogPath, overwrite: true);
     }
+
+    private static void RotateIfNeeded(string path, string previousPath)
+    {
+        if (File.Exists(path) && new FileInfo(path).Length >= MaximumLogSize)
+        {
+            File.Move(path, previousPath, overwrite: true);
+        }
+    }
+
+    private static void DeleteIfExists(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+
+    private readonly record struct LogEntry(
+        string Line,
+        bool IncludeNormalLog,
+        bool IncludeDetailedLog);
 }

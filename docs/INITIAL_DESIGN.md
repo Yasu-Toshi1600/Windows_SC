@@ -4,7 +4,7 @@
 最終改訂日: 2026-07-21
 状態: 実装反映・モーション再設計版
 
-本書は初回リリース全体の設計基準を示す。ランチャーの表示性能とモーションの詳細な実装・検証順序は[Windows_SC モーション再設計手順書](MOTION_REDESIGN_PROCEDURE.md)、スタート検出・状態遷移・ログ・回帰試験の現行保守仕様は[スタート連動機能 保守ガイド](START_MENU_INTEGRATION_MAINTENANCE.md)を併用する。
+本書は初回リリース全体の設計基準を示す。ランチャーの表示性能とモーションの詳細な実装・検証順序は[Windows_SC モーション再設計手順書](MOTION_REDESIGN_PROCEDURE.md)、スタート検出・状態遷移・ログ・回帰試験の現行保守仕様は[スタート連動機能 保守ガイド](START_MENU_INTEGRATION_MAINTENANCE.md)、ログの記録範囲と匿名化は[ログ・詳細診断・プライバシー仕様](LOGGING_AND_PRIVACY.md)、Phase 5～6の実施方法と合否判定は[Phase 5～6 テスト手順書](PHASE5_6_TEST_PROCEDURE.md)を併用する。
 
 ## 0. 前提と用語
 

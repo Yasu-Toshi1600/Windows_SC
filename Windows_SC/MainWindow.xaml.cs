@@ -60,7 +60,7 @@ public sealed partial class MainWindow : Window
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(_windowHandle);
         _appWindow = AppWindow.GetFromWindowId(windowId);
         _logger = logger;
-        _logger.Write(
+        _logger.WriteDetailed(
             $"[LauncherVisual] compiled-bindings=initialized items={LauncherItemsControl.Items.Count}");
         _startMenuMonitor = startMenuMonitor;
         _inputService = inputService;
@@ -144,7 +144,7 @@ public sealed partial class MainWindow : Window
         _targetWindowRect = placement.TargetRect;
         _placementDpiPoint = placement.DpiPoint;
         _appWindow.MoveAndResize(_targetWindowRect);
-        _logger.Write(
+        _logger.WriteDetailed(
             $"[WindowPlacement] result=success position=({_targetWindowRect.X},{_targetWindowRect.Y}) " +
             $"size={_targetWindowRect.Width}x{_targetWindowRect.Height} " +
             $"display-work-area=({placement.WorkArea.X},{placement.WorkArea.Y}," +
@@ -319,7 +319,7 @@ public sealed partial class MainWindow : Window
 
     private void RootBorder_Loaded(object sender, RoutedEventArgs args)
     {
-        _logger.Write(
+        _logger.WriteDetailed(
             $"[LauncherVisual] event=loaded size={RootBorder.ActualWidth:F0}x{RootBorder.ActualHeight:F0} " +
             $"shortcuts={ViewModel.Shortcuts.Count} request-to-loaded-ms={ElapsedMilliseconds(_showRequestedTimestamp):F1}");
     }
@@ -335,7 +335,7 @@ public sealed partial class MainWindow : Window
     private void Window_Activated(object sender, WindowActivatedEventArgs args)
     {
         _launcherIsActivated = args.WindowActivationState != WindowActivationState.Deactivated;
-        _logger.Write($"[Launcher] activation-state={args.WindowActivationState}");
+        _logger.WriteDetailed($"[Launcher] activation-state={args.WindowActivationState}");
 
         if (!_isVisible)
         {
@@ -366,7 +366,7 @@ public sealed partial class MainWindow : Window
         if (_lastLoggedLauncherFocus != launcherHasFocus
             || _lastLoggedStartMenuVisibility != startMenuIsVisible)
         {
-            _logger.Write(
+            _logger.WriteDetailed(
                 $"[VisibilityState] state={_motionCoordinator.State} launcher-focus={launcherHasFocus} " +
                 $"start-menu-visible={startMenuIsVisible}");
             _lastLoggedLauncherFocus = launcherHasFocus;

@@ -46,6 +46,7 @@ public partial class App : Application
         _audioOutputService = new WindowsAudioOutputService(logger);
         _viewModel = new MainWindowViewModel(actionExecutionService, _audioOutputService);
         LauncherSettings settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
+        logger.ConfigureDetailedLogging(settings.DetailedLoggingExpiresAtUtc);
         _viewModel.ApplySettings(settings);
         _startupService = new RegistryStartupService(logger);
         _startupService.SetEnabled(settings.StartWithWindows);
@@ -159,7 +160,7 @@ public partial class App : Application
             return;
         }
 
-        if (_startupService is null)
+        if (_startupService is null || _logger is null)
         {
             return;
         }
@@ -168,7 +169,8 @@ public partial class App : Application
             _settingsRepository,
             _viewModel,
             _startupService,
-            _viewModel.AudioOutputService);
+            _viewModel.AudioOutputService,
+            _logger);
         _settingsViewModel.ExitApplicationRequested += SettingsViewModel_ExitApplicationRequested;
         _settingsWindow = new SettingsWindow(_settingsViewModel);
         _settingsWindow.Closed += SettingsWindow_Closed;

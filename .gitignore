@@ -6,3 +6,7 @@ obj/
 *.suo
 
 TestResults/
+
+# Local diagnostics copied into the repository for investigation
+window-diagnostics*.log
+settings.corrupt-*.json

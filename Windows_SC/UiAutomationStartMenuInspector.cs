@@ -70,7 +70,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     {
         _workerThread.Start();
         RequestScan();
-        _logger.Write("[UIAutomation] worker=started apartment=STA");
+        _logger.WriteDetailed("[UIAutomation] worker=started apartment=STA");
     }
 
     public void RequestScan()
@@ -124,7 +124,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             Automation.AddAutomationFocusChangedEventHandler(_focusChangedHandler);
             Interlocked.Exchange(ref _isReady, 1);
             ReadyChanged?.Invoke(this, EventArgs.Empty);
-            _logger.Write("[UIAutomation] focus-event=registered");
+            _logger.WriteDetailed("[UIAutomation] focus-event=registered");
 
             while (true)
             {
@@ -164,7 +164,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             if (_focusChangedHandler is not null)
             {
                 Automation.RemoveAutomationFocusChangedEventHandler(_focusChangedHandler);
-                _logger.Write("[UIAutomation] focus-event=unregistered");
+                _logger.WriteDetailed("[UIAutomation] focus-event=unregistered");
             }
         }
     }
@@ -226,7 +226,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         {
             _lastFocusedElementSignature = focusedSignature;
             System.Windows.Rect rectangle = focused.BoundingRectangle;
-            _logger.Write(
+            _logger.WriteDetailed(
                 $"[UIAutomationFocus] process={GetProcessName(focused.ProcessId)} pid={focused.ProcessId} " +
                 $"name=\"{Sanitize(focused.Name)}\" automation-id=\"{Sanitize(focused.AutomationId)}\" " +
                 $"control-type=\"{focused.ControlType?.ProgrammaticName}\" " +
@@ -362,7 +362,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
         foreach (AutomationCandidate candidate in candidates)
         {
-            _logger.Write(
+            _logger.WriteDetailed(
                 $"[UIAutomationCandidate] name=\"{candidate.Name}\" automation-id=\"{candidate.AutomationId}\" " +
                 $"control-type=\"{candidate.ControlType}\" hwnd=0x{candidate.NativeWindowHandle:X} " +
                 $"rect=({candidate.Rectangle.Left:F0},{candidate.Rectangle.Top:F0})-" +

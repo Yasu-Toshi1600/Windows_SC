@@ -23,8 +23,10 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
             string processId = process is null ? "unavailable" : process.Id.ToString();
             process?.Dispose();
             logger.Write(
-                $"[Action] result=success kind={action.Kind} pid={processId} " +
-                $"target=\"{Sanitize(action.Target)}\" tracked=false");
+                $"[Action] result=success kind={action.Kind} pid={processId} tracked=false");
+            logger.WriteDetailed(
+                $"[ActionDetail] result=success kind={action.Kind} " +
+                $"target=\"{Sanitize(action.Target)}\"");
             return Task.FromResult(ActionExecutionResult.Success);
         }
         catch (Exception exception) when (exception is Win32Exception
@@ -34,8 +36,12 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
             or NotSupportedException)
         {
             logger.Write(
-                $"[Action] result=failed kind={action.Kind} target=\"{Sanitize(action.Target)}\" " +
-                $"exception={exception.GetType().Name} message=\"{Sanitize(exception.Message)}\"");
+                $"[Action] result=failed kind={action.Kind} " +
+                $"exception={exception.GetType().Name}");
+            logger.WriteDetailed(
+                $"[ActionDetail] result=failed kind={action.Kind} " +
+                $"target=\"{Sanitize(action.Target)}\" " +
+                $"message=\"{Sanitize(exception.Message)}\"");
             return Task.FromResult(ActionExecutionResult.Failure(
                 $"「{action.Target}」を起動できませんでした。\n{exception.Message}"));
         }

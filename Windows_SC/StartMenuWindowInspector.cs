@@ -61,12 +61,12 @@ internal sealed class StartMenuWindowInspector
             return true;
         }, IntPtr.Zero);
 
-        _logger.Write($"[StartPanelScan] candidates={snapshots.Count}");
+        _logger.WriteDetailed($"[StartPanelScan] candidates={snapshots.Count}");
 
         foreach (WindowSnapshot snapshot in snapshots)
         {
             NativeRectangle rectangle = snapshot.Rectangle;
-            _logger.Write(
+            _logger.WriteDetailed(
                 $"[StartPanelCandidate] process={snapshot.ProcessName} " +
                 $"hwnd=0x{snapshot.WindowHandle.ToInt64():X} class=\"{snapshot.ClassName}\" " +
                 $"title=\"{snapshot.Title}\" rect=({rectangle.Left},{rectangle.Top})-({rectangle.Right},{rectangle.Bottom}) " +
@@ -75,7 +75,7 @@ internal sealed class StartMenuWindowInspector
 
         if (snapshots.Count == 0)
         {
-            _logger.Write("[StartPanelScan] スタートメニュー／スマートフォン連携パネル候補を取得できませんでした。");
+            _logger.WriteDetailed("[StartPanelScan] スタートメニュー／スマートフォン連携パネル候補を取得できませんでした。");
         }
     }
 

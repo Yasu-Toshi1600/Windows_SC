@@ -22,7 +22,7 @@ internal sealed class GlobalInputService : IGlobalInputService
     {
         _windowsKeyMonitor = new GlobalWindowsKeyMonitor(
             () => WindowsKeyReleasedAlone?.Invoke(this, EventArgs.Empty),
-            logger.Write);
+            logger.WriteDetailed);
     }
 
     public event EventHandler? ManualToggleRequested;

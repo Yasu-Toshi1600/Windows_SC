@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.UI.Xaml;
 using Windows_SC.Models;
 using Windows_SC.Services;
@@ -14,6 +17,7 @@ internal sealed class SettingsViewModel : ObservableObject
     private readonly MainWindowViewModel _mainWindowViewModel;
     private readonly IStartupService _startupService;
     private readonly IAudioOutputService _audioOutputService;
+    private readonly DiagnosticLogger _logger;
     private readonly Guid _pageId;
     private LauncherItemEditorViewModel? _selectedItem;
     private ActionKindOption? _selectedActionKind;
@@ -26,17 +30,22 @@ internal sealed class SettingsViewModel : ObservableObject
     private LayoutModeOption? _selectedLayoutMode;
     private string _statusMessage = string.Empty;
     private bool _isSaving;
+    private bool _isDetailedDiagnosticsEnabled;
+    private DateTimeOffset? _detailedLoggingExpiresAt;
+    private bool _isApplyingDiagnosticsSetting;
 
     public SettingsViewModel(
         ISettingsRepository settingsRepository,
         MainWindowViewModel mainWindowViewModel,
         IStartupService startupService,
-        IAudioOutputService audioOutputService)
+        IAudioOutputService audioOutputService,
+        DiagnosticLogger logger)
     {
         _settingsRepository = settingsRepository;
         _mainWindowViewModel = mainWindowViewModel;
         _startupService = startupService;
         _audioOutputService = audioOutputService;
+        _logger = logger;
 
         foreach (AudioOutputDevice device in _audioOutputService.GetCachedDevices())
         {
@@ -49,6 +58,9 @@ internal sealed class SettingsViewModel : ObservableObject
         LauncherSettings settings = mainWindowViewModel.ExportSettings();
         _assumePhonePanelVisible = settings.AssumePhonePanelVisible;
         _startWithWindows = settings.StartWithWindows;
+        _detailedLoggingExpiresAt = settings.DetailedLoggingExpiresAtUtc;
+        _isDetailedDiagnosticsEnabled =
+            _detailedLoggingExpiresAt is { } expiration && expiration > DateTimeOffset.UtcNow;
         _selectedLayoutMode = LayoutModes.First(option => option.Value == settings.LayoutMode);
         LauncherPageDefinition page = settings.Pages.FirstOrDefault()
             ?? new LauncherPageDefinition { Name = "メイン" };
@@ -223,6 +235,45 @@ internal sealed class SettingsViewModel : ObservableObject
         private set => SetProperty(ref _statusMessage, value);
     }
 
+    public bool IsDetailedDiagnosticsEnabled
+    {
+        get => _isDetailedDiagnosticsEnabled;
+        set
+        {
+            if (!SetProperty(ref _isDetailedDiagnosticsEnabled, value))
+            {
+                return;
+            }
+
+            _detailedLoggingExpiresAt = null;
+            OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
+            StatusMessage = value
+                ? "［適用］を押すと詳細診断ログが24時間有効になります。"
+                : "［適用］を押すと詳細診断ログが無効になります。";
+        }
+    }
+
+    public string DetailedDiagnosticsStatus
+    {
+        get
+        {
+            if (!IsDetailedDiagnosticsEnabled)
+            {
+                return "現在は無効です。通常ログのみ記録します。";
+            }
+
+            return _detailedLoggingExpiresAt is { } expiration
+                && expiration > DateTimeOffset.UtcNow
+                ? $"{expiration.ToLocalTime():yyyy/MM/dd HH:mm}まで有効です。"
+                : "［適用］を押すと、その時点から24時間有効になります。";
+        }
+    }
+
+    public string NormalLogPath => @"%LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.log";
+
+    public string DetailedLogPath =>
+        @"%LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.detail.log";
+
     public RelayCommand AddButtonCommand { get; }
     public RelayCommand AddToggleCommand { get; }
     public RelayCommand AddSliderCommand { get; }
@@ -234,6 +285,92 @@ internal sealed class SettingsViewModel : ObservableObject
     public RelayCommand MoveAudioDeviceDownCommand { get; }
     public RelayCommand SaveCommand { get; }
     public RelayCommand ExitApplicationCommand { get; }
+
+    internal void OpenLogFolder()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = _logger.LogDirectoryPath,
+                UseShellExecute = true
+            });
+            StatusMessage = "ログフォルダーを開きました。";
+        }
+        catch (Exception exception) when (exception is InvalidOperationException
+            or System.ComponentModel.Win32Exception)
+        {
+            StatusMessage = $"ログフォルダーを開けませんでした: {exception.Message}";
+        }
+    }
+
+    internal async System.Threading.Tasks.Task ApplyDetailedDiagnosticsAsync()
+    {
+        if (_isApplyingDiagnosticsSetting)
+        {
+            return;
+        }
+
+        _isApplyingDiagnosticsSetting = true;
+        LauncherSettings settings = _mainWindowViewModel.ExportSettings();
+        DateTimeOffset? previousExpiration = settings.DetailedLoggingExpiresAtUtc;
+        DateTimeOffset? newExpiration = IsDetailedDiagnosticsEnabled
+            ? DateTimeOffset.UtcNow.AddHours(24)
+            : null;
+
+        try
+        {
+            settings.DetailedLoggingExpiresAtUtc = newExpiration;
+            await _settingsRepository.SaveAsync(settings);
+            _detailedLoggingExpiresAt = newExpiration;
+            _logger.ConfigureDetailedLogging(newExpiration);
+            OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
+            StatusMessage = IsDetailedDiagnosticsEnabled
+                ? "詳細診断ログを24時間有効にしました。"
+                : "詳細診断ログを無効にしました。";
+        }
+        catch (Exception exception)
+        {
+            settings.DetailedLoggingExpiresAtUtc = previousExpiration;
+            StatusMessage = $"詳細診断ログの設定を保存できませんでした: {exception.Message}";
+        }
+        finally
+        {
+            _isApplyingDiagnosticsSetting = false;
+        }
+    }
+
+    internal string CreateEnvironmentInformation()
+    {
+        StringBuilder information = new();
+        information.AppendLine("Windows_SC 診断情報");
+        information.AppendLine($"作成日時: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}");
+        information.AppendLine($"アプリ: {typeof(SettingsViewModel).Assembly.GetName().Version}");
+        information.AppendLine($"OS: {RuntimeInformation.OSDescription}");
+        information.AppendLine($"OSアーキテクチャ: {RuntimeInformation.OSArchitecture}");
+        information.AppendLine($"プロセスアーキテクチャ: {RuntimeInformation.ProcessArchitecture}");
+        information.AppendLine($".NET: {RuntimeInformation.FrameworkDescription}");
+        information.AppendLine(
+            $"詳細診断ログ: {(_logger.IsDetailedLoggingEnabled ? "有効" : "無効")}");
+        return information.ToString();
+    }
+
+    internal void ReportEnvironmentInformationCopied() =>
+        StatusMessage = "環境情報をコピーしました。";
+
+    internal void ClearLogs()
+    {
+        try
+        {
+            _logger.ClearLogs();
+            StatusMessage = "ログを削除しました。";
+        }
+        catch (Exception exception) when (exception is System.IO.IOException
+            or UnauthorizedAccessException)
+        {
+            StatusMessage = $"ログを削除できませんでした: {exception.Message}";
+        }
+    }
 
     private ActionKindOption GetVisibleActionKind(LauncherActionKind actionKind)
     {
@@ -505,6 +642,9 @@ internal sealed class SettingsViewModel : ObservableObject
             {
                 AssumePhonePanelVisible = AssumePhonePanelVisible,
                 StartWithWindows = StartWithWindows,
+                DetailedLoggingExpiresAtUtc = IsDetailedDiagnosticsEnabled
+                    ? DateTimeOffset.UtcNow.AddHours(24)
+                    : null,
                 LayoutMode = SelectedLayoutMode?.Value ?? LauncherLayoutMode.Standard,
                 Pages =
                 [
@@ -518,7 +658,10 @@ internal sealed class SettingsViewModel : ObservableObject
             };
             _startupService.SetEnabled(settings.StartWithWindows);
             await _settingsRepository.SaveAsync(settings);
+            _detailedLoggingExpiresAt = settings.DetailedLoggingExpiresAtUtc;
+            _logger.ConfigureDetailedLogging(_detailedLoggingExpiresAt);
             _mainWindowViewModel.ApplySettings(settings);
+            OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
             StatusMessage = "保存しました。";
         }
         catch (Exception exception)
