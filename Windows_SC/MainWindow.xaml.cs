@@ -117,6 +117,7 @@ public sealed partial class MainWindow : Window
         if (!_placementService.TryCalculate(
             startMenuSnapshot,
             ViewModel.AssumePhonePanelVisible,
+            ViewModel.LayoutMode,
             out LauncherPlacement placement))
         {
             return false;
@@ -352,17 +353,25 @@ public sealed partial class MainWindow : Window
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName != nameof(MainWindowViewModel.AssumePhonePanelVisible))
+        if (args.PropertyName is not nameof(MainWindowViewModel.AssumePhonePanelVisible)
+            and not nameof(MainWindowViewModel.LayoutMode))
         {
             return;
         }
 
-        _logger.Write(
-            $"[PhonePanelSetting] source=launcher value={(ViewModel.AssumePhonePanelVisible ? "on" : "off")}");
-
-        if (_isVisible && _lastPlacementStartSnapshot is StartMenuSnapshot snapshot)
+        if (args.PropertyName == nameof(MainWindowViewModel.AssumePhonePanelVisible))
         {
-            _ = PositionWindow(snapshot);
+            _logger.Write(
+                $"[PhonePanelSetting] source=launcher value={(ViewModel.AssumePhonePanelVisible ? "on" : "off")}");
+        }
+        else
+        {
+            _logger.Write($"[LayoutSetting] source=settings value={ViewModel.LayoutMode}");
+        }
+
+        if (_isVisible)
+        {
+            _ = PositionWindow(_lastPlacementStartSnapshot);
         }
     }
 

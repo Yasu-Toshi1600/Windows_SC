@@ -6,25 +6,30 @@
     Title="Windows_SC 設定">
 
     <Grid x:Name="RootGrid" Padding="24" RowDefinitions="Auto,*,Auto" RowSpacing="16">
-        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
+        <Grid ColumnDefinitions="*,180,Auto,Auto" ColumnSpacing="16">
             <StackPanel Spacing="4">
                 <TextBlock FontSize="24" FontWeight="SemiBold" Text="ランチャー設定" />
                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            Text="項目とボタンの実行内容を編集します" />
             </StackPanel>
-            <ToggleSwitch Grid.Column="1"
+            <ComboBox Grid.Column="1"
+                      Header="配置"
+                      DisplayMemberPath="DisplayName"
+                      ItemsSource="{Binding LayoutModes}"
+                      SelectedItem="{Binding SelectedLayoutMode, Mode=TwoWay}" />
+            <ToggleSwitch Grid.Column="2"
                           Header="スマートフォン連携"
                           IsOn="{Binding AssumePhonePanelVisible, Mode=TwoWay}"
                           OffContent="なし"
                           OnContent="あり" />
-            <ToggleSwitch Grid.Column="2"
+            <ToggleSwitch Grid.Column="3"
                           Header="Windowsログイン時"
                           IsOn="{Binding StartWithWindows, Mode=TwoWay}"
                           OffContent="起動しない"
                           OnContent="自動起動" />
         </Grid>
 
-        <Grid Grid.Row="1" ColumnDefinitions="*,12,280">
+        <Grid Grid.Row="1" ColumnDefinitions="*,12,380">
             <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
                 <TextBlock FontSize="16" FontWeight="SemiBold" Text="項目" />
                 <ListView Grid.Row="1"
@@ -32,18 +37,34 @@
                           SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
                     <ListView.ItemTemplate>
                         <DataTemplate>
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                <TextBlock Text="{Binding Title}" />
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
+                                <TextBlock VerticalAlignment="Center" Text="{Binding Title}" />
                                 <TextBlock Grid.Column="1"
+                                           VerticalAlignment="Center"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            Text="{Binding KindDisplayName}" />
+                                <Button Grid.Column="2"
+                                        Click="LauncherItemMoveUp_Click"
+                                        Content="↑"
+                                        Padding="8,4"
+                                        ToolTipService.ToolTip="上へ移動" />
+                                <Button Grid.Column="3"
+                                        Click="LauncherItemMoveDown_Click"
+                                        Content="↓"
+                                        Padding="8,4"
+                                        ToolTipService.ToolTip="下へ移動" />
+                                <Button Grid.Column="4"
+                                        Click="LauncherItemRemove_Click"
+                                        Content="×"
+                                        Padding="8,4"
+                                        ToolTipService.ToolTip="削除" />
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
                     <Button Command="{Binding AddButtonCommand}" Content="ボタン追加" />
-                    <Button Command="{Binding AddToggleCommand}" Content="音声切り替え追加" />
+                    <Button Command="{Binding AddToggleCommand}" Content="循環切り替え追加" />
                     <Button Command="{Binding AddSliderCommand}" Content="スライダー追加" />
                 </StackPanel>
             </Grid>
@@ -69,6 +90,13 @@
                                  Text="{Binding SelectedItem.WorkingDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         <CheckBox Content="コマンド／batの画面を表示しない"
                                   IsChecked="{Binding SelectedItem.HideCommandWindow, Mode=TwoWay}" />
+                    </StackPanel>
+                    <StackPanel Spacing="12"
+                                Visibility="{Binding SelectedItem.CycleSettingsVisibility}">
+                        <ComboBox Header="切り替え内容"
+                                  DisplayMemberPath="DisplayName"
+                                  ItemsSource="{Binding CycleKinds}"
+                                  SelectedItem="{Binding SelectedCycleKind, Mode=TwoWay}" />
                     </StackPanel>
                     <StackPanel Spacing="12"
                                 Visibility="{Binding SelectedItem.AudioDeviceSettingsVisibility}">
@@ -112,9 +140,59 @@
                             </ListView.ItemTemplate>
                         </ListView>
                     </StackPanel>
-                    <Button HorizontalAlignment="Left"
-                            Command="{Binding DeleteItemCommand}"
-                            Content="選択項目を削除" />
+                    <StackPanel Spacing="12"
+                                Visibility="{Binding SelectedItem.CommandCycleSettingsVisibility}">
+                        <TextBlock FontWeight="SemiBold" Text="コマンドの実行順" />
+                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="2つ以上登録すると、上から順番に実行します。"
+                                   TextWrapping="Wrap" />
+                        <CheckBox Content="失敗時は同じ操作を再実行する"
+                                  IsChecked="{Binding SelectedItem.RetryFailedCommand, Mode=TwoWay}" />
+                        <Button HorizontalAlignment="Left"
+                                Command="{Binding AddCommandStepCommand}"
+                                Content="操作を追加" />
+                        <ListView Height="150"
+                                  ItemsSource="{Binding SelectedItem.CommandSteps}"
+                                  SelectedItem="{Binding SelectedCommandStep, Mode=TwoWay}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
+                                        <TextBlock VerticalAlignment="Center"
+                                                   Text="{Binding DisplayName}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <Button Grid.Column="1"
+                                                Click="CommandStepMoveUp_Click"
+                                                Content="↑"
+                                                Padding="8,4"
+                                                ToolTipService.ToolTip="上へ移動" />
+                                        <Button Grid.Column="2"
+                                                Click="CommandStepMoveDown_Click"
+                                                Content="↓"
+                                                Padding="8,4"
+                                                ToolTipService.ToolTip="下へ移動" />
+                                        <Button Grid.Column="3"
+                                                Click="CommandStepRemove_Click"
+                                                Content="×"
+                                                Padding="8,4"
+                                                ToolTipService.ToolTip="削除" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <TextBlock FontWeight="SemiBold" Text="選択中の操作" />
+                        <TextBox Header="表示名"
+                                 Text="{Binding SelectedCommandStep.DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="実行対象"
+                                 PlaceholderText="例: DisplaySwitch.exe"
+                                 Text="{Binding SelectedCommandStep.Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="引数"
+                                 PlaceholderText="例: /extend"
+                                 Text="{Binding SelectedCommandStep.Arguments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="作業フォルダー（通常は空欄）"
+                                 Text="{Binding SelectedCommandStep.WorkingDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <CheckBox Content="コマンド画面を表示しない"
+                                  IsChecked="{Binding SelectedCommandStep.HideCommandWindow, Mode=TwoWay}" />
+                    </StackPanel>
                 </StackPanel>
             </ScrollViewer>
         </Grid>

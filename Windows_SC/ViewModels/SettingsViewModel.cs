@@ -17,10 +17,13 @@ internal sealed class SettingsViewModel : ObservableObject
     private readonly Guid _pageId;
     private LauncherItemEditorViewModel? _selectedItem;
     private ActionKindOption? _selectedActionKind;
+    private CycleKindOption? _selectedCycleKind;
     private AudioOutputDeviceOption? _audioDeviceToAdd;
     private RegisteredAudioDeviceEditorViewModel? _selectedRegisteredAudioDevice;
+    private CommandCycleStepEditorViewModel? _selectedCommandStep;
     private bool _assumePhonePanelVisible;
     private bool _startWithWindows;
+    private LayoutModeOption? _selectedLayoutMode;
     private string _statusMessage = string.Empty;
     private bool _isSaving;
 
@@ -46,6 +49,7 @@ internal sealed class SettingsViewModel : ObservableObject
         LauncherSettings settings = mainWindowViewModel.ExportSettings();
         _assumePhonePanelVisible = settings.AssumePhonePanelVisible;
         _startWithWindows = settings.StartWithWindows;
+        _selectedLayoutMode = LayoutModes.First(option => option.Value == settings.LayoutMode);
         LauncherPageDefinition page = settings.Pages.FirstOrDefault()
             ?? new LauncherPageDefinition { Name = "メイン" };
         _pageId = page.Id;
@@ -60,6 +64,9 @@ internal sealed class SettingsViewModel : ObservableObject
         AddSliderCommand = new RelayCommand(() => AddItem(LauncherItemKind.Slider));
         DeleteItemCommand = new RelayCommand(DeleteSelectedItem, () => SelectedItem is not null);
         AddAudioDeviceCommand = new RelayCommand(AddAudioDevice, CanAddAudioDevice);
+        AddCommandStepCommand = new RelayCommand(
+            AddCommandStep,
+            () => SelectedItem is { IsToggle: true, CycleKind: CycleActionKind.Commands });
         RemoveAudioDeviceCommand = new RelayCommand(
             RemoveAudioDevice,
             () => SelectedItem?.IsToggle == true && SelectedRegisteredAudioDevice is not null);
@@ -91,6 +98,18 @@ internal sealed class SettingsViewModel : ObservableObject
             "コマンドを実行")
     ];
 
+    public IReadOnlyList<CycleKindOption> CycleKinds { get; } =
+    [
+        new(CycleActionKind.AudioOutput, "音声出力"),
+        new(CycleActionKind.Commands, "コマンド")
+    ];
+
+    public IReadOnlyList<LayoutModeOption> LayoutModes { get; } =
+    [
+        new(LauncherLayoutMode.Standard, "標準（最大2列）"),
+        new(LauncherLayoutMode.Compact, "コンパクト（最大4列）")
+    ];
+
     public LauncherItemEditorViewModel? SelectedItem
     {
         get => _selectedItem;
@@ -101,7 +120,11 @@ internal sealed class SettingsViewModel : ObservableObject
                 SelectedActionKind = value is null
                     ? null
                     : GetVisibleActionKind(value.ActionKind);
+                SelectedCycleKind = value is { IsToggle: true }
+                    ? CycleKinds.First(option => option.Value == value.CycleKind)
+                    : null;
                 SelectedRegisteredAudioDevice = null;
+                SelectedCommandStep = value?.CommandSteps.FirstOrDefault();
                 AudioDeviceToAdd = AvailableAudioOutputDevices.FirstOrDefault(device =>
                     value?.RegisteredAudioDevices.All(registered =>
                         !string.Equals(
@@ -110,6 +133,7 @@ internal sealed class SettingsViewModel : ObservableObject
                             StringComparison.OrdinalIgnoreCase)) == true);
                 DeleteItemCommand.NotifyCanExecuteChanged();
                 NotifyAudioDeviceCommands();
+                AddCommandStepCommand.NotifyCanExecuteChanged();
             }
         }
     }
@@ -124,6 +148,23 @@ internal sealed class SettingsViewModel : ObservableObject
                 && SelectedItem is { IsButton: true } selectedItem)
             {
                 selectedItem.ActionKind = value.Value;
+            }
+        }
+    }
+
+    public CycleKindOption? SelectedCycleKind
+    {
+        get => _selectedCycleKind;
+        set
+        {
+            if (SetProperty(ref _selectedCycleKind, value)
+                && value is not null
+                && SelectedItem is { IsToggle: true } selectedItem)
+            {
+                selectedItem.CycleKind = value.Value;
+                SelectedCommandStep = selectedItem.CommandSteps.FirstOrDefault();
+                AddCommandStepCommand.NotifyCanExecuteChanged();
+                NotifyAudioDeviceCommands();
             }
         }
     }
@@ -152,6 +193,12 @@ internal sealed class SettingsViewModel : ObservableObject
         }
     }
 
+    public CommandCycleStepEditorViewModel? SelectedCommandStep
+    {
+        get => _selectedCommandStep;
+        set => SetProperty(ref _selectedCommandStep, value);
+    }
+
     public bool AssumePhonePanelVisible
     {
         get => _assumePhonePanelVisible;
@@ -162,6 +209,12 @@ internal sealed class SettingsViewModel : ObservableObject
     {
         get => _startWithWindows;
         set => SetProperty(ref _startWithWindows, value);
+    }
+
+    public LayoutModeOption? SelectedLayoutMode
+    {
+        get => _selectedLayoutMode;
+        set => SetProperty(ref _selectedLayoutMode, value);
     }
 
     public string StatusMessage
@@ -175,6 +228,7 @@ internal sealed class SettingsViewModel : ObservableObject
     public RelayCommand AddSliderCommand { get; }
     public RelayCommand DeleteItemCommand { get; }
     public RelayCommand AddAudioDeviceCommand { get; }
+    public RelayCommand AddCommandStepCommand { get; }
     public RelayCommand RemoveAudioDeviceCommand { get; }
     public RelayCommand MoveAudioDeviceUpCommand { get; }
     public RelayCommand MoveAudioDeviceDownCommand { get; }
@@ -193,7 +247,7 @@ internal sealed class SettingsViewModel : ObservableObject
     {
         string title = kind switch
         {
-            LauncherItemKind.Toggle => "音声出力切り替え",
+            LauncherItemKind.Toggle => "新しい循環切り替え",
             LauncherItemKind.Slider => "新しいスライダー",
             _ => "新しいショートカット"
         };
@@ -204,7 +258,7 @@ internal sealed class SettingsViewModel : ObservableObject
     }
 
     private bool CanAddAudioDevice() =>
-        SelectedItem?.IsToggle == true
+        SelectedItem is { IsToggle: true, CycleKind: CycleActionKind.AudioOutput }
         && AudioDeviceToAdd is not null
         && SelectedItem.RegisteredAudioDevices.All(device =>
             !string.Equals(device.Id, AudioDeviceToAdd.Id, StringComparison.OrdinalIgnoreCase));
@@ -301,6 +355,80 @@ internal sealed class SettingsViewModel : ObservableObject
         MoveAudioDeviceDownCommand.NotifyCanExecuteChanged();
     }
 
+    private void AddCommandStep()
+    {
+        if (SelectedItem is not { IsToggle: true, CycleKind: CycleActionKind.Commands } item)
+        {
+            return;
+        }
+
+        CommandCycleStepEditorViewModel step = new(
+            Guid.NewGuid(),
+            $"操作 {item.CommandSteps.Count + 1}");
+        item.CommandSteps.Add(step);
+        SelectedCommandStep = step;
+        StatusMessage = "未保存の変更があります。";
+    }
+
+    internal void MoveCommandStep(CommandCycleStepEditorViewModel step, int offset)
+    {
+        if (SelectedItem is null)
+        {
+            return;
+        }
+
+        int currentIndex = SelectedItem.CommandSteps.IndexOf(step);
+        int targetIndex = currentIndex + offset;
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= SelectedItem.CommandSteps.Count)
+        {
+            return;
+        }
+
+        SelectedItem.CommandSteps.Move(currentIndex, targetIndex);
+        SelectedCommandStep = step;
+        StatusMessage = "未保存の変更があります。";
+    }
+
+    internal void RemoveCommandStep(CommandCycleStepEditorViewModel step)
+    {
+        if (SelectedItem is null)
+        {
+            return;
+        }
+
+        int index = SelectedItem.CommandSteps.IndexOf(step);
+        if (index < 0)
+        {
+            return;
+        }
+
+        SelectedItem.CommandSteps.RemoveAt(index);
+        SelectedCommandStep = SelectedItem.CommandSteps.Count == 0
+            ? null
+            : SelectedItem.CommandSteps[Math.Min(index, SelectedItem.CommandSteps.Count - 1)];
+        StatusMessage = "未保存の変更があります。";
+    }
+
+    internal void MoveItem(LauncherItemEditorViewModel item, int offset)
+    {
+        int currentIndex = Items.IndexOf(item);
+        int targetIndex = currentIndex + offset;
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= Items.Count)
+        {
+            return;
+        }
+
+        Items.Move(currentIndex, targetIndex);
+        SelectedItem = item;
+        StatusMessage = "未保存の変更があります。";
+    }
+
+    internal void RemoveItem(LauncherItemEditorViewModel item)
+    {
+        SelectedItem = item;
+        DeleteSelectedItem();
+    }
+
     private void DeleteSelectedItem()
     {
         if (SelectedItem is null)
@@ -318,13 +446,53 @@ internal sealed class SettingsViewModel : ObservableObject
 
     private async System.Threading.Tasks.Task SaveAsync()
     {
+        LauncherItemEditorViewModel? unnamedItem = Items.FirstOrDefault(item =>
+            string.IsNullOrWhiteSpace(item.Title));
+        if (unnamedItem is not null)
+        {
+            SelectedItem = unnamedItem;
+            StatusMessage = "表示名を入力してください。";
+            return;
+        }
+
         LauncherItemEditorViewModel? incompleteAudioItem = Items.FirstOrDefault(item =>
-            item.IsToggle && item.RegisteredAudioDevices.Count < 2);
+            item.IsToggle
+            && item.CycleKind == CycleActionKind.AudioOutput
+            && item.RegisteredAudioDevices
+                .Select(device => device.Id)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() < 2);
         if (incompleteAudioItem is not null)
         {
             SelectedItem = incompleteAudioItem;
             StatusMessage = "音声切り替えにはデバイスを2台以上登録してください。";
             return;
+        }
+
+        LauncherItemEditorViewModel? incompleteCommandItem = Items.FirstOrDefault(item =>
+            item.IsToggle
+            && item.CycleKind == CycleActionKind.Commands
+            && item.CommandSteps.Count < 2);
+        if (incompleteCommandItem is not null)
+        {
+            SelectedItem = incompleteCommandItem;
+            StatusMessage = "コマンド切り替えには操作を2つ以上登録してください。";
+            return;
+        }
+
+        foreach (LauncherItemEditorViewModel item in Items.Where(item =>
+                     item.IsToggle && item.CycleKind == CycleActionKind.Commands))
+        {
+            CommandCycleStepEditorViewModel? incompleteStep = item.CommandSteps.FirstOrDefault(step =>
+                string.IsNullOrWhiteSpace(step.DisplayName)
+                || string.IsNullOrWhiteSpace(step.Target));
+            if (incompleteStep is not null)
+            {
+                SelectedItem = item;
+                SelectedCommandStep = incompleteStep;
+                StatusMessage = "各操作の表示名と実行対象を入力してください。";
+                return;
+            }
         }
 
         _isSaving = true;
@@ -337,6 +505,7 @@ internal sealed class SettingsViewModel : ObservableObject
             {
                 AssumePhonePanelVisible = AssumePhonePanelVisible,
                 StartWithWindows = StartWithWindows,
+                LayoutMode = SelectedLayoutMode?.Value ?? LauncherLayoutMode.Standard,
                 Pages =
                 [
                     new LauncherPageDefinition
@@ -372,6 +541,8 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     private string _arguments = string.Empty;
     private string _workingDirectory = string.Empty;
     private bool _hideCommandWindow = true;
+    private CycleActionKind _cycleKind = CycleActionKind.AudioOutput;
+    private bool _retryFailedCommand = true;
     private readonly VolumeSliderDefinition? _volumeSlider;
 
     public LauncherItemEditorViewModel(
@@ -387,7 +558,11 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         _hideCommandWindow = action.HideCommandWindow;
         _volumeSlider = definition.VolumeSlider;
 
-        foreach (string deviceId in definition.AudioDeviceToggle?.GetOrderedDeviceIds() ?? [])
+        CycleActionDefinition? cycleAction = definition.GetEffectiveCycleAction();
+        _cycleKind = cycleAction?.Kind ?? CycleActionKind.AudioOutput;
+        _retryFailedCommand = cycleAction?.RetryFailedCommand ?? true;
+
+        foreach (string deviceId in cycleAction?.AudioDeviceIds ?? [])
         {
             string normalizedDeviceId = AudioDeviceId.Normalize(deviceId);
             AudioOutputDeviceOption? availableDevice = availableAudioDevices.FirstOrDefault(device =>
@@ -399,6 +574,11 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
                 normalizedDeviceId,
                 availableDevice?.DisplayName ?? "不明なデバイス",
                 availableDevice?.IsAvailable == true));
+        }
+
+        foreach (CommandCycleStepDefinition step in cycleAction?.CommandSteps ?? [])
+        {
+            CommandSteps.Add(new CommandCycleStepEditorViewModel(step));
         }
     }
 
@@ -416,13 +596,22 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     public Visibility ButtonSettingsVisibility => IsButton
         ? Visibility.Visible
         : Visibility.Collapsed;
-    public Visibility AudioDeviceSettingsVisibility => IsToggle
+    public Visibility CycleSettingsVisibility => IsToggle
         ? Visibility.Visible
         : Visibility.Collapsed;
+    public Visibility AudioDeviceSettingsVisibility => IsToggle
+        && CycleKind == CycleActionKind.AudioOutput
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    public Visibility CommandCycleSettingsVisibility => IsToggle
+        && CycleKind == CycleActionKind.Commands
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     public ObservableCollection<RegisteredAudioDeviceEditorViewModel> RegisteredAudioDevices { get; } = [];
+    public ObservableCollection<CommandCycleStepEditorViewModel> CommandSteps { get; } = [];
     public string KindDisplayName => Kind switch
     {
-        LauncherItemKind.Toggle => "音声切り替え",
+        LauncherItemKind.Toggle => "循環切り替え",
         LauncherItemKind.Slider => "スライダー",
         _ => "ボタン"
     };
@@ -463,6 +652,25 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         set => SetProperty(ref _hideCommandWindow, value);
     }
 
+    public CycleActionKind CycleKind
+    {
+        get => _cycleKind;
+        set
+        {
+            if (SetProperty(ref _cycleKind, value))
+            {
+                OnPropertyChanged(nameof(AudioDeviceSettingsVisibility));
+                OnPropertyChanged(nameof(CommandCycleSettingsVisibility));
+            }
+        }
+    }
+
+    public bool RetryFailedCommand
+    {
+        get => _retryFailedCommand;
+        set => SetProperty(ref _retryFailedCommand, value);
+    }
+
     public LauncherItemDefinition ToDefinition() => new()
     {
         Id = Id,
@@ -478,10 +686,14 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
                 HideCommandWindow = HideCommandWindow
             }
             : null,
-        AudioDeviceToggle = Kind == LauncherItemKind.Toggle
-            ? new AudioDeviceToggleDefinition
+        AudioDeviceToggle = null,
+        CycleAction = Kind == LauncherItemKind.Toggle
+            ? new CycleActionDefinition
             {
-                DeviceIds = RegisteredAudioDevices.Select(device => device.Id).ToList()
+                Kind = CycleKind,
+                RetryFailedCommand = RetryFailedCommand,
+                AudioDeviceIds = RegisteredAudioDevices.Select(device => device.Id).ToList(),
+                CommandSteps = CommandSteps.Select(step => step.ToDefinition()).ToList()
             }
             : null,
         VolumeSlider = Kind == LauncherItemKind.Slider
@@ -516,3 +728,86 @@ internal sealed class RegisteredAudioDeviceEditorViewModel(
         ? DisplayName
         : $"{DisplayName}（利用不可）";
 }
+
+internal sealed class CommandCycleStepEditorViewModel : ObservableObject
+{
+    private string _displayName;
+    private string _target;
+    private string _arguments;
+    private string _workingDirectory;
+    private bool _hideCommandWindow;
+
+    public CommandCycleStepEditorViewModel(CommandCycleStepDefinition definition)
+    {
+        Id = definition.Id;
+        _displayName = definition.DisplayName;
+        _target = definition.Action.Target;
+        _arguments = definition.Action.Arguments;
+        _workingDirectory = definition.Action.WorkingDirectory;
+        _hideCommandWindow = definition.Action.HideCommandWindow;
+    }
+
+    public CommandCycleStepEditorViewModel(Guid id, string displayName)
+    {
+        Id = id;
+        _displayName = displayName;
+        _target = string.Empty;
+        _arguments = string.Empty;
+        _workingDirectory = string.Empty;
+        _hideCommandWindow = true;
+    }
+
+    public Guid Id { get; }
+
+    public string DisplayName
+    {
+        get => _displayName;
+        set => SetProperty(ref _displayName, value);
+    }
+
+    public string Target
+    {
+        get => _target;
+        set => SetProperty(ref _target, value);
+    }
+
+    public string Arguments
+    {
+        get => _arguments;
+        set => SetProperty(ref _arguments, value);
+    }
+
+    public string WorkingDirectory
+    {
+        get => _workingDirectory;
+        set => SetProperty(ref _workingDirectory, value);
+    }
+
+    public bool HideCommandWindow
+    {
+        get => _hideCommandWindow;
+        set => SetProperty(ref _hideCommandWindow, value);
+    }
+
+    public CommandCycleStepDefinition ToDefinition() => new()
+    {
+        Id = Id,
+        DisplayName = DisplayName,
+        Action = new LauncherActionDefinition
+        {
+            Kind = LauncherActionKind.Command,
+            Target = Target,
+            Arguments = Arguments,
+            WorkingDirectory = WorkingDirectory,
+            HideCommandWindow = HideCommandWindow
+        }
+    };
+}
+
+internal sealed record CycleKindOption(
+    CycleActionKind Value,
+    string DisplayName);
+
+internal sealed record LayoutModeOption(
+    LauncherLayoutMode Value,
+    string DisplayName);

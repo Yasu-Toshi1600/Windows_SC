@@ -12,16 +12,19 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private readonly IActionExecutionService _actionExecutionService;
     private readonly IAudioOutputService _audioOutputService;
     private readonly LauncherActionDefinition? _action;
-    private readonly AudioDeviceToggleDefinition? _audioDeviceToggle;
+    private readonly CycleActionDefinition? _cycleAction;
     private readonly VolumeSliderDefinition? _volumeSlider;
     private bool _isOn;
     private double _sliderValue = 50;
     private bool _isExecuting;
-    private string _currentAudioDeviceName = "現在の出力を取得できません";
-    private bool _canCycleAudioOutput;
+    private string _cycleStatusText = "切り替え内容が設定されていません";
+    private bool _canExecuteCycle;
+    private int _nextCommandStepIndex;
     private bool _canAdjustVolume;
     private bool _isRefreshingVolume;
     private bool _isSettingVolume;
+    private int _layoutColumnSpan = 2;
+    private double _tileHeight = 160;
 
     public LauncherItemViewModel(
         LauncherItemDefinition definition,
@@ -32,16 +35,16 @@ internal sealed class LauncherItemViewModel : ObservableObject
         Kind = definition.Kind;
         Title = definition.Title;
         _action = definition.Action;
-        _audioDeviceToggle = definition.AudioDeviceToggle;
+        _cycleAction = definition.GetEffectiveCycleAction();
         _volumeSlider = definition.VolumeSlider;
         _actionExecutionService = actionExecutionService;
         _audioOutputService = audioOutputService;
         ExecuteCommand = new RelayCommand(
             () => _ = ExecuteAsync(),
             () => Kind == LauncherItemKind.Button && !_isExecuting);
-        CycleAudioOutputCommand = new RelayCommand(
-            () => _ = CycleAudioOutputAsync(),
-            () => Kind == LauncherItemKind.Toggle && _canCycleAudioOutput && !_isExecuting);
+        ExecuteCycleCommand = new RelayCommand(
+            () => _ = ExecuteCycleAsync(),
+            () => Kind == LauncherItemKind.Toggle && _canExecuteCycle && !_isExecuting);
         RefreshAudioOutputState();
     }
 
@@ -55,7 +58,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
 
     public RelayCommand ExecuteCommand { get; }
 
-    public RelayCommand CycleAudioOutputCommand { get; }
+    public RelayCommand ExecuteCycleCommand { get; }
 
     public Visibility ButtonVisibility => Kind == LauncherItemKind.Button
         ? Visibility.Visible
@@ -68,6 +71,26 @@ internal sealed class LauncherItemViewModel : ObservableObject
     public Visibility SliderVisibility => Kind == LauncherItemKind.Slider
         ? Visibility.Visible
         : Visibility.Collapsed;
+
+    public int LayoutColumnSpan
+    {
+        get => _layoutColumnSpan;
+        private set => SetProperty(ref _layoutColumnSpan, value);
+    }
+
+    public double TileHeight
+    {
+        get => _tileHeight;
+        private set => SetProperty(ref _tileHeight, value);
+    }
+
+    public void ApplyLayoutMode(LauncherLayoutMode layoutMode)
+    {
+        bool compactButton = layoutMode == LauncherLayoutMode.Compact
+            && Kind == LauncherItemKind.Button;
+        LayoutColumnSpan = compactButton ? 1 : 2;
+        TileHeight = compactButton ? 80 : 160;
+    }
 
     public bool IsOn
     {
@@ -106,10 +129,10 @@ internal sealed class LauncherItemViewModel : ObservableObject
         private set => SetProperty(ref _canAdjustVolume, value);
     }
 
-    public string CurrentAudioDeviceName
+    public string CycleStatusText
     {
-        get => _currentAudioDeviceName;
-        private set => SetProperty(ref _currentAudioDeviceName, value);
+        get => _cycleStatusText;
+        private set => SetProperty(ref _cycleStatusText, value);
     }
 
     public void RefreshAudioOutputState()
@@ -139,10 +162,16 @@ internal sealed class LauncherItemViewModel : ObservableObject
             return;
         }
 
-        AudioOutputDevice? currentDevice = _audioOutputService.GetDefaultDevice();
-        CurrentAudioDeviceName = currentDevice?.DisplayName ?? "現在の出力を取得できません";
+        if (_cycleAction?.Kind == CycleActionKind.Commands)
+        {
+            UpdateCommandCycleStatus();
+            return;
+        }
 
-        IReadOnlyList<string> registeredIds = (_audioDeviceToggle?.GetOrderedDeviceIds() ?? [])
+        AudioOutputDevice? currentDevice = _audioOutputService.GetDefaultDevice();
+        CycleStatusText = currentDevice?.DisplayName ?? "現在の出力を取得できません";
+
+        IReadOnlyList<string> registeredIds = (_cycleAction?.AudioDeviceIds ?? [])
             .Select(AudioDeviceId.Normalize)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -157,10 +186,10 @@ internal sealed class LauncherItemViewModel : ObservableObject
                 && (!currentIsRegistered
                     || !string.Equals(id, currentDevice!.Id, StringComparison.OrdinalIgnoreCase)));
 
-        if (_canCycleAudioOutput != canCycle)
+        if (_canExecuteCycle != canCycle)
         {
-            _canCycleAudioOutput = canCycle;
-            CycleAudioOutputCommand.NotifyCanExecuteChanged();
+            _canExecuteCycle = canCycle;
+            ExecuteCycleCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -190,39 +219,91 @@ internal sealed class LauncherItemViewModel : ObservableObject
         }
     }
 
-    private async System.Threading.Tasks.Task CycleAudioOutputAsync()
+    private async System.Threading.Tasks.Task ExecuteCycleAsync()
     {
-        if (_audioDeviceToggle is null || _isExecuting)
+        if (_cycleAction is null || _isExecuting)
         {
             return;
         }
 
         _isExecuting = true;
-        CycleAudioOutputCommand.NotifyCanExecuteChanged();
+        ExecuteCycleCommand.NotifyCanExecuteChanged();
         try
         {
-            AudioDeviceCycleResult result = await _audioOutputService.CycleAsync(
-                _audioDeviceToggle.GetOrderedDeviceIds());
-            if (result.IsSuccess && result.CurrentDevice is not null)
+            if (_cycleAction.Kind == CycleActionKind.Commands)
             {
-                CurrentAudioDeviceName = result.CurrentDevice.DisplayName;
-                Executed?.Invoke(
-                    this,
-                    new LauncherItemExecutedEventArgs(ActionExecutionResult.Success));
+                await ExecuteNextCommandStepAsync();
             }
             else
             {
-                Executed?.Invoke(
-                    this,
-                    new LauncherItemExecutedEventArgs(
-                        ActionExecutionResult.Failure(result.ErrorMessage)));
+                await CycleAudioOutputAsync();
             }
         }
         finally
         {
             _isExecuting = false;
             RefreshAudioOutputState();
-            CycleAudioOutputCommand.NotifyCanExecuteChanged();
+            ExecuteCycleCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private async System.Threading.Tasks.Task CycleAudioOutputAsync()
+    {
+        AudioDeviceCycleResult result = await _audioOutputService.CycleAsync(
+            _cycleAction?.AudioDeviceIds ?? []);
+        if (result.IsSuccess && result.CurrentDevice is not null)
+        {
+            CycleStatusText = result.CurrentDevice.DisplayName;
+            Executed?.Invoke(
+                this,
+                new LauncherItemExecutedEventArgs(ActionExecutionResult.Success));
+            return;
+        }
+
+        Executed?.Invoke(
+            this,
+            new LauncherItemExecutedEventArgs(
+                ActionExecutionResult.Failure(result.ErrorMessage)));
+    }
+
+    private async System.Threading.Tasks.Task ExecuteNextCommandStepAsync()
+    {
+        IReadOnlyList<CommandCycleStepDefinition> steps = _cycleAction?.CommandSteps ?? [];
+        if (steps.Count < 2)
+        {
+            return;
+        }
+
+        _nextCommandStepIndex %= steps.Count;
+        CommandCycleStepDefinition step = steps[_nextCommandStepIndex];
+        ActionExecutionResult result = await _actionExecutionService.ExecuteAsync(step.Action);
+        if (result.IsSuccess || !_cycleAction!.RetryFailedCommand)
+        {
+            _nextCommandStepIndex = (_nextCommandStepIndex + 1) % steps.Count;
+            UpdateCommandCycleStatus();
+        }
+
+        Executed?.Invoke(this, new LauncherItemExecutedEventArgs(result));
+    }
+
+    private void UpdateCommandCycleStatus()
+    {
+        IReadOnlyList<CommandCycleStepDefinition> steps = _cycleAction?.CommandSteps ?? [];
+        bool canExecute = steps.Count >= 2;
+        if (canExecute)
+        {
+            _nextCommandStepIndex %= steps.Count;
+            CycleStatusText = $"次: {steps[_nextCommandStepIndex].DisplayName}";
+        }
+        else
+        {
+            CycleStatusText = "操作を2件以上登録してください";
+        }
+
+        if (_canExecuteCycle != canExecute)
+        {
+            _canExecuteCycle = canExecute;
+            ExecuteCycleCommand.NotifyCanExecuteChanged();
         }
     }
 

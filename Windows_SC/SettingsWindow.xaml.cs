@@ -20,7 +20,31 @@ public sealed partial class SettingsWindow : Window
 
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(WindowNative.GetWindowHandle(this));
         AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
-        appWindow.Resize(new SizeInt32(900, 620));
+        appWindow.Resize(new SizeInt32(1040, 720));
+    }
+
+    private void LauncherItemMoveUp_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { DataContext: LauncherItemEditorViewModel item })
+        {
+            _viewModel.MoveItem(item, -1);
+        }
+    }
+
+    private void LauncherItemMoveDown_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { DataContext: LauncherItemEditorViewModel item })
+        {
+            _viewModel.MoveItem(item, 1);
+        }
+    }
+
+    private void LauncherItemRemove_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { DataContext: LauncherItemEditorViewModel item })
+        {
+            _viewModel.RemoveItem(item);
+        }
     }
 
     private void AudioDeviceMoveUp_Click(object sender, RoutedEventArgs args)
@@ -44,6 +68,30 @@ public sealed partial class SettingsWindow : Window
         if (sender is Button { DataContext: RegisteredAudioDeviceEditorViewModel device })
         {
             _viewModel.RemoveAudioDevice(device);
+        }
+    }
+
+    private void CommandStepMoveUp_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { DataContext: CommandCycleStepEditorViewModel step })
+        {
+            _viewModel.MoveCommandStep(step, -1);
+        }
+    }
+
+    private void CommandStepMoveDown_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { DataContext: CommandCycleStepEditorViewModel step })
+        {
+            _viewModel.MoveCommandStep(step, 1);
+        }
+    }
+
+    private void CommandStepRemove_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { DataContext: CommandCycleStepEditorViewModel step })
+        {
+            _viewModel.RemoveCommandStep(step);
         }
     }
 }

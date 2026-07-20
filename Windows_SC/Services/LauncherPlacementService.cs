@@ -2,12 +2,12 @@ using Microsoft.UI.Windowing;
 using System;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
+using Windows_SC.Models;
 
 namespace Windows_SC.Services;
 
 internal sealed class LauncherPlacementService(DiagnosticLogger logger) : ILauncherPlacementService
 {
-    private const int LauncherWidth = 500;
     private const int LauncherHeight = 600;
     private const int LauncherMargin = 12;
     private const double PhonePanelReservedEffectivePixels = 281;
@@ -17,12 +17,14 @@ internal sealed class LauncherPlacementService(DiagnosticLogger logger) : ILaunc
     public bool TryCalculate(
         StartMenuSnapshot? startMenuSnapshot,
         bool assumePhonePanelVisible,
+        LauncherLayoutMode layoutMode,
         out LauncherPlacement placement)
     {
         DisplayArea displayArea;
         PointInt32 dpiPoint;
         int x;
         int y;
+        int launcherWidth;
 
         if (startMenuSnapshot is { IsVisible: true, Bounds: not null } snapshot)
         {
@@ -52,21 +54,26 @@ internal sealed class LauncherPlacementService(DiagnosticLogger logger) : ILaunc
             }
 
             x = anchorRight + LauncherMargin;
-            y = Math.Clamp(
-                startBounds.Y + startBounds.Height - LauncherHeight - bottomMargin,
-                workArea.Y,
-                workArea.Y + workArea.Height - LauncherHeight);
-
-            if (x + LauncherWidth > workArea.X + workArea.Width)
+            launcherWidth = SelectLauncherWidth(
+                workArea.X + workArea.Width - x,
+                startCenter,
+                layoutMode);
+            if (launcherWidth == 0)
             {
+                int minimumWidth = ConvertEffectivePixelsToPhysical(280, startCenter);
                 logger.Write(
                     $"[WindowPlacement] result=failed reason=insufficient-right-space " +
                     $"start=({startBounds.X},{startBounds.Y},{startBounds.Width},{startBounds.Height}) " +
                     $"work-area=({workArea.X},{workArea.Y},{workArea.Width},{workArea.Height}) " +
-                    $"required-width={LauncherWidth}");
+                    $"required-width={minimumWidth}");
                 placement = default;
                 return false;
             }
+
+            y = Math.Clamp(
+                startBounds.Y + startBounds.Height - LauncherHeight - bottomMargin,
+                workArea.Y,
+                workArea.Y + workArea.Height - LauncherHeight);
 
             dpiPoint = startCenter;
         }
@@ -77,17 +84,48 @@ internal sealed class LauncherPlacementService(DiagnosticLogger logger) : ILaunc
             displayArea = DisplayArea.GetFromPoint(cursorPoint, DisplayAreaFallback.Nearest)
                 ?? DisplayArea.Primary;
             RectInt32 workArea = displayArea.WorkArea;
-            x = workArea.X + ((workArea.Width - LauncherWidth) / 2);
+            launcherWidth = SelectLauncherWidth(
+                workArea.Width,
+                cursorPoint,
+                layoutMode);
+            if (launcherWidth == 0)
+            {
+                placement = default;
+                return false;
+            }
+
+            x = workArea.X + ((workArea.Width - launcherWidth) / 2);
             y = workArea.Y + ((workArea.Height - LauncherHeight) / 2);
             dpiPoint = cursorPoint;
         }
 
         RectInt32 targetWorkArea = displayArea.WorkArea;
         placement = new LauncherPlacement(
-            new RectInt32(x, y, LauncherWidth, LauncherHeight),
+            new RectInt32(x, y, launcherWidth, LauncherHeight),
             targetWorkArea,
             dpiPoint);
         return true;
+    }
+
+    private int SelectLauncherWidth(
+        int availablePhysicalWidth,
+        PointInt32 dpiPoint,
+        LauncherLayoutMode layoutMode)
+    {
+        double[] candidates = layoutMode == LauncherLayoutMode.Compact
+            ? [500, 390, 280]
+            : [500, 280];
+
+        foreach (double effectiveWidth in candidates)
+        {
+            int physicalWidth = ConvertEffectivePixelsToPhysical(effectiveWidth, dpiPoint);
+            if (physicalWidth <= availablePhysicalWidth)
+            {
+                return physicalWidth;
+            }
+        }
+
+        return 0;
     }
 
     public int ConvertEffectivePixelsToPhysical(double effectivePixels, PointInt32 point)

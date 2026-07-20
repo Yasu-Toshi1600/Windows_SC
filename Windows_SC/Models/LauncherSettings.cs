@@ -14,6 +14,8 @@ internal sealed class LauncherSettings
 
     public bool StartWithWindows { get; set; }
 
+    public LauncherLayoutMode LayoutMode { get; set; } = LauncherLayoutMode.Standard;
+
     public List<LauncherPageDefinition> Pages { get; set; } = [];
 
     public static LauncherSettings CreateDefault() => new()
@@ -57,6 +59,8 @@ internal sealed class LauncherItemDefinition
 
     public AudioDeviceToggleDefinition? AudioDeviceToggle { get; set; }
 
+    public CycleActionDefinition? CycleAction { get; set; }
+
     public VolumeSliderDefinition? VolumeSlider { get; set; }
 
     public static LauncherItemDefinition CreateButton(string title) => new()
@@ -65,6 +69,25 @@ internal sealed class LauncherItemDefinition
         Title = title,
         Action = new LauncherActionDefinition()
     };
+
+    public CycleActionDefinition? GetEffectiveCycleAction()
+    {
+        if (CycleAction is not null)
+        {
+            return CycleAction;
+        }
+
+        if (AudioDeviceToggle is null)
+        {
+            return null;
+        }
+
+        return new CycleActionDefinition
+        {
+            Kind = CycleActionKind.AudioOutput,
+            AudioDeviceIds = AudioDeviceToggle.GetOrderedDeviceIds().ToList()
+        };
+    }
 }
 
 internal enum LauncherItemKind
@@ -126,6 +149,41 @@ internal sealed class AudioDeviceToggleDefinition
 
         return legacyDeviceIds;
     }
+}
+
+internal enum LauncherLayoutMode
+{
+    Standard,
+    Compact
+}
+
+internal sealed class CycleActionDefinition
+{
+    public CycleActionKind Kind { get; set; } = CycleActionKind.AudioOutput;
+
+    public bool RetryFailedCommand { get; set; } = true;
+
+    public List<string> AudioDeviceIds { get; set; } = [];
+
+    public List<CommandCycleStepDefinition> CommandSteps { get; set; } = [];
+}
+
+internal enum CycleActionKind
+{
+    AudioOutput,
+    Commands
+}
+
+internal sealed class CommandCycleStepDefinition
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    public LauncherActionDefinition Action { get; set; } = new()
+    {
+        Kind = LauncherActionKind.Command
+    };
 }
 
 internal sealed class VolumeSliderDefinition

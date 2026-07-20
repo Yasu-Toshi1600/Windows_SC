@@ -10,6 +10,7 @@ internal sealed class MainWindowViewModel : ObservableObject
 {
     private bool _assumePhonePanelVisible = true;
     private bool _startWithWindows;
+    private LauncherLayoutMode _layoutMode = LauncherLayoutMode.Standard;
 
     private LauncherSettings _settings = LauncherSettings.CreateDefault();
     private readonly IActionExecutionService _actionExecutionService;
@@ -51,6 +52,18 @@ internal sealed class MainWindowViewModel : ObservableObject
         set => SetProperty(ref _startWithWindows, value);
     }
 
+    public LauncherLayoutMode LayoutMode
+    {
+        get => _layoutMode;
+        private set
+        {
+            if (SetProperty(ref _layoutMode, value))
+            {
+                ApplyLayoutToShortcuts();
+            }
+        }
+    }
+
     public void ApplySettings(LauncherSettings settings)
     {
         foreach (LauncherItemViewModel shortcut in Shortcuts)
@@ -61,6 +74,7 @@ internal sealed class MainWindowViewModel : ObservableObject
         _settings = settings;
         AssumePhonePanelVisible = settings.AssumePhonePanelVisible;
         StartWithWindows = settings.StartWithWindows;
+        LayoutMode = settings.LayoutMode;
         Shortcuts.Clear();
 
         LauncherPageDefinition? firstPage = settings.Pages.FirstOrDefault();
@@ -76,6 +90,7 @@ internal sealed class MainWindowViewModel : ObservableObject
                 _actionExecutionService,
                 AudioOutputService);
             shortcut.Executed += Shortcut_Executed;
+            shortcut.ApplyLayoutMode(LayoutMode);
             Shortcuts.Add(shortcut);
         }
     }
@@ -92,7 +107,16 @@ internal sealed class MainWindowViewModel : ObservableObject
     {
         _settings.AssumePhonePanelVisible = AssumePhonePanelVisible;
         _settings.StartWithWindows = StartWithWindows;
+        _settings.LayoutMode = LayoutMode;
         return _settings;
+    }
+
+    private void ApplyLayoutToShortcuts()
+    {
+        foreach (LauncherItemViewModel shortcut in Shortcuts)
+        {
+            shortcut.ApplyLayoutMode(LayoutMode);
+        }
     }
 
     private void Shortcut_Executed(object? sender, LauncherItemExecutedEventArgs args) =>
