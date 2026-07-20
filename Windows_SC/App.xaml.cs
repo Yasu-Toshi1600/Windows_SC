@@ -19,6 +19,8 @@ public partial class App : Application
     private DiagnosticLogger? _logger;
     private IStartupService? _startupService;
     private IAudioOutputService? _audioOutputService;
+    private ISystemTrayService? _systemTrayService;
+    private bool _isShuttingDown;
 
     public App()
     {
@@ -54,7 +56,13 @@ public partial class App : Application
             logger);
         IGlobalInputService inputService = new GlobalInputService(logger);
         ILauncherPlacementService placementService = new LauncherPlacementService(logger);
-        IWindowInteropService windowInteropService = new WindowInteropService(inputService);
+        _systemTrayService = new WindowsSystemTrayService(logger);
+        _systemTrayService.ShowLauncherRequested += SystemTrayService_ShowLauncherRequested;
+        _systemTrayService.SettingsRequested += SystemTrayService_SettingsRequested;
+        _systemTrayService.ExitRequested += SystemTrayService_ExitRequested;
+        IWindowInteropService windowInteropService = new WindowInteropService(
+            inputService,
+            _systemTrayService);
         _window = new MainWindow(
             _viewModel,
             logger,
@@ -85,6 +93,15 @@ public partial class App : Application
             {
                 _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
                 _viewModel.SettingsRequested -= ViewModel_SettingsRequested;
+            }
+
+            if (_systemTrayService is not null)
+            {
+                _systemTrayService.ShowLauncherRequested -= SystemTrayService_ShowLauncherRequested;
+                _systemTrayService.SettingsRequested -= SystemTrayService_SettingsRequested;
+                _systemTrayService.ExitRequested -= SystemTrayService_ExitRequested;
+                _systemTrayService.Dispose();
+                _systemTrayService = null;
             }
 
             _singleInstanceService?.Dispose();
@@ -125,6 +142,11 @@ public partial class App : Application
     }
 
     private void ViewModel_SettingsRequested(object? sender, EventArgs args)
+    {
+        ShowSettingsWindow();
+    }
+
+    private void ShowSettingsWindow()
     {
         if (_settingsWindow is not null)
         {
@@ -170,7 +192,33 @@ public partial class App : Application
 
     private void SettingsViewModel_ExitApplicationRequested(object? sender, EventArgs args)
     {
-        _logger?.Write("[Application] shutdown=requested source=settings");
+        RequestShutdown("settings");
+    }
+
+    private void SystemTrayService_ShowLauncherRequested(object? sender, EventArgs args)
+    {
+        _window?.DispatcherQueue.TryEnqueue(() => _window?.RequestManualShow());
+    }
+
+    private void SystemTrayService_SettingsRequested(object? sender, EventArgs args)
+    {
+        _window?.DispatcherQueue.TryEnqueue(ShowSettingsWindow);
+    }
+
+    private void SystemTrayService_ExitRequested(object? sender, EventArgs args)
+    {
+        _window?.DispatcherQueue.TryEnqueue(() => RequestShutdown("system-tray"));
+    }
+
+    private void RequestShutdown(string source)
+    {
+        if (_isShuttingDown)
+        {
+            return;
+        }
+
+        _isShuttingDown = true;
+        _logger?.Write($"[Application] shutdown=requested source={source}");
         _settingsWindow?.Close();
         _window?.Close();
     }

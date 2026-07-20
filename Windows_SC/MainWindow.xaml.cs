@@ -170,6 +170,18 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    internal void RequestManualShow()
+    {
+        if (_motionCoordinator.State == LauncherMotionState.Exiting)
+        {
+            ShowWindow(activate: true, "tray-reverse", null);
+        }
+        else if (!_motionCoordinator.IsWindowVisible)
+        {
+            ShowWindow(activate: true, "system-tray", null);
+        }
+    }
+
     private void InputService_ManualToggleRequested(object? sender, EventArgs args) =>
         ToggleWindow();
 

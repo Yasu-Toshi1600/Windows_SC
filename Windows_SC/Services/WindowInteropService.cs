@@ -4,7 +4,9 @@ using System.Runtime.InteropServices;
 
 namespace Windows_SC.Services;
 
-internal sealed class WindowInteropService(IGlobalInputService inputService) : IWindowInteropService
+internal sealed class WindowInteropService(
+    IGlobalInputService inputService,
+    ISystemTrayService systemTrayService) : IWindowInteropService
 {
     private const uint WmKeyDown = 0x0100;
     private const int VirtualKeyEscape = 0x1B;
@@ -39,6 +41,8 @@ internal sealed class WindowInteropService(IGlobalInputService inputService) : I
                 throw new Win32Exception(error, "ウィンドウメッセージの監視を開始できませんでした。");
             }
         }
+
+        systemTrayService.Start(windowHandle);
     }
 
     public bool IsForeground(IntPtr windowHandle) => GetForegroundWindow() == windowHandle;
@@ -67,6 +71,11 @@ internal sealed class WindowInteropService(IGlobalInputService inputService) : I
         IntPtr wParam,
         IntPtr lParam)
     {
+        if (systemTrayService.TryHandleWindowMessage(message, wParam, lParam, out IntPtr result))
+        {
+            return result;
+        }
+
         if (inputService.TryHandleWindowMessage(message, wParam))
         {
             return IntPtr.Zero;
