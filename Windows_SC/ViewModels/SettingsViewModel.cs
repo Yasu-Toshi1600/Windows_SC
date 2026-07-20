@@ -122,6 +122,12 @@ internal sealed class SettingsViewModel : ObservableObject
         new(LauncherLayoutMode.Compact, "コンパクト（最大4列）")
     ];
 
+    public IReadOnlyList<PostExecutionBehaviorOption> PostExecutionBehaviors { get; } =
+    [
+        new(LauncherPostExecutionBehavior.CloseOnSuccess, "成功後に閉じる"),
+        new(LauncherPostExecutionBehavior.KeepOpen, "表示したまま")
+    ];
+
     public LauncherItemEditorViewModel? SelectedItem
     {
         get => _selectedItem;
@@ -686,6 +692,8 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     private bool _hideCommandWindow = true;
     private CycleActionKind _cycleKind = CycleActionKind.AudioOutput;
     private bool _retryFailedCommand = true;
+    private LauncherPostExecutionBehavior _postExecutionBehavior =
+        LauncherPostExecutionBehavior.CloseOnSuccess;
     private readonly VolumeSliderDefinition? _volumeSlider;
 
     public LauncherItemEditorViewModel(
@@ -699,6 +707,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         _arguments = action.Arguments;
         _workingDirectory = action.WorkingDirectory;
         _hideCommandWindow = action.HideCommandWindow;
+        _postExecutionBehavior = definition.PostExecutionBehavior;
         _volumeSlider = definition.VolumeSlider;
 
         CycleActionDefinition? cycleAction = definition.GetEffectiveCycleAction();
@@ -740,6 +749,9 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         ? Visibility.Visible
         : Visibility.Collapsed;
     public Visibility CycleSettingsVisibility => IsToggle
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility PostExecutionSettingsVisibility => Kind != LauncherItemKind.Slider
         ? Visibility.Visible
         : Visibility.Collapsed;
     public Visibility AudioDeviceSettingsVisibility => IsToggle
@@ -814,11 +826,18 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         set => SetProperty(ref _retryFailedCommand, value);
     }
 
+    public LauncherPostExecutionBehavior PostExecutionBehavior
+    {
+        get => _postExecutionBehavior;
+        set => SetProperty(ref _postExecutionBehavior, value);
+    }
+
     public LauncherItemDefinition ToDefinition() => new()
     {
         Id = Id,
         Kind = Kind,
         Title = Title,
+        PostExecutionBehavior = PostExecutionBehavior,
         Action = Kind == LauncherItemKind.Button
             ? new LauncherActionDefinition
             {
@@ -949,6 +968,10 @@ internal sealed class CommandCycleStepEditorViewModel : ObservableObject
 
 internal sealed record CycleKindOption(
     CycleActionKind Value,
+    string DisplayName);
+
+internal sealed record PostExecutionBehaviorOption(
+    LauncherPostExecutionBehavior Value,
     string DisplayName);
 
 internal sealed record LayoutModeOption(

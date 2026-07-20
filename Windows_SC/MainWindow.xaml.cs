@@ -483,9 +483,14 @@ public sealed partial class MainWindow : Window
         object? sender,
         LauncherItemExecutedEventArgs args)
     {
-        if (args.Result.IsSuccess)
+        if (args.Result.IsSuccess && args.ShouldCloseOnSuccess)
         {
             RequestExit("action-executed");
+            return;
+        }
+
+        if (args.Result.IsSuccess)
+        {
             return;
         }
 

@@ -57,6 +57,9 @@ internal sealed class LauncherItemDefinition
 
     public string Title { get; set; } = string.Empty;
 
+    public LauncherPostExecutionBehavior PostExecutionBehavior { get; set; } =
+        LauncherPostExecutionBehavior.CloseOnSuccess;
+
     public LauncherActionDefinition? Action { get; set; }
 
     public AudioDeviceToggleDefinition? AudioDeviceToggle { get; set; }
@@ -151,6 +154,12 @@ internal sealed class AudioDeviceToggleDefinition
 
         return legacyDeviceIds;
     }
+}
+
+internal enum LauncherPostExecutionBehavior
+{
+    CloseOnSuccess,
+    KeepOpen
 }
 
 internal enum LauncherLayoutMode

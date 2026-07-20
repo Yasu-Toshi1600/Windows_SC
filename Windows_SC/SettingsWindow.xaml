@@ -6,6 +6,11 @@
     Title="Windows_SC 設定">
 
     <Grid x:Name="RootGrid" Padding="24" RowDefinitions="Auto,*,Auto" RowSpacing="16">
+        <Border Padding="16"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
         <Grid ColumnDefinitions="*,180,Auto,Auto" ColumnSpacing="16">
             <StackPanel Spacing="4">
                 <TextBlock FontSize="24" FontWeight="SemiBold" Text="ランチャー設定" />
@@ -28,15 +33,27 @@
                           OffContent="起動しない"
                           OnContent="自動起動" />
         </Grid>
+        </Border>
 
-        <Grid Grid.Row="1" ColumnDefinitions="*,12,380">
+        <Grid Grid.Row="1" ColumnDefinitions="*,16,430">
+            <Border Padding="12"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8">
             <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
                 <TextBlock FontSize="16" FontWeight="SemiBold" Text="項目" />
-                <ListView Grid.Row="1"
+                <ListView x:Name="LauncherItemsList"
+                          Grid.Row="1"
                           ItemsSource="{Binding Items}"
                           SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
                     <ListView.ItemTemplate>
                         <DataTemplate>
+                            <Border Margin="0,2"
+                                    Padding="8"
+                                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
                             <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
                                 <TextBlock VerticalAlignment="Center" Text="{Binding Title}" />
                                 <TextBlock Grid.Column="1"
@@ -59,6 +76,7 @@
                                         Padding="8,4"
                                         ToolTipService.ToolTip="削除" />
                             </Grid>
+                            </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
@@ -68,13 +86,26 @@
                     <Button Command="{Binding AddSliderCommand}" Content="スライダー追加" />
                 </StackPanel>
             </Grid>
+            </Border>
 
-            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+            <Border Grid.Column="2"
+                    Padding="12"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Spacing="12">
                     <TextBlock FontSize="16" FontWeight="SemiBold" Text="選択項目" />
                     <TextBox Header="表示名"
                              Text="{Binding SelectedItem.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                     <TextBox Header="種類" IsReadOnly="True" Text="{Binding SelectedItem.KindDisplayName}" />
+                    <ComboBox Header="実行後"
+                              DisplayMemberPath="DisplayName"
+                              ItemsSource="{Binding PostExecutionBehaviors}"
+                              SelectedValue="{Binding SelectedItem.PostExecutionBehavior, Mode=TwoWay}"
+                              SelectedValuePath="Value"
+                              Visibility="{Binding SelectedItem.PostExecutionSettingsVisibility}" />
                     <StackPanel Spacing="12"
                                 Visibility="{Binding SelectedItem.ButtonSettingsVisibility}">
                         <ComboBox Header="実行種類"
@@ -111,7 +142,8 @@
                         <Button HorizontalAlignment="Left"
                                 Command="{Binding AddAudioDeviceCommand}"
                                 Content="一覧に追加" />
-                        <ListView Height="180"
+                        <ListView x:Name="AudioDeviceList"
+                                  Height="180"
                                   ItemsSource="{Binding SelectedItem.RegisteredAudioDevices}"
                                   SelectedItem="{Binding SelectedRegisteredAudioDevice, Mode=TwoWay}">
                             <ListView.ItemTemplate>
@@ -151,7 +183,8 @@
                         <Button HorizontalAlignment="Left"
                                 Command="{Binding AddCommandStepCommand}"
                                 Content="操作を追加" />
-                        <ListView Height="150"
+                        <ListView x:Name="CommandStepList"
+                                  Height="150"
                                   ItemsSource="{Binding SelectedItem.CommandSteps}"
                                   SelectedItem="{Binding SelectedCommandStep, Mode=TwoWay}">
                             <ListView.ItemTemplate>
@@ -195,6 +228,7 @@
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>
+            </Border>
         </Grid>
 
         <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">

@@ -3,6 +3,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
+using System.Runtime.InteropServices;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows_SC.ViewModels;
@@ -21,9 +22,10 @@ public sealed partial class SettingsWindow : Window
         RootGrid.DataContext = viewModel;
         TroubleshootingDialog.DataContext = viewModel;
 
-        WindowId windowId = Win32Interop.GetWindowIdFromWindow(WindowNative.GetWindowHandle(this));
+        nint windowHandle = WindowNative.GetWindowHandle(this);
+        WindowId windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
         AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
-        appWindow.Resize(new SizeInt32(1040, 720));
+        ResizeAndCenter(appWindow, windowId, windowHandle);
     }
 
     private void LauncherItemMoveUp_Click(object sender, RoutedEventArgs args)
@@ -31,6 +33,7 @@ public sealed partial class SettingsWindow : Window
         if (sender is Button { DataContext: LauncherItemEditorViewModel item })
         {
             _viewModel.MoveItem(item, -1);
+            KeepItemVisible(LauncherItemsList, item);
         }
     }
 
@@ -39,6 +42,7 @@ public sealed partial class SettingsWindow : Window
         if (sender is Button { DataContext: LauncherItemEditorViewModel item })
         {
             _viewModel.MoveItem(item, 1);
+            KeepItemVisible(LauncherItemsList, item);
         }
     }
 
@@ -55,6 +59,7 @@ public sealed partial class SettingsWindow : Window
         if (sender is Button { DataContext: RegisteredAudioDeviceEditorViewModel device })
         {
             _viewModel.MoveAudioDevice(device, -1);
+            KeepItemVisible(AudioDeviceList, device);
         }
     }
 
@@ -63,6 +68,7 @@ public sealed partial class SettingsWindow : Window
         if (sender is Button { DataContext: RegisteredAudioDeviceEditorViewModel device })
         {
             _viewModel.MoveAudioDevice(device, 1);
+            KeepItemVisible(AudioDeviceList, device);
         }
     }
 
@@ -79,6 +85,7 @@ public sealed partial class SettingsWindow : Window
         if (sender is Button { DataContext: CommandCycleStepEditorViewModel step })
         {
             _viewModel.MoveCommandStep(step, -1);
+            KeepItemVisible(CommandStepList, step);
         }
     }
 
@@ -87,6 +94,7 @@ public sealed partial class SettingsWindow : Window
         if (sender is Button { DataContext: CommandCycleStepEditorViewModel step })
         {
             _viewModel.MoveCommandStep(step, 1);
+            KeepItemVisible(CommandStepList, step);
         }
     }
 
@@ -103,6 +111,33 @@ public sealed partial class SettingsWindow : Window
         TroubleshootingDialog.XamlRoot = RootGrid.XamlRoot;
         await TroubleshootingDialog.ShowAsync();
     }
+
+    private void KeepItemVisible(ListView listView, object item)
+    {
+        listView.SelectedItem = item;
+        DispatcherQueue.TryEnqueue(() => listView.ScrollIntoView(item));
+    }
+
+    private static void ResizeAndCenter(AppWindow appWindow, WindowId windowId, nint windowHandle)
+    {
+        DisplayArea displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
+        RectInt32 workArea = displayArea.WorkArea;
+        double scale = Math.Max(GetDpiForWindow(windowHandle), 96) / 96d;
+        int margin = (int)Math.Round(48 * scale);
+        int width = Math.Min(
+            (int)Math.Round(1180 * scale),
+            Math.Max(1, workArea.Width - margin));
+        int height = Math.Min(
+            (int)Math.Round(800 * scale),
+            Math.Max(1, workArea.Height - margin));
+        int x = workArea.X + Math.Max(0, (workArea.Width - width) / 2);
+        int y = workArea.Y + Math.Max(0, (workArea.Height - height) / 2);
+
+        appWindow.MoveAndResize(new RectInt32(x, y, width, height));
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint windowHandle);
 
     private void OpenLogFolder_Click(object sender, RoutedEventArgs args) =>
         _viewModel.OpenLogFolder();

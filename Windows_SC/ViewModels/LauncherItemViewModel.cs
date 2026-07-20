@@ -14,6 +14,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private readonly LauncherActionDefinition? _action;
     private readonly CycleActionDefinition? _cycleAction;
     private readonly VolumeSliderDefinition? _volumeSlider;
+    private readonly LauncherPostExecutionBehavior _postExecutionBehavior;
     private bool _isOn;
     private double _sliderValue = 50;
     private bool _isExecuting;
@@ -37,6 +38,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
         _action = definition.Action;
         _cycleAction = definition.GetEffectiveCycleAction();
         _volumeSlider = definition.VolumeSlider;
+        _postExecutionBehavior = definition.PostExecutionBehavior;
         _actionExecutionService = actionExecutionService;
         _audioOutputService = audioOutputService;
         ExecuteCommand = new RelayCommand(
@@ -200,7 +202,8 @@ internal sealed class LauncherItemViewModel : ObservableObject
             Executed?.Invoke(
                 this,
                 new LauncherItemExecutedEventArgs(
-                    ActionExecutionResult.Failure("このボタンには実行内容が設定されていません。")));
+                    ActionExecutionResult.Failure("このボタンには実行内容が設定されていません。"),
+                    shouldCloseOnSuccess: false));
             return;
         }
 
@@ -210,7 +213,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
         try
         {
             ActionExecutionResult result = await _actionExecutionService.ExecuteAsync(_action);
-            Executed?.Invoke(this, new LauncherItemExecutedEventArgs(result));
+            RaiseExecuted(result);
         }
         finally
         {
@@ -256,14 +259,17 @@ internal sealed class LauncherItemViewModel : ObservableObject
             CycleStatusText = result.CurrentDevice.DisplayName;
             Executed?.Invoke(
                 this,
-                new LauncherItemExecutedEventArgs(ActionExecutionResult.Success));
+                new LauncherItemExecutedEventArgs(
+                    ActionExecutionResult.Success,
+                    ShouldCloseOnSuccess));
             return;
         }
 
         Executed?.Invoke(
             this,
             new LauncherItemExecutedEventArgs(
-                ActionExecutionResult.Failure(result.ErrorMessage)));
+                ActionExecutionResult.Failure(result.ErrorMessage),
+                shouldCloseOnSuccess: false));
     }
 
     private async System.Threading.Tasks.Task ExecuteNextCommandStepAsync()
@@ -283,7 +289,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
             UpdateCommandCycleStatus();
         }
 
-        Executed?.Invoke(this, new LauncherItemExecutedEventArgs(result));
+        RaiseExecuted(result);
     }
 
     private void UpdateCommandCycleStatus()
@@ -325,7 +331,8 @@ internal sealed class LauncherItemViewModel : ObservableObject
                 Executed?.Invoke(
                     this,
                     new LauncherItemExecutedEventArgs(
-                        ActionExecutionResult.Failure(result.ErrorMessage)));
+                        ActionExecutionResult.Failure(result.ErrorMessage),
+                        shouldCloseOnSuccess: false));
             }
         }
         finally
@@ -333,9 +340,21 @@ internal sealed class LauncherItemViewModel : ObservableObject
             _isSettingVolume = false;
         }
     }
+
+    private bool ShouldCloseOnSuccess =>
+        _postExecutionBehavior == LauncherPostExecutionBehavior.CloseOnSuccess;
+
+    private void RaiseExecuted(ActionExecutionResult result) =>
+        Executed?.Invoke(
+            this,
+            new LauncherItemExecutedEventArgs(result, ShouldCloseOnSuccess));
 }
 
-internal sealed class LauncherItemExecutedEventArgs(ActionExecutionResult result) : EventArgs
+internal sealed class LauncherItemExecutedEventArgs(
+    ActionExecutionResult result,
+    bool shouldCloseOnSuccess) : EventArgs
 {
     public ActionExecutionResult Result { get; } = result;
+
+    public bool ShouldCloseOnSuccess { get; } = shouldCloseOnSuccess;
 }
