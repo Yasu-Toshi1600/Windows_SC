@@ -9,14 +9,22 @@
 
 ## 2. 保存場所
 
+非パッケージ実行時:
+
 ```text
-%LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.log
-%LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.previous.log
-%LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.detail.log
-%LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.detail.previous.log
+%LOCALAPPDATA%\Windows_SC\Logs\
 ```
 
+MSIXパッケージ実行時:
+
+```text
+%LOCALAPPDATA%\Packages\<package-family-name>\LocalState\Logs\
+```
+
+各フォルダーに `window-diagnostics.log`、`window-diagnostics.previous.log`、`window-diagnostics.detail.log`、`window-diagnostics.detail.previous.log`を保存する。設定画面には現在の実行方式に対応する実体パスを表示し、「ログフォルダーを開く」はそのフォルダーが未生成または削除済みでも再作成してから開く。
+
 - UTF-8、BOMなし、各行にローカル日時とミリ秒を付ける。
+- 通常ログファイルはロガー初期化時に作成し、起動直後でも保存場所を確認できるようにする。
 - 通常ログと詳細ログはそれぞれ起動時に2MB以上ならpreviousへ移動する。
 - previousは各種類1世代だけ保持する。
 - 設定画面の削除操作では4ファイルを確認後に削除する。
@@ -105,4 +113,5 @@
 4. 再起動後も期限内だけ有効になる。
 5. ログにWindowsユーザー名とユーザープロファイルの実パスが残らない。
 6. ログ削除のキャンセルでは何も消えず、確定時に4ファイルが削除される。
-7. ログフォルダーと環境情報に不要な個人情報が含まれない。
+7. 非パッケージ版とMSIX版の両方で、表示中の保存先と実体が一致し、ログフォルダーを開ける。
+8. ログフォルダーと環境情報に不要な個人情報が含まれない。

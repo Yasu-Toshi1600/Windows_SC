@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -277,10 +278,9 @@ internal sealed class SettingsViewModel : ObservableObject
         }
     }
 
-    public string NormalLogPath => @"%LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.log";
+    public string NormalLogPath => GetDisplayPath(_logger.LogFilePath);
 
-    public string DetailedLogPath =>
-        @"%LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.detail.log";
+    public string DetailedLogPath => GetDisplayPath(_logger.DetailedLogFilePath);
 
     public RelayCommand AddButtonCommand { get; }
     public RelayCommand AddToggleCommand { get; }
@@ -298,6 +298,7 @@ internal sealed class SettingsViewModel : ObservableObject
     {
         try
         {
+            Directory.CreateDirectory(_logger.LogDirectoryPath);
             Process.Start(new ProcessStartInfo
             {
                 FileName = _logger.LogDirectoryPath,
@@ -306,10 +307,23 @@ internal sealed class SettingsViewModel : ObservableObject
             StatusMessage = "ログフォルダーを開きました。";
         }
         catch (Exception exception) when (exception is InvalidOperationException
-            or System.ComponentModel.Win32Exception)
+            or System.ComponentModel.Win32Exception
+            or IOException
+            or UnauthorizedAccessException)
         {
             StatusMessage = $"ログフォルダーを開けませんでした: {exception.Message}";
         }
+    }
+
+    private static string GetDisplayPath(string path)
+    {
+        string localAppData = Environment
+            .GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+            .TrimEnd(Path.DirectorySeparatorChar);
+        string localAppDataPrefix = localAppData + Path.DirectorySeparatorChar;
+        return path.StartsWith(localAppDataPrefix, StringComparison.OrdinalIgnoreCase)
+            ? $"%LOCALAPPDATA%{Path.DirectorySeparatorChar}" + path[localAppDataPrefix.Length..]
+            : path;
     }
 
     internal async System.Threading.Tasks.Task ApplyDetailedDiagnosticsAsync()

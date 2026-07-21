@@ -2,8 +2,10 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Windows.Storage;
 
 namespace Windows_SC;
 
@@ -24,10 +26,7 @@ internal sealed class DiagnosticLogger : IDisposable
 
     public DiagnosticLogger()
     {
-        _logDirectoryPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Windows_SC",
-            "Logs");
+        _logDirectoryPath = ResolveLogDirectoryPath();
 
         Directory.CreateDirectory(_logDirectoryPath);
         _logFilePath = Path.Combine(_logDirectoryPath, "window-diagnostics.log");
@@ -38,6 +37,7 @@ internal sealed class DiagnosticLogger : IDisposable
             "window-diagnostics.detail.previous.log");
         RotateIfNeeded(_logFilePath, _previousLogFilePath);
         RotateIfNeeded(_detailedLogFilePath, _previousDetailedLogFilePath);
+        EnsureFileExists(_logFilePath);
         _writerThread = new Thread(WriterLoop)
         {
             IsBackground = true,
@@ -187,6 +187,36 @@ internal sealed class DiagnosticLogger : IDisposable
                 batch.ToString(),
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
+    }
+
+    private static string ResolveLogDirectoryPath()
+    {
+        try
+        {
+            string packagedLocalPath = ApplicationData.Current.LocalFolder.Path;
+            if (!string.IsNullOrWhiteSpace(packagedLocalPath))
+            {
+                return Path.Combine(packagedLocalPath, "Logs");
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or COMException)
+        {
+            // Unpackaged execution has no ApplicationData package identity.
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Windows_SC",
+            "Logs");
+    }
+
+    private static void EnsureFileExists(string path)
+    {
+        using FileStream stream = new(
+            path,
+            FileMode.OpenOrCreate,
+            FileAccess.Write,
+            FileShare.ReadWrite);
     }
 
     private static void RotateIfNeeded(string path, string previousPath)
