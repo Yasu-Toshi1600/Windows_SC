@@ -16,10 +16,12 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     private readonly DiagnosticLogger _logger;
     private readonly StartMenuWindowInspector _windowInspector;
     private readonly AutoResetEvent _scanRequested = new(false);
+    private readonly ManualResetEvent _disposeRequested = new(false);
     private readonly Thread _workerThread;
+    private readonly Thread _focusEventThread;
     private readonly object _stateLock = new();
     private StartMenuSnapshot _snapshot = StartMenuSnapshot.Hidden;
-    private bool _isDisposed;
+    private volatile bool _isDisposed;
     private string _lastSnapshotSignature = string.Empty;
     private string _lastFocusedElementSignature = string.Empty;
     private int _monitoringActive;
@@ -40,6 +42,12 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             Name = "Windows_SC UI Automation"
         };
         _workerThread.SetApartmentState(ApartmentState.STA);
+        _focusEventThread = new Thread(FocusEventLoop)
+        {
+            IsBackground = true,
+            Name = "Windows_SC UI Automation Events"
+        };
+        _focusEventThread.SetApartmentState(ApartmentState.STA);
     }
 
     public bool IsStartMenuVisible
@@ -69,8 +77,9 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     public void Start()
     {
         _workerThread.Start();
+        _focusEventThread.Start();
         RequestScan();
-        _logger.WriteDetailed("[UIAutomation] worker=started apartment=STA");
+        _logger.WriteDetailed("[UIAutomation] workers=started apartment=STA");
     }
 
     public void RequestScan()
@@ -90,6 +99,14 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
     }
 
+    public void RequestScanIfStartMenuWindowVisible()
+    {
+        if (!_isDisposed && _windowInspector.IsStartMenuVisible())
+        {
+            RequestScan();
+        }
+    }
+
     public void AssumeHidden()
     {
         UpdateSnapshot(StartMenuSnapshot.Hidden);
@@ -103,12 +120,53 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
 
         _isDisposed = true;
+        _disposeRequested.Set();
         _scanRequested.Set();
         _workerThread.Join(TimeSpan.FromSeconds(1));
-        _scanRequested.Dispose();
+        if (!_workerThread.IsAlive)
+        {
+            _scanRequested.Dispose();
+        }
+
+        // Focus-event registration can be blocked by an external UI Automation
+        // provider. It is a background thread, so shutdown must not wait for it.
     }
 
     private void WorkerLoop()
+    {
+        while (true)
+        {
+            // Scans are event driven while idle. MainWindow requests bounded
+            // fallback scans after the Windows key and while the launcher is open.
+            _scanRequested.WaitOne();
+
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            try
+            {
+                long scanStartedTimestamp = Stopwatch.GetTimestamp();
+                ScanDesktopAutomationTree();
+                TimeSpan scanElapsed = Stopwatch.GetElapsedTime(scanStartedTimestamp);
+                if (scanElapsed >= TimeSpan.FromMilliseconds(50))
+                {
+                    _logger.Write(
+                        $"[UIAutomation] scan=slow elapsed-ms={scanElapsed.TotalMilliseconds:F1}");
+                }
+            }
+            catch (Exception exception) when (exception is ElementNotAvailableException
+                or InvalidOperationException
+                or System.Runtime.InteropServices.COMException)
+            {
+                UpdateSnapshot(StartMenuSnapshot.Hidden);
+                _logger.Write($"[UIAutomation] scan=failed exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            }
+        }
+    }
+
+    private void FocusEventLoop()
     {
         _focusChangedHandler = (_, _) =>
         {
@@ -118,53 +176,51 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                 RequestScan();
             }
         };
+        bool registered = false;
+        long registrationStartedTimestamp = Stopwatch.GetTimestamp();
 
         try
         {
             Automation.AddAutomationFocusChangedEventHandler(_focusChangedHandler);
+            registered = true;
+            if (_isDisposed)
+            {
+                return;
+            }
+
             Interlocked.Exchange(ref _isReady, 1);
             ReadyChanged?.Invoke(this, EventArgs.Empty);
-            _logger.WriteDetailed("[UIAutomation] focus-event=registered");
-
-            while (true)
-            {
-                // Scans are event driven while idle. MainWindow requests bounded
-                // fallback scans after the Windows key and while the launcher is open.
-                _scanRequested.WaitOne();
-
-                if (_isDisposed)
-                {
-                    return;
-                }
-
-                try
-                {
-                    long scanStartedTimestamp = Stopwatch.GetTimestamp();
-                    ScanDesktopAutomationTree();
-                    TimeSpan scanElapsed = Stopwatch.GetElapsedTime(scanStartedTimestamp);
-                    if (scanElapsed >= TimeSpan.FromMilliseconds(50))
-                    {
-                        _logger.Write(
-                            $"[UIAutomation] scan=slow elapsed-ms={scanElapsed.TotalMilliseconds:F1}");
-                    }
-                }
-                catch (Exception exception) when (exception is ElementNotAvailableException
-                    or InvalidOperationException
-                    or System.Runtime.InteropServices.COMException)
-                {
-                    UpdateSnapshot(StartMenuSnapshot.Hidden);
-                    _logger.Write($"[UIAutomation] scan=failed exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
-                }
-            }
+            _logger.WriteDetailed(
+                $"[UIAutomation] focus-event=registered elapsed-ms=" +
+                $"{Stopwatch.GetElapsedTime(registrationStartedTimestamp).TotalMilliseconds:F1}");
+            _disposeRequested.WaitOne();
+        }
+        catch (Exception exception)
+        {
+            _logger.Write(
+                $"[UIAutomation] focus-event=registration-failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
         }
         finally
         {
-            Interlocked.Exchange(ref _isReady, 0);
-            ReadyChanged?.Invoke(this, EventArgs.Empty);
-            if (_focusChangedHandler is not null)
+            if (Interlocked.Exchange(ref _isReady, 0) != 0)
             {
-                Automation.RemoveAutomationFocusChangedEventHandler(_focusChangedHandler);
-                _logger.WriteDetailed("[UIAutomation] focus-event=unregistered");
+                ReadyChanged?.Invoke(this, EventArgs.Empty);
+            }
+
+            if (registered && _focusChangedHandler is not null)
+            {
+                try
+                {
+                    Automation.RemoveAutomationFocusChangedEventHandler(_focusChangedHandler);
+                    _logger.WriteDetailed("[UIAutomation] focus-event=unregistered");
+                }
+                catch (Exception exception)
+                {
+                    _logger.WriteDetailed(
+                        $"[UIAutomation] focus-event=unregister-failed " +
+                        $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+                }
             }
         }
     }
@@ -261,6 +317,8 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         IReadOnlyCollection<AutomationCandidate> candidates)
     {
         AutomationCandidate? windowCandidate = candidates
+            .Where(candidate => !StartMenuBoundsValidator.CoversMostOfMonitor(
+                ToRectInt32(candidate.Rectangle)))
             .Where(candidate => candidate.ControlType == ControlType.Window.ProgrammaticName)
             .OrderBy(candidate => candidate.Rectangle.Width * candidate.Rectangle.Height)
             .FirstOrDefault();
@@ -271,6 +329,8 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
 
         return candidates
+            .Where(candidate => !StartMenuBoundsValidator.CoversMostOfMonitor(
+                ToRectInt32(candidate.Rectangle)))
             .OrderBy(candidate => candidate.Rectangle.Width * candidate.Rectangle.Height)
             .Select(candidate => (System.Windows.Rect?)candidate.Rectangle)
             .FirstOrDefault();

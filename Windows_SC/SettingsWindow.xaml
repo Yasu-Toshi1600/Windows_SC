@@ -104,8 +104,7 @@
                     <ComboBox Header="実行後"
                               DisplayMemberPath="DisplayName"
                               ItemsSource="{Binding PostExecutionBehaviors}"
-                              SelectedValue="{Binding SelectedItem.PostExecutionBehavior, Mode=TwoWay}"
-                              SelectedValuePath="Value"
+                              SelectedItem="{Binding SelectedPostExecutionBehavior, Mode=TwoWay}"
                               Visibility="{Binding SelectedItem.PostExecutionSettingsVisibility}" />
                     <StackPanel Spacing="12"
                                 Visibility="{Binding SelectedItem.ButtonSettingsVisibility}">
@@ -254,6 +253,8 @@
                        CloseButtonText="閉じる"
                        Title="トラブルシューティング">
             <StackPanel MinWidth="520" MaxWidth="620" Spacing="16">
+                <TextBlock FontWeight="SemiBold"
+                           Text="{Binding ApplicationVersionText}" />
                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            Text="問題の調査に使うログと環境情報を管理します。詳細ログでもファイルパスは匿名化されます。"
                            TextWrapping="Wrap" />

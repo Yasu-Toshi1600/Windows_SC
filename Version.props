@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <!-- Semantic Versioning: major.minor.patch -->
+    <VersionPrefix>0.5.1</VersionPrefix>
+    <!-- Use dev/beta.N/rc.N during development; leave empty for a stable release. -->
+    <VersionSuffix>dev</VersionSuffix>
+
+    <AssemblyVersion>$(VersionPrefix).0</AssemblyVersion>
+    <FileVersion>$(VersionPrefix).0</FileVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+</Project>

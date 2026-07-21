@@ -25,6 +25,7 @@ internal sealed class SettingsViewModel : ObservableObject
     private LauncherItemEditorViewModel? _selectedItem;
     private ActionKindOption? _selectedActionKind;
     private CycleKindOption? _selectedCycleKind;
+    private PostExecutionBehaviorOption? _selectedPostExecutionBehavior;
     private AudioOutputDeviceOption? _audioDeviceToAdd;
     private RegisteredAudioDeviceEditorViewModel? _selectedRegisteredAudioDevice;
     private CommandCycleStepEditorViewModel? _selectedCommandStep;
@@ -110,7 +111,7 @@ internal sealed class SettingsViewModel : ObservableObject
             "アプリ・ファイル・URLを開く"),
         new(
             LauncherActionKind.Command,
-            "コマンドを実行")
+            "コマンド／batを実行")
     ];
 
     public IReadOnlyList<CycleKindOption> CycleKinds { get; } =
@@ -143,6 +144,10 @@ internal sealed class SettingsViewModel : ObservableObject
                     : GetVisibleActionKind(value.ActionKind);
                 SelectedCycleKind = value is { IsToggle: true }
                     ? CycleKinds.First(option => option.Value == value.CycleKind)
+                    : null;
+                SelectedPostExecutionBehavior = value is not null && value.Kind != LauncherItemKind.Slider
+                    ? PostExecutionBehaviors.First(option =>
+                        option.Value == value.PostExecutionBehavior)
                     : null;
                 SelectedRegisteredAudioDevice = null;
                 SelectedCommandStep = value?.CommandSteps.FirstOrDefault();
@@ -186,6 +191,20 @@ internal sealed class SettingsViewModel : ObservableObject
                 SelectedCommandStep = selectedItem.CommandSteps.FirstOrDefault();
                 AddCommandStepCommand.NotifyCanExecuteChanged();
                 NotifyAudioDeviceCommands();
+            }
+        }
+    }
+
+    public PostExecutionBehaviorOption? SelectedPostExecutionBehavior
+    {
+        get => _selectedPostExecutionBehavior;
+        set
+        {
+            if (SetProperty(ref _selectedPostExecutionBehavior, value)
+                && value is not null
+                && SelectedItem is { Kind: not LauncherItemKind.Slider } selectedItem)
+            {
+                selectedItem.PostExecutionBehavior = value.Value;
             }
         }
     }
@@ -282,6 +301,8 @@ internal sealed class SettingsViewModel : ObservableObject
 
     public string DetailedLogPath => GetDisplayPath(_logger.DetailedLogFilePath);
 
+    public string ApplicationVersionText => $"Windows_SC バージョン {ApplicationInformation.Version}";
+
     public RelayCommand AddButtonCommand { get; }
     public RelayCommand AddToggleCommand { get; }
     public RelayCommand AddSliderCommand { get; }
@@ -376,8 +397,8 @@ internal sealed class SettingsViewModel : ObservableObject
         StringBuilder information = new();
         information.AppendLine("Windows_SC 診断情報");
         information.AppendLine($"作成日時: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}");
-        information.AppendLine($"アプリ: {typeof(SettingsViewModel).Assembly.GetName().Version}");
-        information.AppendLine($"OS: {RuntimeInformation.OSDescription}");
+        information.AppendLine($"アプリ: {ApplicationInformation.Version}");
+        information.AppendLine($"OS: {ApplicationInformation.WindowsVersion}");
         information.AppendLine($"OSアーキテクチャ: {RuntimeInformation.OSArchitecture}");
         information.AppendLine($"プロセスアーキテクチャ: {RuntimeInformation.ProcessArchitecture}");
         information.AppendLine($".NET: {RuntimeInformation.FrameworkDescription}");

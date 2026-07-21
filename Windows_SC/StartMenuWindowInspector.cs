@@ -26,6 +26,7 @@ internal sealed class StartMenuWindowInspector
     };
 
     private readonly DiagnosticLogger _logger;
+    private string _lastRejectedBoundsSignature = string.Empty;
 
     public StartMenuWindowInspector(DiagnosticLogger logger)
     {
@@ -115,7 +116,7 @@ internal sealed class StartMenuWindowInspector
         return isVisible;
     }
 
-    private static bool TryGetUsableBounds(IntPtr windowHandle, out RectInt32 bounds)
+    private bool TryGetUsableBounds(IntPtr windowHandle, out RectInt32 bounds)
     {
         bounds = default;
         if (!GetWindowRect(windowHandle, out NativeRectangle rectangle))
@@ -130,7 +131,22 @@ internal sealed class StartMenuWindowInspector
             return false;
         }
 
-        bounds = new RectInt32(rectangle.Left, rectangle.Top, width, height);
+        RectInt32 candidateBounds = new(rectangle.Left, rectangle.Top, width, height);
+        if (StartMenuBoundsValidator.CoversMostOfMonitor(candidateBounds))
+        {
+            string signature = $"{rectangle.Left}:{rectangle.Top}:{width}:{height}";
+            if (signature != _lastRejectedBoundsSignature)
+            {
+                _lastRejectedBoundsSignature = signature;
+                _logger.WriteDetailed(
+                    $"[StartPanelCandidate] rejected=monitor-sized " +
+                    $"rect=({rectangle.Left},{rectangle.Top},{width},{height})");
+            }
+
+            return false;
+        }
+
+        bounds = candidateBounds;
         return true;
     }
 

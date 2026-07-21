@@ -8,6 +8,7 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
     private static readonly TimeSpan FastMonitoringDuration = TimeSpan.FromMilliseconds(1500);
     private static readonly TimeSpan FastMonitoringInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan VisibleFallbackInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan InitializationFallbackInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly DiagnosticLogger _logger;
@@ -52,8 +53,9 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
 
         _uiAutomationInspector.SnapshotChanged += UiAutomationInspector_SnapshotChanged;
         _uiAutomationInspector.ReadyChanged += UiAutomationInspector_ReadyChanged;
-        _uiAutomationInspector.Start();
         _isStarted = true;
+        _uiAutomationInspector.Start();
+        UpdateFallbackMonitoring();
         _logger.Write("[StartMenuMonitor] mode=hybrid-event-driven state=started");
     }
 
@@ -129,7 +131,15 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
 
     private void FallbackTimer_Tick(DispatcherQueueTimer sender, object args)
     {
-        _uiAutomationInspector.RequestScan();
+        if (!IsReady && !_awaitingStartConfirmation && !_launcherIsVisible)
+        {
+            _uiAutomationInspector.RequestScanIfStartMenuWindowVisible();
+        }
+        else
+        {
+            _uiAutomationInspector.RequestScan();
+        }
+
         UpdateFallbackMonitoring();
     }
 
@@ -152,6 +162,12 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
         {
             _uiAutomationInspector.SetMonitoringActive(true);
             SetFallbackInterval(VisibleFallbackInterval);
+            return;
+        }
+
+        if (!IsReady)
+        {
+            SetFallbackInterval(InitializationFallbackInterval);
             return;
         }
 
@@ -188,5 +204,9 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
     }
 
     private void UiAutomationInspector_ReadyChanged(object? sender, EventArgs args) =>
-        _dispatcherQueue.TryEnqueue(() => ReadyChanged?.Invoke(this, EventArgs.Empty));
+        _dispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateFallbackMonitoring();
+            ReadyChanged?.Invoke(this, EventArgs.Empty);
+        });
 }
