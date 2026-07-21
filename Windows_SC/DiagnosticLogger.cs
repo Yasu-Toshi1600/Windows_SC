@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using Windows.Storage;
+using Windows_SC.Services;
 
 namespace Windows_SC;
 
@@ -26,7 +26,8 @@ internal sealed class DiagnosticLogger : IDisposable
 
     public DiagnosticLogger()
     {
-        _logDirectoryPath = ResolveLogDirectoryPath();
+        IReadOnlyList<string> migrationMessages = ApplicationDataPaths.MigrateLegacyData();
+        _logDirectoryPath = ApplicationDataPaths.LogDirectoryPath;
 
         Directory.CreateDirectory(_logDirectoryPath);
         _logFilePath = Path.Combine(_logDirectoryPath, "window-diagnostics.log");
@@ -44,6 +45,11 @@ internal sealed class DiagnosticLogger : IDisposable
             Name = "Windows_SC diagnostic writer"
         };
         _writerThread.Start();
+
+        foreach (string message in migrationMessages)
+        {
+            Write(message);
+        }
     }
 
     public string LogFilePath => _logFilePath;
@@ -187,27 +193,6 @@ internal sealed class DiagnosticLogger : IDisposable
                 batch.ToString(),
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
-    }
-
-    private static string ResolveLogDirectoryPath()
-    {
-        try
-        {
-            string packagedLocalPath = ApplicationData.Current.LocalFolder.Path;
-            if (!string.IsNullOrWhiteSpace(packagedLocalPath))
-            {
-                return Path.Combine(packagedLocalPath, "Logs");
-            }
-        }
-        catch (Exception exception) when (exception is InvalidOperationException or COMException)
-        {
-            // Unpackaged execution has no ApplicationData package identity.
-        }
-
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Windows_SC",
-            "Logs");
     }
 
     private static void EnsureFileExists(string path)

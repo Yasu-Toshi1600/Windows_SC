@@ -19,15 +19,14 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
 
     private readonly DiagnosticLogger _logger;
     private readonly string _settingsFilePath;
+    private readonly bool _usesDefaultSettingsPath;
     private readonly SemaphoreSlim _saveLock = new(1, 1);
 
     public JsonSettingsRepository(DiagnosticLogger logger, string? settingsFilePath = null)
     {
         _logger = logger;
-        _settingsFilePath = settingsFilePath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Windows_SC",
-            "settings.json");
+        _usesDefaultSettingsPath = settingsFilePath is null;
+        _settingsFilePath = settingsFilePath ?? ApplicationDataPaths.SettingsFilePath;
     }
 
     public async Task<LauncherSettings> LoadAsync(CancellationToken cancellationToken = default)
@@ -142,8 +141,12 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
             return;
         }
 
+        string backupDirectory = _usesDefaultSettingsPath
+            ? ApplicationDataPaths.SettingsBackupDirectoryPath
+            : Path.GetDirectoryName(_settingsFilePath)!;
+        Directory.CreateDirectory(backupDirectory);
         string backupPath = Path.Combine(
-            Path.GetDirectoryName(_settingsFilePath)!,
+            backupDirectory,
             $"settings.corrupt-{DateTimeOffset.Now:yyyyMMdd-HHmmss}.json");
         File.Move(_settingsFilePath, backupPath, overwrite: true);
         _logger.Write($"[Settings] action=backup-invalid path=\"{backupPath}\"");

@@ -142,6 +142,12 @@ public sealed partial class SettingsWindow : Window
     private void OpenLogFolder_Click(object sender, RoutedEventArgs args) =>
         _viewModel.OpenLogFolder();
 
+    private void OpenSettingsFolder_Click(object sender, RoutedEventArgs args) =>
+        _viewModel.OpenSettingsFolder();
+
+    private void OpenDataFolder_Click(object sender, RoutedEventArgs args) =>
+        _viewModel.OpenDataFolder();
+
     private async void ApplyDetailedDiagnostics_Click(object sender, RoutedEventArgs args) =>
         await _viewModel.ApplyDetailedDiagnosticsAsync();
 

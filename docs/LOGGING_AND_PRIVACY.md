@@ -9,19 +9,24 @@
 
 ## 2. 保存場所
 
-非パッケージ実行時:
+MSIX／非パッケージ実行のどちらでも、利用者から見える保存先を次へ統一する。
 
 ```text
-%LOCALAPPDATA%\Windows_SC\Logs\
+%LOCALAPPDATA%\Windows_SC\
+├─ Settings\
+│  ├─ settings.json
+│  └─ Backup\
+│     └─ settings.corrupt-日時.json
+└─ Logs\
+   ├─ window-diagnostics.log
+   ├─ window-diagnostics.previous.log
+   ├─ window-diagnostics.detail.log
+   └─ window-diagnostics.detail.previous.log
 ```
 
-MSIXパッケージ実行時:
+MSIXでは`%LOCALAPPDATA%\Windows_SC`だけをファイルシステム仮想化から除外する。設定画面からデータ、設定、ログの各フォルダーを開けるようにし、対象フォルダーが未生成または削除済みでも再作成してから開く。
 
-```text
-%LOCALAPPDATA%\Packages\<package-family-name>\LocalState\Logs\
-```
-
-各フォルダーに `window-diagnostics.log`、`window-diagnostics.previous.log`、`window-diagnostics.detail.log`、`window-diagnostics.detail.previous.log`を保存する。設定画面には現在の実行方式に対応する実体パスを表示し、「ログフォルダーを開く」はそのフォルダーが未生成または削除済みでも再作成してから開く。
+旧版からの初回起動時は、ルート直下の`settings.json`、MSIXの`LocalCache\Local\Windows_SC`、`LocalState\Logs`を検出し、新構成へ自動移行する。複数の設定が見つかった場合は更新日時が最も新しいものを現行設定とし、残りは`Settings\Backup`へ退避する。
 
 - UTF-8、BOMなし、各行にローカル日時とミリ秒を付ける。
 - 通常ログファイルはロガー初期化時に作成し、起動直後でも保存場所を確認できるようにする。
@@ -91,6 +96,7 @@ MSIXパッケージ実行時:
 - 現在状態と有効期限
 - 通常・詳細ログの保存場所
 - ログフォルダーを開く
+- データフォルダーと設定フォルダーを開く
 - OS、アーキテクチャ、.NET、アプリ版、モニター数、解像度、配置、作業領域、DPI、拡大率、取得可能なリフレッシュレートの環境情報をコピー
 - 確認後にログを削除
 
@@ -113,5 +119,6 @@ MSIXパッケージ実行時:
 4. 再起動後も期限内だけ有効になる。
 5. ログにWindowsユーザー名とユーザープロファイルの実パスが残らない。
 6. ログ削除のキャンセルでは何も消えず、確定時に4ファイルが削除される。
-7. 非パッケージ版とMSIX版の両方で、表示中の保存先と実体が一致し、ログフォルダーを開ける。
+7. 非パッケージ版とMSIX版の両方で、`%LOCALAPPDATA%\Windows_SC`以下の表示中の保存先と実体が一致し、データ、設定、ログの各フォルダーを開ける。
 8. ログフォルダーと環境情報に不要な個人情報が含まれない。
+9. 旧版の非パッケージ保存先、MSIX LocalCache、MSIX LocalStateから設定とログを失わず移行できる。

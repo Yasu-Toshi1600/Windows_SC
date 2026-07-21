@@ -295,23 +295,32 @@ internal sealed class SettingsViewModel : ObservableObject
     public RelayCommand ExitApplicationCommand { get; }
 
     internal void OpenLogFolder()
+        => OpenFolder(ApplicationDataPaths.LogDirectoryPath, "ログフォルダー");
+
+    internal void OpenSettingsFolder()
+        => OpenFolder(ApplicationDataPaths.SettingsDirectoryPath, "設定フォルダー");
+
+    internal void OpenDataFolder()
+        => OpenFolder(ApplicationDataPaths.RootDirectoryPath, "データフォルダー");
+
+    private void OpenFolder(string folderPath, string displayName)
     {
         try
         {
-            Directory.CreateDirectory(_logger.LogDirectoryPath);
+            Directory.CreateDirectory(folderPath);
             Process.Start(new ProcessStartInfo
             {
-                FileName = _logger.LogDirectoryPath,
+                FileName = folderPath,
                 UseShellExecute = true
             });
-            StatusMessage = "ログフォルダーを開きました。";
+            StatusMessage = $"{displayName}を開きました。";
         }
         catch (Exception exception) when (exception is InvalidOperationException
             or System.ComponentModel.Win32Exception
             or IOException
             or UnauthorizedAccessException)
         {
-            StatusMessage = $"ログフォルダーを開けませんでした: {exception.Message}";
+            StatusMessage = $"{displayName}を開けませんでした: {exception.Message}";
         }
     }
 
