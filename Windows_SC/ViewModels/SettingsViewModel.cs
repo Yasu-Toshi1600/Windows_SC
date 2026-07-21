@@ -400,6 +400,7 @@ internal sealed class SettingsViewModel : ObservableObject
         try
         {
             _logger.ClearLogs();
+            _environmentInformationService.LogIfChanged("logs-cleared", force: true);
             StatusMessage = "ログを削除しました。";
         }
         catch (Exception exception) when (exception is System.IO.IOException
