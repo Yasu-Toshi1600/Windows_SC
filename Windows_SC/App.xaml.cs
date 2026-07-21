@@ -1,7 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Dispatching;
 using System;
-using System.ComponentModel;
 using Windows_SC.Models;
 using Windows_SC.Services;
 using Windows_SC.ViewModels;
@@ -50,7 +49,6 @@ public partial class App : Application
         _viewModel.ApplySettings(settings);
         _startupService = new RegistryStartupService(logger);
         _startupService.SetEnabled(settings.StartWithWindows);
-        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         _viewModel.SettingsRequested += ViewModel_SettingsRequested;
         IStartMenuMonitor startMenuMonitor = new HybridStartMenuMonitor(
             DispatcherQueue.GetForCurrentThread(),
@@ -92,7 +90,6 @@ public partial class App : Application
         {
             if (_viewModel is not null)
             {
-                _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
                 _viewModel.SettingsRequested -= ViewModel_SettingsRequested;
             }
 
@@ -112,33 +109,6 @@ public partial class App : Application
             _logger?.Dispose();
             _logger = null;
             Exit();
-        }
-    }
-
-    private async void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs args)
-    {
-        if (args.PropertyName is not nameof(MainWindowViewModel.AssumePhonePanelVisible)
-            and not nameof(MainWindowViewModel.StartWithWindows)
-            || _settingsRepository is null
-            || _viewModel is null)
-        {
-            return;
-        }
-
-        try
-        {
-            if (args.PropertyName == nameof(MainWindowViewModel.StartWithWindows))
-            {
-                _startupService?.SetEnabled(_viewModel.StartWithWindows);
-            }
-
-            await _settingsRepository.SaveAsync(_viewModel.ExportSettings());
-        }
-        catch (Exception exception)
-        {
-            _logger?.Write(
-                $"[Settings] action=autosave result=failed exception={exception.GetType().Name} " +
-                $"message=\"{exception.Message}\"");
         }
     }
 
