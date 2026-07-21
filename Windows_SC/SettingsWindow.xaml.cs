@@ -108,6 +108,7 @@ public sealed partial class SettingsWindow : Window
 
     private async void TroubleshootingButton_Click(object sender, RoutedEventArgs args)
     {
+        _viewModel.RefreshEnvironmentInformationLog();
         TroubleshootingDialog.XamlRoot = RootGrid.XamlRoot;
         await TroubleshootingDialog.ShowAsync();
     }
@@ -138,12 +139,6 @@ public sealed partial class SettingsWindow : Window
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(nint windowHandle);
-
-    private void OpenLogFolder_Click(object sender, RoutedEventArgs args) =>
-        _viewModel.OpenLogFolder();
-
-    private void OpenSettingsFolder_Click(object sender, RoutedEventArgs args) =>
-        _viewModel.OpenSettingsFolder();
 
     private void OpenDataFolder_Click(object sender, RoutedEventArgs args) =>
         _viewModel.OpenDataFolder();

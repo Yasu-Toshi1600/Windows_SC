@@ -4,11 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Windows.Graphics;
 using Windows_SC.Models;
 using Windows_SC.Services;
 
@@ -21,6 +17,7 @@ internal sealed class SettingsViewModel : ObservableObject
     private readonly IStartupService _startupService;
     private readonly IAudioOutputService _audioOutputService;
     private readonly DiagnosticLogger _logger;
+    private readonly EnvironmentInformationService _environmentInformationService;
     private readonly Guid _pageId;
     private LauncherItemEditorViewModel? _selectedItem;
     private ActionKindOption? _selectedActionKind;
@@ -43,13 +40,15 @@ internal sealed class SettingsViewModel : ObservableObject
         MainWindowViewModel mainWindowViewModel,
         IStartupService startupService,
         IAudioOutputService audioOutputService,
-        DiagnosticLogger logger)
+        DiagnosticLogger logger,
+        EnvironmentInformationService environmentInformationService)
     {
         _settingsRepository = settingsRepository;
         _mainWindowViewModel = mainWindowViewModel;
         _startupService = startupService;
         _audioOutputService = audioOutputService;
         _logger = logger;
+        _environmentInformationService = environmentInformationService;
 
         foreach (AudioOutputDevice device in _audioOutputService.GetCachedDevices())
         {
@@ -145,7 +144,7 @@ internal sealed class SettingsViewModel : ObservableObject
                 SelectedCycleKind = value is { IsToggle: true }
                     ? CycleKinds.First(option => option.Value == value.CycleKind)
                     : null;
-                SelectedPostExecutionBehavior = value is not null && value.Kind != LauncherItemKind.Slider
+                SelectedPostExecutionBehavior = value is { IsToggle: true }
                     ? PostExecutionBehaviors.First(option =>
                         option.Value == value.PostExecutionBehavior)
                     : null;
@@ -202,7 +201,7 @@ internal sealed class SettingsViewModel : ObservableObject
         {
             if (SetProperty(ref _selectedPostExecutionBehavior, value)
                 && value is not null
-                && SelectedItem is { Kind: not LauncherItemKind.Slider } selectedItem)
+                && SelectedItem is { IsToggle: true } selectedItem)
             {
                 selectedItem.PostExecutionBehavior = value.Value;
             }
@@ -315,12 +314,6 @@ internal sealed class SettingsViewModel : ObservableObject
     public RelayCommand SaveCommand { get; }
     public RelayCommand ExitApplicationCommand { get; }
 
-    internal void OpenLogFolder()
-        => OpenFolder(ApplicationDataPaths.LogDirectoryPath, "ログフォルダー");
-
-    internal void OpenSettingsFolder()
-        => OpenFolder(ApplicationDataPaths.SettingsDirectoryPath, "設定フォルダー");
-
     internal void OpenDataFolder()
         => OpenFolder(ApplicationDataPaths.RootDirectoryPath, "データフォルダー");
 
@@ -376,6 +369,7 @@ internal sealed class SettingsViewModel : ObservableObject
             await _settingsRepository.SaveAsync(settings);
             _detailedLoggingExpiresAt = newExpiration;
             _logger.ConfigureDetailedLogging(newExpiration);
+            _environmentInformationService.LogIfChanged("diagnostics-setting");
             OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
             StatusMessage = IsDetailedDiagnosticsEnabled
                 ? "詳細診断ログを24時間有効にしました。"
@@ -392,83 +386,11 @@ internal sealed class SettingsViewModel : ObservableObject
         }
     }
 
-    internal string CreateEnvironmentInformation()
-    {
-        StringBuilder information = new();
-        information.AppendLine("Windows_SC 診断情報");
-        information.AppendLine($"作成日時: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}");
-        information.AppendLine($"アプリ: {ApplicationInformation.Version}");
-        information.AppendLine($"OS: {ApplicationInformation.WindowsVersion}");
-        information.AppendLine($"OSアーキテクチャ: {RuntimeInformation.OSArchitecture}");
-        information.AppendLine($"プロセスアーキテクチャ: {RuntimeInformation.ProcessArchitecture}");
-        information.AppendLine($".NET: {RuntimeInformation.FrameworkDescription}");
-        AppendMonitorInformation(information);
-        information.AppendLine(
-            $"詳細診断ログ: {(_logger.IsDetailedLoggingEnabled ? "有効" : "無効")}");
-        return information.ToString();
-    }
+    internal string CreateEnvironmentInformation() =>
+        _environmentInformationService.CreateReport();
 
-    private static void AppendMonitorInformation(StringBuilder information)
-    {
-        IReadOnlyList<DisplayArea> displayAreas = DisplayArea.FindAll();
-        information.AppendLine($"モニター数: {displayAreas.Count}");
-
-        for (int index = 0; index < displayAreas.Count; index++)
-        {
-            DisplayArea displayArea = displayAreas[index];
-            RectInt32 bounds = displayArea.OuterBounds;
-            RectInt32 workArea = displayArea.WorkArea;
-            (uint dpi, int refreshRate) = GetMonitorDetails(bounds);
-            int scalePercent = (int)Math.Round(dpi * 100d / 96d);
-            string refreshRateText = refreshRate > 1
-                ? $", リフレッシュレート={refreshRate}Hz"
-                : string.Empty;
-            information.AppendLine(
-                $"モニター {index + 1}: " +
-                $"{(displayArea.IsPrimary ? "メイン, " : string.Empty)}" +
-                $"解像度={bounds.Width}x{bounds.Height}, " +
-                $"配置=({bounds.X},{bounds.Y}), " +
-                $"作業領域={workArea.Width}x{workArea.Height}, " +
-                $"DPI={dpi}, 拡大率={scalePercent}%" +
-                refreshRateText);
-        }
-    }
-
-    private static (uint Dpi, int RefreshRate) GetMonitorDetails(RectInt32 bounds)
-    {
-        NativePoint center = new()
-        {
-            X = bounds.X + (bounds.Width / 2),
-            Y = bounds.Y + (bounds.Height / 2)
-        };
-        nint monitor = MonitorFromPoint(center, MonitorDefaultToNearest);
-        uint dpi = monitor != nint.Zero
-            && GetDpiForMonitor(monitor, 0, out uint dpiX, out _) == 0
-                ? dpiX
-                : 96;
-        int refreshRate = 0;
-
-        MonitorInfoEx monitorInfo = new()
-        {
-            Size = (uint)Marshal.SizeOf<MonitorInfoEx>(),
-            DeviceName = string.Empty
-        };
-        if (monitor != nint.Zero && GetMonitorInfo(monitor, ref monitorInfo))
-        {
-            nint deviceContext = CreateDC(
-                "DISPLAY",
-                monitorInfo.DeviceName,
-                null,
-                nint.Zero);
-            if (deviceContext != nint.Zero)
-            {
-                refreshRate = GetDeviceCaps(deviceContext, VerticalRefreshRate);
-                _ = DeleteDC(deviceContext);
-            }
-        }
-
-        return (dpi, refreshRate);
-    }
+    internal void RefreshEnvironmentInformationLog() =>
+        _environmentInformationService.LogIfChanged("troubleshooting");
 
     internal void ReportEnvironmentInformationCopied() =>
         StatusMessage = "環境情報をコピーしました。";
@@ -775,6 +697,7 @@ internal sealed class SettingsViewModel : ObservableObject
             await _settingsRepository.SaveAsync(settings);
             _detailedLoggingExpiresAt = settings.DetailedLoggingExpiresAtUtc;
             _logger.ConfigureDetailedLogging(_detailedLoggingExpiresAt);
+            _environmentInformationService.LogIfChanged("settings-save");
             _mainWindowViewModel.ApplySettings(settings);
             OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
             StatusMessage = "保存しました。";
@@ -790,64 +713,6 @@ internal sealed class SettingsViewModel : ObservableObject
         }
     }
 
-    private const uint MonitorDefaultToNearest = 0x00000002;
-    private const int VerticalRefreshRate = 116;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint
-    {
-        public int X;
-        public int Y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeRect
-    {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct MonitorInfoEx
-    {
-        public uint Size;
-        public NativeRect Monitor;
-        public NativeRect WorkArea;
-        public uint Flags;
-
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
-        public string DeviceName;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern nint MonitorFromPoint(NativePoint point, uint flags);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfoEx monitorInfo);
-
-    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
-    private static extern nint CreateDC(
-        string driver,
-        string device,
-        string? output,
-        nint initializationData);
-
-    [DllImport("gdi32.dll")]
-    private static extern int GetDeviceCaps(nint deviceContext, int index);
-
-    [DllImport("gdi32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool DeleteDC(nint deviceContext);
-
-    [DllImport("shcore.dll")]
-    private static extern int GetDpiForMonitor(
-        nint monitor,
-        int dpiType,
-        out uint dpiX,
-        out uint dpiY);
 }
 
 internal sealed class LauncherItemEditorViewModel : ObservableObject
@@ -919,7 +784,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     public Visibility CycleSettingsVisibility => IsToggle
         ? Visibility.Visible
         : Visibility.Collapsed;
-    public Visibility PostExecutionSettingsVisibility => Kind != LauncherItemKind.Slider
+    public Visibility PostExecutionSettingsVisibility => IsToggle
         ? Visibility.Visible
         : Visibility.Collapsed;
     public Visibility AudioDeviceSettingsVisibility => IsToggle
@@ -1024,7 +889,9 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         Id = Id,
         Kind = Kind,
         Title = Title,
-        PostExecutionBehavior = PostExecutionBehavior,
+        PostExecutionBehavior = IsToggle
+            ? PostExecutionBehavior
+            : LauncherPostExecutionBehavior.CloseOnSuccess,
         Action = Kind == LauncherItemKind.Button
             ? new LauncherActionDefinition
             {

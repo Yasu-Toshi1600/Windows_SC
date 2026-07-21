@@ -1,5 +1,7 @@
 # Phase 4.5 モーション基準計測
 
+> アーカイブ: この資料は再設計前後の履歴計測であり、現在の性能合格値を示すものではない。統合後の仕様と履歴値は[モーション仕様書](../MOTION_SPECIFICATION.md)、現行試験は[Phase 5～6 テスト手順書](../PHASE5_6_TEST_PROCEDURE.md)を参照する。
+
 採取日: 2026-07-20  
 環境: Windows 11 / WQHD / 125% / x64 Debug  
 入力: 既存の `window-diagnostics.log` に記録された直近30回のWindowsキー単体操作

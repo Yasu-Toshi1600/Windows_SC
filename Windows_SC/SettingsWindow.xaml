@@ -290,8 +290,6 @@
 
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button Click="OpenDataFolder_Click" Content="データフォルダーを開く" />
-                    <Button Click="OpenSettingsFolder_Click" Content="設定フォルダーを開く" />
-                    <Button Click="OpenLogFolder_Click" Content="ログフォルダーを開く" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button Click="CopyEnvironmentInfo_Click" Content="環境情報をコピー" />

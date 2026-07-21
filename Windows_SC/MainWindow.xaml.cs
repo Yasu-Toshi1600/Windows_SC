@@ -11,6 +11,7 @@ using Windows_SC.ViewModels;
 using Windows.System;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
+using DispatcherQueueTimer = Microsoft.UI.Dispatching.DispatcherQueueTimer;
 
 namespace Windows_SC;
 
@@ -23,6 +24,8 @@ public sealed partial class MainWindow : Window
     private readonly IGlobalInputService _inputService;
     private readonly ILauncherPlacementService _placementService;
     private readonly IWindowInteropService _windowInteropService;
+    private readonly EnvironmentInformationService _environmentInformationService;
+    private readonly DispatcherQueueTimer _environmentCheckTimer;
     private readonly ILauncherMotionService _motionService;
     private readonly LauncherMotionCoordinator _motionCoordinator;
     private readonly UISettings _uiSettings;
@@ -39,6 +42,7 @@ public sealed partial class MainWindow : Window
     private long _startDetectedTimestamp;
     private long _showRequestedTimestamp;
     private bool _startReopenRequestedDuringExit;
+    private string _pendingEnvironmentChangeReason = "display-change";
 
     internal MainWindowViewModel ViewModel { get; }
 
@@ -48,7 +52,8 @@ public sealed partial class MainWindow : Window
         IStartMenuMonitor startMenuMonitor,
         IGlobalInputService inputService,
         ILauncherPlacementService placementService,
-        IWindowInteropService windowInteropService)
+        IWindowInteropService windowInteropService,
+        EnvironmentInformationService environmentInformationService)
     {
         ViewModel = viewModel;
         InitializeComponent();
@@ -66,6 +71,11 @@ public sealed partial class MainWindow : Window
         _inputService = inputService;
         _placementService = placementService;
         _windowInteropService = windowInteropService;
+        _environmentInformationService = environmentInformationService;
+        _environmentCheckTimer = DispatcherQueue.CreateTimer();
+        _environmentCheckTimer.Interval = TimeSpan.FromMilliseconds(750);
+        _environmentCheckTimer.IsRepeating = false;
+        _environmentCheckTimer.Tick += EnvironmentCheckTimer_Tick;
         _motionCoordinator = new LauncherMotionCoordinator(logger);
         _uiSettings = new UISettings();
         _motionService = new CompositionLauncherMotionService(
@@ -93,6 +103,8 @@ public sealed partial class MainWindow : Window
 
         ConfigureWindow();
         _windowInteropService.EscapePressed += WindowInteropService_EscapePressed;
+        _windowInteropService.DisplayEnvironmentChanged +=
+            WindowInteropService_DisplayEnvironmentChanged;
         _windowInteropService.Start(_windowHandle);
 
         Activated += Window_Activated;
@@ -105,6 +117,7 @@ public sealed partial class MainWindow : Window
         _startMenuMonitor.StartConfirmationExpired += StartMenuMonitor_StartConfirmationExpired;
         _startMenuMonitor.Start();
         _logger.Write("[Application] ===== diagnostic session started =====");
+        _environmentInformationService.LogIfChanged("startup", force: true);
         _logger.Write($"[Application] input-monitor=started log=\"{_logger.LogFilePath}\"");
         _logger.Write(
             $"[Motion] engine=composition animations-enabled={_motionService.AnimationsEnabled} " +
@@ -385,6 +398,7 @@ public sealed partial class MainWindow : Window
                     && _startReopenRequestedDuringExit)))
         {
             bool openedWithoutWindowsKey = _motionCoordinator.State == LauncherMotionState.Hidden;
+            bool reopenedDuringExit = _motionCoordinator.State == LauncherMotionState.Exiting;
             if (openedWithoutWindowsKey)
             {
                 _windowsKeyReleasedTimestamp = 0;
@@ -395,7 +409,11 @@ public sealed partial class MainWindow : Window
                 $"[LaunchTiming] event=start-confirmed key-to-start-ms={ElapsedMilliseconds(_windowsKeyReleasedTimestamp):F1}");
             ShowWindow(
                 activate: false,
-                openedWithoutWindowsKey ? "start-menu-click-detected" : "start-menu-detected",
+                openedWithoutWindowsKey
+                    ? "start-menu-click-detected"
+                    : reopenedDuringExit
+                        ? "start-menu-reopened-during-exit"
+                        : "start-menu-detected",
                 snapshot);
             return;
         }
@@ -404,6 +422,10 @@ public sealed partial class MainWindow : Window
             && _motionCoordinator.State is LauncherMotionState.EnteringWithStart
                 or LauncherMotionState.VisibleWithStart)
         {
+            // A subsequent Visible snapshot is a new click/open operation, not a
+            // stale snapshot. Allow it to reverse the in-progress exit.
+            _windowsKeyReleasedTimestamp = 0;
+            _startReopenRequestedDuringExit = true;
             RequestExit("start-menu-hidden");
         }
     }
@@ -529,6 +551,23 @@ public sealed partial class MainWindow : Window
     private void WindowInteropService_EscapePressed(object? sender, EventArgs args) =>
         RequestExit("escape-key-win32");
 
+    private void WindowInteropService_DisplayEnvironmentChanged(
+        object? sender,
+        DisplayEnvironmentChangedEventArgs args)
+    {
+        _pendingEnvironmentChangeReason = args.Reason;
+        _environmentCheckTimer.Stop();
+        _environmentCheckTimer.Start();
+    }
+
+    private void EnvironmentCheckTimer_Tick(
+        DispatcherQueueTimer sender,
+        object args)
+    {
+        sender.Stop();
+        _environmentInformationService.LogIfChanged(_pendingEnvironmentChangeReason);
+    }
+
     private float GetEntranceTranslation(bool startLinked)
     {
         if (!startLinked)
@@ -575,6 +614,10 @@ public sealed partial class MainWindow : Window
         _startMenuMonitor.StartConfirmationExpired -= StartMenuMonitor_StartConfirmationExpired;
         _startMenuMonitor.Dispose();
         _windowInteropService.EscapePressed -= WindowInteropService_EscapePressed;
+        _windowInteropService.DisplayEnvironmentChanged -=
+            WindowInteropService_DisplayEnvironmentChanged;
+        _environmentCheckTimer.Stop();
+        _environmentCheckTimer.Tick -= EnvironmentCheckTimer_Tick;
         _windowInteropService.Dispose();
         _inputService.Dispose();
         _logger.Write("[Application] input-monitor=stopped; window=closed");

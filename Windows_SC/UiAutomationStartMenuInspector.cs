@@ -227,13 +227,6 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     private void ScanDesktopAutomationTree()
     {
-        if (_windowInspector.TryGetStartMenuBounds(out Windows.Graphics.RectInt32 windowBounds))
-        {
-            UpdateSnapshot(new StartMenuSnapshot(true, windowBounds, false, null));
-            LogSnapshotIfChanged("visible-win32-window", []);
-            return;
-        }
-
         int[] processIds = new[] { "StartMenuExperienceHost", "SearchHost" }
             .SelectMany(Process.GetProcessesByName)
             .Select(process =>
@@ -245,24 +238,39 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             })
             .ToArray();
 
+        List<AutomationCandidate> candidates = [];
+
+        // The focused UI Automation element identifies which monitor owns the
+        // currently open Start surface. Win32 can expose more than one visible
+        // SearchHost window in a multi-monitor environment, so enumeration order
+        // must not override a focused Start window from another display.
+        if (processIds.Length > 0
+            && TryCollectFocusedStartMenuElement(processIds, candidates))
+        {
+            System.Windows.Rect? startBounds = SelectStartMenuBounds(candidates);
+            if (startBounds is not null)
+            {
+                UpdateSnapshot(new StartMenuSnapshot(
+                    true,
+                    ToRectInt32(startBounds.Value),
+                    false,
+                    null));
+                LogSnapshotIfChanged("visible-focused-element", candidates);
+                return;
+            }
+        }
+
+        if (_windowInspector.TryGetStartMenuBounds(out Windows.Graphics.RectInt32 windowBounds))
+        {
+            UpdateSnapshot(new StartMenuSnapshot(true, windowBounds, false, null));
+            LogSnapshotIfChanged("visible-win32-window", []);
+            return;
+        }
+
         if (processIds.Length == 0)
         {
             UpdateSnapshot(StartMenuSnapshot.Hidden);
             LogSnapshotIfChanged("process-not-found", []);
-            return;
-        }
-
-        List<AutomationCandidate> candidates = [];
-
-        if (TryCollectFocusedStartMenuElement(processIds, candidates))
-        {
-            System.Windows.Rect? startBounds = SelectStartMenuBounds(candidates);
-            UpdateSnapshot(new StartMenuSnapshot(
-                true,
-                startBounds is null ? null : ToRectInt32(startBounds.Value),
-                false,
-                null));
-            LogSnapshotIfChanged("visible-focused-element", candidates);
             return;
         }
 

@@ -6,6 +6,7 @@ obj/
 *.suo
 
 TestResults/
+artifacts/
 
 # Local diagnostics copied into the repository for investigation
 window-diagnostics*.log

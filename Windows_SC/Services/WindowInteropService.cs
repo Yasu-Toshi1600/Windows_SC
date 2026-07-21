@@ -9,6 +9,13 @@ internal sealed class WindowInteropService(
     ISystemTrayService systemTrayService) : IWindowInteropService
 {
     private const uint WmKeyDown = 0x0100;
+    private const uint WmSettingChange = 0x001A;
+    private const uint WmDisplayChange = 0x007E;
+    private const uint WmPowerBroadcast = 0x0218;
+    private const uint WmDpiChanged = 0x02E0;
+    private const int SpiSetWorkArea = 0x002F;
+    private const int PbtApmResumeSuspend = 0x0007;
+    private const int PbtApmResumeAutomatic = 0x0012;
     private const int VirtualKeyEscape = 0x1B;
     private const int GwlpWndProc = -4;
 
@@ -18,6 +25,7 @@ internal sealed class WindowInteropService(
     private bool _isDisposed;
 
     public event EventHandler? EscapePressed;
+    public event EventHandler<DisplayEnvironmentChangedEventArgs>? DisplayEnvironmentChanged;
 
     public void Start(IntPtr windowHandle)
     {
@@ -85,6 +93,22 @@ internal sealed class WindowInteropService(
         {
             EscapePressed?.Invoke(this, EventArgs.Empty);
             return IntPtr.Zero;
+        }
+
+        string? displayChangeReason = message switch
+        {
+            WmDisplayChange => "display-change",
+            WmDpiChanged => "dpi-change",
+            WmSettingChange when wParam.ToInt32() == SpiSetWorkArea => "work-area-change",
+            WmPowerBroadcast when wParam.ToInt32() is
+                PbtApmResumeSuspend or PbtApmResumeAutomatic => "resume",
+            _ => null
+        };
+        if (displayChangeReason is not null)
+        {
+            DisplayEnvironmentChanged?.Invoke(
+                this,
+                new DisplayEnvironmentChangedEventArgs(displayChangeReason));
         }
 
         return CallWindowProc(_previousWindowProcedure, windowHandle, message, wParam, lParam);

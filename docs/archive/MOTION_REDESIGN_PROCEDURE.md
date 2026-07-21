@@ -1,6 +1,8 @@
 # Windows_SC モーション再設計手順書
 
-スタート検出とランチャー状態機械の現行保守仕様は[スタート連動機能 保守ガイド](START_MENU_INTEGRATION_MAINTENANCE.md)を参照する。
+> アーカイブ: この資料はPhase 4.5の設計・実装履歴である。現在のモーション仕様は[モーション仕様書](../MOTION_SPECIFICATION.md)、スタート検出順序と回帰対策は[スタート連動機能 保守ガイド](../START_MENU_INTEGRATION_MAINTENANCE.md)、残件は[現行修正課題・ドキュメント整理表](../REMAINING_WORK_AND_DOCUMENTATION_AUDIT.md)を参照する。
+
+スタート検出とランチャー状態機械の現行保守仕様は[スタート連動機能 保守ガイド](../START_MENU_INTEGRATION_MAINTENANCE.md)を参照する。
 
 作成日: 2026-07-20  
 最終改訂日: 2026-07-21
@@ -435,14 +437,14 @@ WinUI 3ではXAML要素に `UIElement.StartAnimation` を使える。`Translatio
 - Window全体の `DesktopAcrylicBackdrop` はSurface移動中も最終ウィンドウ矩形全体を塗ってしまうため採用しない。Surface単位のDesktop Acrylicは対応APIを利用できるWindows App SDKへ更新する際に再検証する。
 - モーションは `UIElement.StartAnimation` でSurfaceの `Translation` と `Opacity` をCompositionプロパティセットへ接続し、`CompositionScopedBatch.Completed` で完了させる。途中反転は世代IDで古い完了通知を無効化し、経過時間から求めた現在値を開始値として再構築する。
 - 診断ログはUIスレッドからファイルを書かず、バックグラウンドライターへキューイングする。
-- スタート監視はStartMenuExperienceHost／SearchHostの可視・非クローキングWin32ウィンドウを先に確認し、取れない場合だけUI Automationのフォーカス要素とその祖先を確認する。Start/Searchプロセスやスマートフォン連携パネルの子孫ツリー全走査は1秒前後ブロックする実測があったため表示経路から除外し、ランチャーが操作状態へ移った時点で監視も停止する。スマートフォン連携パネルの余白は利用者設定による予約を使用する。
-- 操作状態へ移った時点で監視Snapshotを非表示へ確定する。退出中にスタート表示を検出して進入へ反転できるのは、その退出中に新しいWindowsキー単体入力を受けた場合だけとし、古いSnapshotによる再表示を防ぐ。
+- スタート監視はUI Automationでフォーカス中のStartMenuExperienceHost／SearchHostとその祖先から有効な矩形を取得できる場合はそれを優先し、取得できない場合だけ可視・非クローキングWin32ウィンドウへフォールバックする。Start/Searchプロセスやスマートフォン連携パネルの子孫ツリー全走査は1秒前後ブロックする実測があったため表示経路から除外し、ランチャーが操作状態へ移った時点で監視も停止する。スマートフォン連携パネルの余白は利用者設定による予約を使用する。
+- 操作状態へ移った時点で監視Snapshotを非表示へ確定する。退出中に新しいWindowsキー入力または新しいスタート表示Snapshotを受けた場合は、現在位置から進入へ反転する。退出開始前の古いSnapshotでは再表示しない。
 - Windowsキー待機中でなくても、フォーカス変更時にWin32でStartMenuExperienceHost／SearchHostの可視ウィンドウを確認できた場合は、スタートボタンクリックによる表示としてランチャーを進入させる。
 
 ## 14. 実装・検証状況
 
 - Step 1～9のコード置換は完了した。
 - 16msのUIタイマーと毎フレームのHWND移動、表示時の強制レイアウト・同期再描画を削除した。
-- x64 / ARM64のDebugとReleaseを警告・エラーなしでビルドした。Releaseは既存のReadyToRunパッケージ制約を避けるため `PublishReadyToRun=false` で検証した。
+- 当時の技術検証ではx64／ARM64のDebugとReleaseをビルドした。現在の製品検証・配布対象はx64だけとし、ReleaseはReadyToRun有効、トリミング無効を正とする。
 - 60 / 120 / 144Hz、100 / 125 / 150 / 200%、複数モニター、RDP、モーション無効、途中反転100回は実機検証待ちとする。
 
