@@ -283,13 +283,12 @@ internal sealed class LauncherItemViewModel : ObservableObject
         _nextCommandStepIndex %= steps.Count;
         CommandCycleStepDefinition step = steps[_nextCommandStepIndex];
         ActionExecutionResult result = await _actionExecutionService.ExecuteAsync(step.Action);
-        if (result.IsSuccess || !_cycleAction!.RetryFailedCommand)
-        {
-            _nextCommandStepIndex = (_nextCommandStepIndex + 1) % steps.Count;
-            UpdateCommandCycleStatus();
-        }
+        _nextCommandStepIndex = (_nextCommandStepIndex + 1) % steps.Count;
+        UpdateCommandCycleStatus();
 
-        RaiseExecuted(result);
+        RaiseExecuted(
+            result,
+            mayTransferFocus: result.IsSuccess && !step.Action.HideCommandWindow);
     }
 
     private void UpdateCommandCycleStatus()
@@ -344,17 +343,25 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private bool ShouldCloseOnSuccess =>
         _postExecutionBehavior == LauncherPostExecutionBehavior.CloseOnSuccess;
 
-    private void RaiseExecuted(ActionExecutionResult result) =>
+    private void RaiseExecuted(
+        ActionExecutionResult result,
+        bool mayTransferFocus = false) =>
         Executed?.Invoke(
             this,
-            new LauncherItemExecutedEventArgs(result, ShouldCloseOnSuccess));
+            new LauncherItemExecutedEventArgs(
+                result,
+                ShouldCloseOnSuccess,
+                mayTransferFocus));
 }
 
 internal sealed class LauncherItemExecutedEventArgs(
     ActionExecutionResult result,
-    bool shouldCloseOnSuccess) : EventArgs
+    bool shouldCloseOnSuccess,
+    bool mayTransferFocus = false) : EventArgs
 {
     public ActionExecutionResult Result { get; } = result;
 
     public bool ShouldCloseOnSuccess { get; } = shouldCloseOnSuccess;
+
+    public bool MayTransferFocus { get; } = mayTransferFocus;
 }

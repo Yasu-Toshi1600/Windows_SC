@@ -175,8 +175,6 @@ internal sealed class CycleActionDefinition
 {
     public CycleActionKind Kind { get; set; } = CycleActionKind.AudioOutput;
 
-    public bool RetryFailedCommand { get; set; } = true;
-
     public List<string> AudioDeviceIds { get; set; } = [];
 
     public List<CommandCycleStepDefinition> CommandSteps { get; set; } = [];

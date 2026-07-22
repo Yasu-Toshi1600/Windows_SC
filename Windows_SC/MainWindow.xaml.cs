@@ -29,6 +29,7 @@ public sealed partial class MainWindow : Window
     private readonly EnvironmentInformationService _environmentInformationService;
     private readonly DispatcherQueueTimer _environmentCheckTimer;
     private readonly DispatcherQueueTimer _activationRetryTimer;
+    private readonly DispatcherQueueTimer _actionFocusTransferTimer;
     private readonly ILauncherMotionService _motionService;
     private readonly LauncherMotionCoordinator _motionCoordinator;
     private readonly UISettings _uiSettings;
@@ -48,6 +49,8 @@ public sealed partial class MainWindow : Window
     private string _pendingEnvironmentChangeReason = "display-change";
     private int _activationAttemptCount;
     private string _activationReason = "manual";
+    private bool _pendingActionFocusTransfer;
+    private bool _preserveVisibilityWhileInactive;
 
     internal MainWindowViewModel ViewModel { get; }
 
@@ -85,6 +88,10 @@ public sealed partial class MainWindow : Window
         _activationRetryTimer.Interval = TimeSpan.FromMilliseconds(50);
         _activationRetryTimer.IsRepeating = false;
         _activationRetryTimer.Tick += ActivationRetryTimer_Tick;
+        _actionFocusTransferTimer = DispatcherQueue.CreateTimer();
+        _actionFocusTransferTimer.Interval = TimeSpan.FromSeconds(1);
+        _actionFocusTransferTimer.IsRepeating = false;
+        _actionFocusTransferTimer.Tick += ActionFocusTransferTimer_Tick;
         _motionCoordinator = new LauncherMotionCoordinator(logger);
         _uiSettings = new UISettings();
         _motionService = new CompositionLauncherMotionService(
@@ -250,6 +257,9 @@ public sealed partial class MainWindow : Window
         bool startLinked = startMenuSnapshot is { IsVisible: true, Bounds: not null };
         float entranceTranslation = GetEntranceTranslation(startLinked);
         _launcherIsActivated = false;
+        _pendingActionFocusTransfer = false;
+        _preserveVisibilityWhileInactive = false;
+        _actionFocusTransferTimer.Stop();
         ViewModel.RefreshAudioOutputState();
         LauncherScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
 
@@ -321,6 +331,9 @@ public sealed partial class MainWindow : Window
         _appWindow.Hide();
         _isVisible = false;
         _launcherIsActivated = false;
+        _pendingActionFocusTransfer = false;
+        _preserveVisibilityWhileInactive = false;
+        _actionFocusTransferTimer.Stop();
         _lastPlacementStartSnapshot = null;
         _motionCoordinator.CompleteExit(reason);
         _logger.Write($"[Launcher] action=hidden reason={reason}");
@@ -392,8 +405,19 @@ public sealed partial class MainWindow : Window
 
         if (_launcherIsActivated)
         {
+            _pendingActionFocusTransfer = false;
+            _preserveVisibilityWhileInactive = false;
+            _actionFocusTransferTimer.Stop();
             _activationRetryTimer.Stop();
             MarkLauncherInteractive("window-activated");
+        }
+        else if (_pendingActionFocusTransfer || _preserveVisibilityWhileInactive)
+        {
+            _pendingActionFocusTransfer = false;
+            _preserveVisibilityWhileInactive = true;
+            _actionFocusTransferTimer.Stop();
+            _logger.WriteDetailed(
+                "[Launcher] deactivation=action-focus-transfer action=keep-visible");
         }
         else if (_motionCoordinator.IsInteractive)
         {
@@ -506,6 +530,9 @@ public sealed partial class MainWindow : Window
         _appWindow.Hide();
         _isVisible = false;
         _launcherIsActivated = false;
+        _pendingActionFocusTransfer = false;
+        _preserveVisibilityWhileInactive = false;
+        _actionFocusTransferTimer.Stop();
         _startLinkedVisibilityRequested = false;
         _lastPlacementStartSnapshot = null;
         _lastLoggedLauncherFocus = null;
@@ -590,6 +617,14 @@ public sealed partial class MainWindow : Window
 
         if (args.Result.IsSuccess)
         {
+            if (args.MayTransferFocus)
+            {
+                _pendingActionFocusTransfer = true;
+                _actionFocusTransferTimer.Stop();
+                _actionFocusTransferTimer.Start();
+                _logger.WriteDetailed(
+                    "[Launcher] action-focus-transfer=pending timeout-ms=1000");
+            }
             return;
         }
 
@@ -642,6 +677,21 @@ public sealed partial class MainWindow : Window
     {
         sender.Stop();
         TryActivateLauncher();
+    }
+
+    private void ActionFocusTransferTimer_Tick(
+        DispatcherQueueTimer sender,
+        object args)
+    {
+        sender.Stop();
+        if (!_pendingActionFocusTransfer)
+        {
+            return;
+        }
+
+        _pendingActionFocusTransfer = false;
+        _logger.WriteDetailed(
+            "[Launcher] action-focus-transfer=expired action=normal-light-dismiss");
     }
 
     private void TryActivateLauncher()
@@ -756,6 +806,8 @@ public sealed partial class MainWindow : Window
         _environmentCheckTimer.Tick -= EnvironmentCheckTimer_Tick;
         _activationRetryTimer.Stop();
         _activationRetryTimer.Tick -= ActivationRetryTimer_Tick;
+        _actionFocusTransferTimer.Stop();
+        _actionFocusTransferTimer.Tick -= ActionFocusTransferTimer_Tick;
         _windowInteropService.Dispose();
         _inputService.Dispose();
         _logger.Write("[Application] input-monitor=stopped; window=closed");

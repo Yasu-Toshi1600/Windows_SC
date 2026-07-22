@@ -805,7 +805,6 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     private string _workingDirectory = string.Empty;
     private bool _hideCommandWindow = true;
     private CycleActionKind _cycleKind = CycleActionKind.AudioOutput;
-    private bool _retryFailedCommand = true;
     private LauncherPostExecutionBehavior _postExecutionBehavior =
         LauncherPostExecutionBehavior.CloseOnSuccess;
     private readonly VolumeSliderDefinition? _volumeSlider;
@@ -826,7 +825,6 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
 
         CycleActionDefinition? cycleAction = definition.GetEffectiveCycleAction();
         _cycleKind = cycleAction?.Kind ?? CycleActionKind.AudioOutput;
-        _retryFailedCommand = cycleAction?.RetryFailedCommand ?? true;
 
         foreach (string deviceId in cycleAction?.AudioDeviceIds ?? [])
         {
@@ -953,12 +951,6 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         }
     }
 
-    public bool RetryFailedCommand
-    {
-        get => _retryFailedCommand;
-        set => SetProperty(ref _retryFailedCommand, value);
-    }
-
     public LauncherPostExecutionBehavior PostExecutionBehavior
     {
         get => _postExecutionBehavior;
@@ -988,7 +980,6 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
             ? new CycleActionDefinition
             {
                 Kind = CycleKind,
-                RetryFailedCommand = RetryFailedCommand,
                 AudioDeviceIds = RegisteredAudioDevices.Select(device => device.Id).ToList(),
                 CommandSteps = CommandSteps.Select(step => step.ToDefinition()).ToList()
             }

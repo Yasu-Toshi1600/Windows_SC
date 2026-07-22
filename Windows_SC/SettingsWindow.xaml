@@ -179,8 +179,6 @@
                         <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="2つ以上登録すると、上から順番に実行します。"
                                    TextWrapping="Wrap" />
-                        <CheckBox Content="失敗時は同じ操作を再実行する"
-                                  IsChecked="{Binding SelectedItem.RetryFailedCommand, Mode=TwoWay}" />
                         <Button HorizontalAlignment="Left"
                                 Command="{Binding AddCommandStepCommand}"
                                 Content="操作を追加" />
