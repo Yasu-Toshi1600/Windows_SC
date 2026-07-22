@@ -178,6 +178,7 @@ public sealed partial class MainWindow : Window
 
     private void ToggleWindow()
     {
+        MoveLauncherToCurrentVirtualDesktop("manual-hotkey");
         if (_motionCoordinator.State == LauncherMotionState.Exiting)
         {
             ShowWindow(activate: true, "manual-reverse", null);
@@ -194,6 +195,7 @@ public sealed partial class MainWindow : Window
 
     internal void RequestManualShow()
     {
+        MoveLauncherToCurrentVirtualDesktop("system-tray");
         if (_motionCoordinator.State == LauncherMotionState.Exiting)
         {
             ShowWindow(activate: true, "tray-reverse", null);
@@ -209,6 +211,7 @@ public sealed partial class MainWindow : Window
 
     private void InputService_WindowsKeyReleasedAlone(object? sender, EventArgs args)
     {
+        MoveLauncherToCurrentVirtualDesktop("windows-key");
         _windowsKeyReleasedTimestamp = Stopwatch.GetTimestamp();
 
         // When the launcher is following an already-visible Start surface, a
@@ -233,6 +236,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWindow(bool activate, string reason, StartMenuSnapshot? startMenuSnapshot)
     {
+        MoveLauncherToCurrentVirtualDesktop(reason);
         bool reversingExit = _motionCoordinator.State == LauncherMotionState.Exiting;
         bool needsPlacement = !_isVisible
             || (reversingExit && startMenuSnapshot is { IsVisible: true, Bounds: not null });
@@ -403,10 +407,15 @@ public sealed partial class MainWindow : Window
 
     private void SynchronizeWithStartMenu()
     {
-        bool launcherHasFocus = _launcherIsActivated
-            || _windowInteropService.IsForeground(_windowHandle);
         StartMenuSnapshot snapshot = _startMenuMonitor.Snapshot;
         bool startMenuIsVisible = snapshot.IsVisible && snapshot.Bounds is not null;
+        if (startMenuIsVisible)
+        {
+            MoveLauncherToCurrentVirtualDesktop("start-menu-snapshot");
+        }
+
+        bool launcherHasFocus = _launcherIsActivated
+            || _windowInteropService.IsForeground(_windowHandle);
 
         if (_lastLoggedLauncherFocus != launcherHasFocus
             || _lastLoggedStartMenuVisibility != startMenuIsVisible)
@@ -473,6 +482,38 @@ public sealed partial class MainWindow : Window
         {
             _startMenuMonitor.SetLauncherInteractive(true);
         }
+    }
+
+    private void MoveLauncherToCurrentVirtualDesktop(string reason)
+    {
+        VirtualDesktopMoveResult result =
+            _windowInteropService.MoveToCurrentVirtualDesktop(_windowHandle);
+        if (result.Status == VirtualDesktopMoveStatus.AlreadyCurrent)
+        {
+            return;
+        }
+
+        if (result.Status != VirtualDesktopMoveStatus.Moved)
+        {
+            _logger.Write(
+                $"[VirtualDesktop] action=move result={result.Status.ToString().ToLowerInvariant()} " +
+                $"reason={reason} hresult=0x{result.HResult:X8}");
+            return;
+        }
+
+        _activationRetryTimer.Stop();
+        _motionService.SetHidden(GetEntranceTranslation(startLinked: true));
+        _appWindow.Hide();
+        _isVisible = false;
+        _launcherIsActivated = false;
+        _startLinkedVisibilityRequested = false;
+        _lastPlacementStartSnapshot = null;
+        _lastLoggedLauncherFocus = null;
+        _lastLoggedStartMenuVisibility = null;
+        _motionCoordinator.ResetHidden("virtual-desktop-move");
+        _startMenuMonitor.SetLauncherVisible(false);
+        _logger.Write(
+            $"[VirtualDesktop] action=move result=success reason={reason}");
     }
 
     private void StartMenuMonitor_SnapshotChanged(object? sender, EventArgs args) =>

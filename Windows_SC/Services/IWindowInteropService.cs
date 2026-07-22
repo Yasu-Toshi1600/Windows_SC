@@ -12,7 +12,21 @@ internal interface IWindowInteropService : IDisposable
     bool IsForeground(IntPtr windowHandle);
 
     bool TryActivate(IntPtr windowHandle);
+
+    VirtualDesktopMoveResult MoveToCurrentVirtualDesktop(IntPtr windowHandle);
 }
+
+internal enum VirtualDesktopMoveStatus
+{
+    AlreadyCurrent,
+    Moved,
+    ReferenceWindowUnavailable,
+    Failed
+}
+
+internal readonly record struct VirtualDesktopMoveResult(
+    VirtualDesktopMoveStatus Status,
+    int HResult = 0);
 
 internal sealed class DisplayEnvironmentChangedEventArgs(string reason) : EventArgs
 {

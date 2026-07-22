@@ -79,6 +79,9 @@ internal sealed class LauncherMotionCoordinator(DiagnosticLogger logger)
     public void CompleteExit(string reason) =>
         Transition(LauncherMotionState.Hidden, reason);
 
+    public void ResetHidden(string reason) =>
+        Transition(LauncherMotionState.Hidden, reason);
+
     private void Transition(LauncherMotionState next, string reason)
     {
         if (State == next)
