@@ -88,20 +88,23 @@ internal sealed class EnvironmentInformationService(DiagnosticLogger logger)
 
         try
         {
-            monitors = DisplayArea.FindAll()
-                .Select(displayArea =>
-                {
-                    RectInt32 bounds = displayArea.OuterBounds;
-                    RectInt32 workArea = displayArea.WorkArea;
-                    (uint dpi, int refreshRate) = GetMonitorDetails(bounds);
-                    return new MonitorSnapshot(
-                        displayArea.IsPrimary,
-                        bounds,
-                        workArea,
-                        dpi,
-                        (int)Math.Round(dpi * 100d / 96d),
-                        refreshRate);
-                })
+            IReadOnlyList<DisplayArea> displayAreas = DisplayArea.FindAll();
+            for (int index = 0; index < displayAreas.Count; index++)
+            {
+                DisplayArea displayArea = displayAreas[index];
+                RectInt32 bounds = displayArea.OuterBounds;
+                RectInt32 workArea = displayArea.WorkArea;
+                (uint dpi, int refreshRate) = GetMonitorDetails(bounds);
+                monitors.Add(new MonitorSnapshot(
+                    displayArea.IsPrimary,
+                    bounds,
+                    workArea,
+                    dpi,
+                    (int)Math.Round(dpi * 100d / 96d),
+                    refreshRate));
+            }
+
+            monitors = monitors
                 .OrderByDescending(monitor => monitor.IsPrimary)
                 .ThenBy(monitor => monitor.Bounds.X)
                 .ThenBy(monitor => monitor.Bounds.Y)
