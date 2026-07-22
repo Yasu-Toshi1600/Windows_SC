@@ -17,6 +17,8 @@ namespace Windows_SC;
 
 public sealed partial class MainWindow : Window
 {
+    private const int MaximumActivationAttempts = 5;
+
     private readonly IntPtr _windowHandle;
     private readonly AppWindow _appWindow;
     private readonly DiagnosticLogger _logger;
@@ -26,6 +28,7 @@ public sealed partial class MainWindow : Window
     private readonly IWindowInteropService _windowInteropService;
     private readonly EnvironmentInformationService _environmentInformationService;
     private readonly DispatcherQueueTimer _environmentCheckTimer;
+    private readonly DispatcherQueueTimer _activationRetryTimer;
     private readonly ILauncherMotionService _motionService;
     private readonly LauncherMotionCoordinator _motionCoordinator;
     private readonly UISettings _uiSettings;
@@ -41,8 +44,10 @@ public sealed partial class MainWindow : Window
     private long _windowsKeyReleasedTimestamp;
     private long _startDetectedTimestamp;
     private long _showRequestedTimestamp;
-    private bool _startReopenRequestedDuringExit;
+    private bool _startLinkedVisibilityRequested;
     private string _pendingEnvironmentChangeReason = "display-change";
+    private int _activationAttemptCount;
+    private string _activationReason = "manual";
 
     internal MainWindowViewModel ViewModel { get; }
 
@@ -76,6 +81,10 @@ public sealed partial class MainWindow : Window
         _environmentCheckTimer.Interval = TimeSpan.FromMilliseconds(750);
         _environmentCheckTimer.IsRepeating = false;
         _environmentCheckTimer.Tick += EnvironmentCheckTimer_Tick;
+        _activationRetryTimer = DispatcherQueue.CreateTimer();
+        _activationRetryTimer.Interval = TimeSpan.FromMilliseconds(50);
+        _activationRetryTimer.IsRepeating = false;
+        _activationRetryTimer.Tick += ActivationRetryTimer_Tick;
         _motionCoordinator = new LauncherMotionCoordinator(logger);
         _uiSettings = new UISettings();
         _motionService = new CompositionLauncherMotionService(
@@ -208,6 +217,7 @@ public sealed partial class MainWindow : Window
         if (_motionCoordinator.State is LauncherMotionState.EnteringWithStart
             or LauncherMotionState.VisibleWithStart)
         {
+            _startLinkedVisibilityRequested = false;
             _logger.Write("[LaunchTiming] event=windows-key-close action=exit-immediate");
             _startMenuMonitor.NotifyStartMenuClosing();
             RequestExit("windows-key-close");
@@ -218,18 +228,15 @@ public sealed partial class MainWindow : Window
         {
             _motionCoordinator.AwaitStartConfirmation();
         }
-        else if (_motionCoordinator.State == LauncherMotionState.Exiting)
-        {
-            _startReopenRequestedDuringExit = true;
-        }
-
         _startMenuMonitor.NotifyWindowsKeyReleased();
     }
 
     private void ShowWindow(bool activate, string reason, StartMenuSnapshot? startMenuSnapshot)
     {
         bool reversingExit = _motionCoordinator.State == LauncherMotionState.Exiting;
-        if (!_isVisible && !PositionWindow(startMenuSnapshot))
+        bool needsPlacement = !_isVisible
+            || (reversingExit && startMenuSnapshot is { IsVisible: true, Bounds: not null });
+        if (needsPlacement && !PositionWindow(startMenuSnapshot))
         {
             _motionCoordinator.CancelStartConfirmation("placement-failed");
             _logger.Write($"[Launcher] action=show-cancelled reason={reason} placement-failed=true");
@@ -248,7 +255,7 @@ public sealed partial class MainWindow : Window
         }
 
         _motionCoordinator.BeginEntrance(startLinked, reason);
-        _startReopenRequestedDuringExit = false;
+        _startLinkedVisibilityRequested = startLinked;
         _lastPlacementStartSnapshot = startMenuSnapshot;
         _lastLoggedLauncherFocus = null;
         _lastLoggedStartMenuVisibility = null;
@@ -259,6 +266,19 @@ public sealed partial class MainWindow : Window
             _isVisible = true;
             _appWindow.Show(activate);
             _startMenuMonitor.SetLauncherVisible(true);
+        }
+        else if (activate)
+        {
+            _appWindow.Show(true);
+        }
+
+        if (activate)
+        {
+            BeginActivationVerification(reason);
+        }
+        else
+        {
+            _activationRetryTimer.Stop();
         }
 
         _logger.Write(
@@ -293,14 +313,25 @@ public sealed partial class MainWindow : Window
 
     private void CompleteHide(string reason)
     {
+        _activationRetryTimer.Stop();
         _appWindow.Hide();
         _isVisible = false;
         _launcherIsActivated = false;
         _lastPlacementStartSnapshot = null;
-        _startReopenRequestedDuringExit = false;
         _motionCoordinator.CompleteExit(reason);
         _logger.Write($"[Launcher] action=hidden reason={reason}");
         _startMenuMonitor.SetLauncherVisible(false);
+
+        StartMenuSnapshot latestSnapshot = _startMenuMonitor.Snapshot;
+        if (_startLinkedVisibilityRequested
+            && latestSnapshot is { IsVisible: true, Bounds: not null })
+        {
+            _startDetectedTimestamp = Stopwatch.GetTimestamp();
+            ShowWindow(
+                activate: false,
+                "start-menu-final-state-reconcile",
+                latestSnapshot);
+        }
     }
 
     private void MotionService_Completed(
@@ -357,6 +388,7 @@ public sealed partial class MainWindow : Window
 
         if (_launcherIsActivated)
         {
+            _activationRetryTimer.Stop();
             MarkLauncherInteractive("window-activated");
         }
         else if (_motionCoordinator.IsInteractive)
@@ -391,11 +423,18 @@ public sealed partial class MainWindow : Window
             MarkLauncherInteractive("focus-detected");
         }
 
+        if (_motionCoordinator.State is LauncherMotionState.EnteringManual
+            or LauncherMotionState.VisibleInteractive)
+        {
+            return;
+        }
+
+        _startLinkedVisibilityRequested = startMenuIsVisible;
+
         if (startMenuIsVisible
             && (_motionCoordinator.State == LauncherMotionState.Hidden
                 || _motionCoordinator.State == LauncherMotionState.AwaitingStartConfirmation
-                || (_motionCoordinator.State == LauncherMotionState.Exiting
-                    && _startReopenRequestedDuringExit)))
+                || _motionCoordinator.State == LauncherMotionState.Exiting))
         {
             bool openedWithoutWindowsKey = _motionCoordinator.State == LauncherMotionState.Hidden;
             bool reopenedDuringExit = _motionCoordinator.State == LauncherMotionState.Exiting;
@@ -422,16 +461,13 @@ public sealed partial class MainWindow : Window
             && _motionCoordinator.State is LauncherMotionState.EnteringWithStart
                 or LauncherMotionState.VisibleWithStart)
         {
-            // A subsequent Visible snapshot is a new click/open operation, not a
-            // stale snapshot. Allow it to reverse the in-progress exit.
-            _windowsKeyReleasedTimestamp = 0;
-            _startReopenRequestedDuringExit = true;
             RequestExit("start-menu-hidden");
         }
     }
 
     private void MarkLauncherInteractive(string reason)
     {
+        _startLinkedVisibilityRequested = false;
         _motionCoordinator.MarkInteractive(reason);
         if (_motionCoordinator.IsInteractive)
         {
@@ -447,7 +483,7 @@ public sealed partial class MainWindow : Window
 
     private void StartMenuMonitor_StartConfirmationExpired(object? sender, EventArgs args)
     {
-        _startReopenRequestedDuringExit = false;
+        _startLinkedVisibilityRequested = false;
         _motionCoordinator.CancelStartConfirmation("start-confirmation-timeout");
         _logger.Write("[Launcher] start-confirmation=expired action=none");
     }
@@ -551,6 +587,65 @@ public sealed partial class MainWindow : Window
     private void WindowInteropService_EscapePressed(object? sender, EventArgs args) =>
         RequestExit("escape-key-win32");
 
+    private void BeginActivationVerification(string reason)
+    {
+        _activationRetryTimer.Stop();
+        _activationAttemptCount = 0;
+        _activationReason = reason;
+        TryActivateLauncher();
+    }
+
+    private void ActivationRetryTimer_Tick(
+        DispatcherQueueTimer sender,
+        object args)
+    {
+        sender.Stop();
+        TryActivateLauncher();
+    }
+
+    private void TryActivateLauncher()
+    {
+        if (!_isVisible || !_motionCoordinator.IsWindowVisible)
+        {
+            _activationRetryTimer.Stop();
+            return;
+        }
+
+        if (_windowInteropService.IsForeground(_windowHandle))
+        {
+            _activationRetryTimer.Stop();
+            _launcherIsActivated = true;
+            MarkLauncherInteractive("activation-confirmed");
+            _logger.WriteDetailed(
+                $"[Launcher] activation-result=success reason={_activationReason} " +
+                $"attempts={_activationAttemptCount}");
+            return;
+        }
+
+        _activationAttemptCount++;
+        bool activated = _windowInteropService.TryActivate(_windowHandle);
+        if (activated)
+        {
+            _activationRetryTimer.Stop();
+            _launcherIsActivated = true;
+            MarkLauncherInteractive("activation-retry");
+            _logger.WriteDetailed(
+                $"[Launcher] activation-result=success reason={_activationReason} " +
+                $"attempts={_activationAttemptCount}");
+            return;
+        }
+
+        if (_activationAttemptCount >= MaximumActivationAttempts)
+        {
+            _logger.Write(
+                $"[Launcher] activation-result=failed reason={_activationReason} " +
+                $"attempts={_activationAttemptCount}");
+            return;
+        }
+
+        _activationRetryTimer.Start();
+    }
+
     private void WindowInteropService_DisplayEnvironmentChanged(
         object? sender,
         DisplayEnvironmentChangedEventArgs args)
@@ -618,6 +713,8 @@ public sealed partial class MainWindow : Window
             WindowInteropService_DisplayEnvironmentChanged;
         _environmentCheckTimer.Stop();
         _environmentCheckTimer.Tick -= EnvironmentCheckTimer_Tick;
+        _activationRetryTimer.Stop();
+        _activationRetryTimer.Tick -= ActivationRetryTimer_Tick;
         _windowInteropService.Dispose();
         _inputService.Dispose();
         _logger.Write("[Application] input-monitor=stopped; window=closed");

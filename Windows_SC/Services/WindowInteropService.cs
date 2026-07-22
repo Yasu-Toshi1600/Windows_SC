@@ -55,6 +55,17 @@ internal sealed class WindowInteropService(
 
     public bool IsForeground(IntPtr windowHandle) => GetForegroundWindow() == windowHandle;
 
+    public bool TryActivate(IntPtr windowHandle)
+    {
+        if (IsForeground(windowHandle))
+        {
+            return true;
+        }
+
+        _ = SetForegroundWindow(windowHandle);
+        return IsForeground(windowHandle);
+    }
+
     public void Dispose()
     {
         if (_isDisposed)
@@ -134,5 +145,9 @@ internal sealed class WindowInteropService(
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr windowHandle);
 
 }

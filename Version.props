@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- Semantic Versioning: major.minor.patch -->
-    <VersionPrefix>0.5.2</VersionPrefix>
+    <VersionPrefix>0.5.3</VersionPrefix>
     <!-- Use dev/beta.N/rc.N during development; leave empty for a stable release. -->
     <VersionSuffix>dev</VersionSuffix>
 

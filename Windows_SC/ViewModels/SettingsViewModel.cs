@@ -630,6 +630,15 @@ internal sealed class SettingsViewModel : ObservableObject
             return;
         }
 
+        LauncherItemEditorViewModel? incompleteButton = Items.FirstOrDefault(item =>
+            item.IsButton && string.IsNullOrWhiteSpace(item.Target));
+        if (incompleteButton is not null)
+        {
+            SelectedItem = incompleteButton;
+            StatusMessage = "ボタンの起動対象またはコマンドを入力してください。";
+            return;
+        }
+
         LauncherItemEditorViewModel? incompleteAudioItem = Items.FirstOrDefault(item =>
             item.IsToggle
             && item.CycleKind == CycleActionKind.AudioOutput
@@ -674,6 +683,7 @@ internal sealed class SettingsViewModel : ObservableObject
         SaveCommand.NotifyCanExecuteChanged();
         StatusMessage = "保存しています…";
 
+        LauncherSettings previousSettings = _mainWindowViewModel.ExportSettings();
         try
         {
             LauncherSettings settings = new()
@@ -694,8 +704,30 @@ internal sealed class SettingsViewModel : ObservableObject
                     }
                 ]
             };
-            _startupService.SetEnabled(settings.StartWithWindows);
             await _settingsRepository.SaveAsync(settings);
+
+            try
+            {
+                _startupService.SetEnabled(settings.StartWithWindows);
+            }
+            catch (Exception startupException)
+            {
+                bool startupRollbackSucceeded = TryRestoreStartupSetting(
+                    previousSettings.StartWithWindows);
+                bool settingsRollbackSucceeded = await TryRestoreSettingsAsync(previousSettings);
+                string actualStartupState = GetActualStartupStateText();
+                _logger.Write(
+                    $"[Settings] action=apply-startup result=failed " +
+                    $"exception={startupException.GetType().Name} " +
+                    $"settings-rollback={settingsRollbackSucceeded.ToString().ToLowerInvariant()} " +
+                    $"startup-rollback={startupRollbackSucceeded.ToString().ToLowerInvariant()} " +
+                    $"actual-startup={actualStartupState}");
+                StatusMessage = settingsRollbackSucceeded
+                    ? $"自動起動を変更できなかったため、設定を保存前の状態へ戻しました。現在の自動起動: {actualStartupState}"
+                    : $"自動起動を変更できず、設定ファイルも元に戻せませんでした。現在の自動起動: {actualStartupState}。アプリを再起動して状態を確認してください。";
+                return;
+            }
+
             _detailedLoggingExpiresAt = settings.DetailedLoggingExpiresAtUtc;
             _logger.ConfigureDetailedLogging(_detailedLoggingExpiresAt);
             _environmentInformationService.LogIfChanged("settings-save");
@@ -711,6 +743,54 @@ internal sealed class SettingsViewModel : ObservableObject
         {
             _isSaving = false;
             SaveCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private bool TryRestoreStartupSetting(bool enabled)
+    {
+        try
+        {
+            _startupService.SetEnabled(enabled);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _logger.Write(
+                $"[Settings] action=rollback-startup result=failed " +
+                $"exception={exception.GetType().Name}");
+            return false;
+        }
+    }
+
+    private async System.Threading.Tasks.Task<bool> TryRestoreSettingsAsync(
+        LauncherSettings settings)
+    {
+        try
+        {
+            await _settingsRepository.SaveAsync(settings);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _logger.Write(
+                $"[Settings] action=rollback-file result=failed " +
+                $"exception={exception.GetType().Name}");
+            return false;
+        }
+    }
+
+    private string GetActualStartupStateText()
+    {
+        try
+        {
+            return _startupService.IsEnabled ? "有効" : "無効";
+        }
+        catch (Exception exception)
+        {
+            _logger.Write(
+                $"[Settings] action=read-startup result=failed " +
+                $"exception={exception.GetType().Name}");
+            return "確認できません";
         }
     }
 

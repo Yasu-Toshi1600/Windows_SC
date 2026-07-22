@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using Windows.Graphics;
@@ -84,6 +85,11 @@ internal sealed class StartMenuWindowInspector
         => TryGetStartMenuBounds(out _);
 
     public bool TryGetStartMenuBounds(out RectInt32 bounds)
+        => TryGetStartMenuBounds(preferredOwnerBounds: null, out bounds);
+
+    public bool TryGetStartMenuBounds(
+        RectInt32? preferredOwnerBounds,
+        out RectInt32 bounds)
     {
         IntPtr foregroundWindow = GetForegroundWindow();
         if (foregroundWindow != IntPtr.Zero
@@ -94,8 +100,7 @@ internal sealed class StartMenuWindowInspector
             return true;
         }
 
-        RectInt32 detectedBounds = default;
-        bool isVisible = false;
+        List<StartWindowCandidate> candidates = [];
 
         EnumWindows((windowHandle, _) =>
         {
@@ -103,17 +108,59 @@ internal sealed class StartMenuWindowInspector
                 || IsWindowCloaked(windowHandle)
                 || !TryGetProcessName(windowHandle, out string processName)
                 || !StartMenuProcesses.Contains(processName)
-                || !TryGetUsableBounds(windowHandle, out detectedBounds))
+                || !TryGetUsableBounds(windowHandle, out RectInt32 candidateBounds))
             {
                 return true;
             }
 
-            isVisible = true;
-            return false;
+            candidates.Add(new StartWindowCandidate(windowHandle, candidateBounds));
+            return true;
         }, IntPtr.Zero);
 
-        bounds = detectedBounds;
-        return isVisible;
+        if (candidates.Count == 0)
+        {
+            bounds = default;
+            return false;
+        }
+
+        if (preferredOwnerBounds is { } ownerBounds)
+        {
+            NativePoint ownerCenter = new(
+                ownerBounds.X + (ownerBounds.Width / 2),
+                ownerBounds.Y + (ownerBounds.Height / 2));
+            IntPtr preferredMonitor = MonitorFromPoint(ownerCenter, MonitorDefaultToNearest);
+            StartWindowCandidate? matchingCandidate = candidates
+                .Where(candidate => MonitorFromWindow(
+                    candidate.WindowHandle,
+                    MonitorDefaultToNearest) == preferredMonitor)
+                .OrderBy(candidate => DistanceSquared(candidate.Bounds, ownerCenter))
+                .FirstOrDefault();
+            if (matchingCandidate is not null)
+            {
+                bounds = matchingCandidate.Bounds;
+                _logger.WriteDetailed(
+                    $"[StartPanelSelection] source=start-button-monitor " +
+                    $"candidates={candidates.Count} bounds=({bounds.X},{bounds.Y}," +
+                    $"{bounds.Width},{bounds.Height})");
+                return true;
+            }
+
+            _logger.Write(
+                $"[StartPanelSelection] result=none reason=owner-monitor-mismatch " +
+                $"candidates={candidates.Count}");
+            bounds = default;
+            return false;
+        }
+
+        bounds = candidates[0].Bounds;
+        return true;
+    }
+
+    private static long DistanceSquared(RectInt32 bounds, NativePoint point)
+    {
+        long deltaX = bounds.X + (bounds.Width / 2L) - point.X;
+        long deltaY = bounds.Y + (bounds.Height / 2L) - point.Y;
+        return (deltaX * deltaX) + (deltaY * deltaY);
     }
 
     private bool TryGetUsableBounds(IntPtr windowHandle, out RectInt32 bounds)
@@ -218,6 +265,17 @@ internal sealed class StartMenuWindowInspector
         string Title,
         NativeRectangle Rectangle);
 
+    private sealed record StartWindowCandidate(IntPtr WindowHandle, RectInt32 Bounds);
+
+    private const uint MonitorDefaultToNearest = 0x00000002;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly struct NativePoint(int x, int y)
+    {
+        public readonly int X = x;
+        public readonly int Y = y;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private readonly struct NativeRectangle
     {
@@ -239,6 +297,12 @@ internal sealed class StartMenuWindowInspector
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr windowHandle, uint flags);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

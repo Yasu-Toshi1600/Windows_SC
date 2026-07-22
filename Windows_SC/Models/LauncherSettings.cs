@@ -30,10 +30,10 @@ internal sealed class LauncherSettings
                 Name = "メイン",
                 Items =
                 [
-                    LauncherItemDefinition.CreateButton("ショートカット 1"),
-                    LauncherItemDefinition.CreateButton("ショートカット 2"),
-                    LauncherItemDefinition.CreateButton("ショートカット 3"),
-                    LauncherItemDefinition.CreateButton("ショートカット 4")
+                    LauncherItemDefinition.CreateButton("メモ帳", "notepad.exe"),
+                    LauncherItemDefinition.CreateButton("電卓", "calc.exe"),
+                    LauncherItemDefinition.CreateButton("エクスプローラー", "explorer.exe"),
+                    LauncherItemDefinition.CreateButton("Windows 設定", "ms-settings:")
                 ]
             }
         ]
@@ -68,11 +68,14 @@ internal sealed class LauncherItemDefinition
 
     public VolumeSliderDefinition? VolumeSlider { get; set; }
 
-    public static LauncherItemDefinition CreateButton(string title) => new()
+    public static LauncherItemDefinition CreateButton(string title, string target) => new()
     {
         Kind = LauncherItemKind.Button,
         Title = title,
-        Action = new LauncherActionDefinition()
+        Action = new LauncherActionDefinition
+        {
+            Target = target
+        }
     };
 
     public CycleActionDefinition? GetEffectiveCycleAction()

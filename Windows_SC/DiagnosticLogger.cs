@@ -20,6 +20,7 @@ internal sealed class DiagnosticLogger : IDisposable
     private readonly ConcurrentQueue<LogEntry> _pendingEntries = new();
     private readonly AutoResetEvent _writeRequested = new(false);
     private readonly Thread _writerThread;
+    private readonly object _drainGate = new();
     private readonly object _fileGate = new();
     private long _detailedLoggingExpiresUtcTicks;
     private int _isDisposed;
@@ -97,6 +98,12 @@ internal sealed class DiagnosticLogger : IDisposable
         }
     }
 
+    public void WriteCritical(string message)
+    {
+        Enqueue(message, includeNormalLog: true, includeDetailedLog: IsDetailedLoggingEnabled);
+        FlushPendingEntries();
+    }
+
     public void ClearLogs()
     {
         FlushPendingEntries();
@@ -149,38 +156,41 @@ internal sealed class DiagnosticLogger : IDisposable
 
     private void FlushPendingEntries()
     {
-        if (_pendingEntries.IsEmpty)
+        lock (_drainGate)
         {
-            return;
-        }
-
-        StringBuilder normalBatch = new();
-        StringBuilder detailedBatch = new();
-        while (_pendingEntries.TryDequeue(out LogEntry entry))
-        {
-            if (entry.IncludeNormalLog)
+            if (_pendingEntries.IsEmpty)
             {
-                normalBatch.Append(entry.Line);
+                return;
             }
 
-            if (entry.IncludeDetailedLog)
+            StringBuilder normalBatch = new();
+            StringBuilder detailedBatch = new();
+            while (_pendingEntries.TryDequeue(out LogEntry entry))
             {
-                detailedBatch.Append(entry.Line);
-            }
-        }
+                if (entry.IncludeNormalLog)
+                {
+                    normalBatch.Append(entry.Line);
+                }
 
-        try
-        {
-            lock (_fileGate)
-            {
-                AppendIfNotEmpty(_logFilePath, normalBatch);
-                AppendIfNotEmpty(_detailedLogFilePath, detailedBatch);
+                if (entry.IncludeDetailedLog)
+                {
+                    detailedBatch.Append(entry.Line);
+                }
             }
-        }
-        catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException)
-        {
-            Debug.WriteLine($"診断ログを書き込めませんでした: {exception}");
+
+            try
+            {
+                lock (_fileGate)
+                {
+                    AppendIfNotEmpty(_logFilePath, normalBatch);
+                    AppendIfNotEmpty(_detailedLogFilePath, detailedBatch);
+                }
+            }
+            catch (Exception exception) when (exception is IOException
+                or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"診断ログを書き込めませんでした: {exception}");
+            }
         }
     }
 

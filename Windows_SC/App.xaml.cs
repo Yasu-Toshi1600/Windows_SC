@@ -25,6 +25,10 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        UnhandledException += App_UnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException +=
+            TaskScheduler_UnobservedTaskException;
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -50,7 +54,16 @@ public partial class App : Application
         _environmentInformationService = new EnvironmentInformationService(logger);
         _viewModel.ApplySettings(settings);
         _startupService = new RegistryStartupService(logger);
-        _startupService.SetEnabled(settings.StartWithWindows);
+        try
+        {
+            _startupService.SetEnabled(settings.StartWithWindows);
+        }
+        catch (Exception exception)
+        {
+            logger.Write(
+                $"[Startup] action=synchronize result=failed " +
+                $"exception={exception.GetType().Name}");
+        }
         _viewModel.SettingsRequested += ViewModel_SettingsRequested;
         IStartMenuMonitor startMenuMonitor = new HybridStartMenuMonitor(
             DispatcherQueue.GetForCurrentThread(),
@@ -87,6 +100,9 @@ public partial class App : Application
         }
         catch (Exception exception)
         {
+            _logger?.Write(
+                $"[Application] shutdown-save=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
             System.Diagnostics.Debug.WriteLine($"設定の終了保存に失敗しました: {exception}");
         }
         finally
@@ -109,6 +125,10 @@ public partial class App : Application
             _singleInstanceService = null;
             _audioOutputService?.Dispose();
             _audioOutputService = null;
+            UnhandledException -= App_UnhandledException;
+            AppDomain.CurrentDomain.UnhandledException -= CurrentDomain_UnhandledException;
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException -=
+                TaskScheduler_UnobservedTaskException;
             _logger?.Dispose();
             _logger = null;
             _environmentInformationService = null;
@@ -201,4 +221,50 @@ public partial class App : Application
         _settingsWindow?.Close();
         _window?.Close();
     }
+
+    private void App_UnhandledException(
+        object sender,
+        Microsoft.UI.Xaml.UnhandledExceptionEventArgs args) =>
+        WriteUnhandledException("ui-thread", args.Exception, isTerminating: true);
+
+    private void CurrentDomain_UnhandledException(
+        object sender,
+        System.UnhandledExceptionEventArgs args) =>
+        WriteUnhandledException(
+            "app-domain",
+            args.ExceptionObject as Exception,
+            args.IsTerminating);
+
+    private void TaskScheduler_UnobservedTaskException(
+        object? sender,
+        System.Threading.Tasks.UnobservedTaskExceptionEventArgs args) =>
+        WriteUnhandledException("unobserved-task", args.Exception, isTerminating: false);
+
+    private void WriteUnhandledException(
+        string source,
+        Exception? exception,
+        bool isTerminating)
+    {
+        try
+        {
+            string exceptionType = exception?.GetType().Name ?? "unknown";
+            string hresult = exception is null ? "unknown" : $"0x{exception.HResult:X8}";
+            string message = NormalizeLogValue(exception?.Message ?? "例外情報を取得できませんでした。");
+            DiagnosticLogger? logger = _logger;
+            logger?.WriteCritical(
+                $"[UnhandledException] source={source} " +
+                $"terminating={isTerminating.ToString().ToLowerInvariant()} " +
+                $"exception={exceptionType} hresult={hresult} message=\"{message}\"");
+        }
+        catch (Exception loggingException)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"未処理例外を診断ログへ記録できませんでした: {loggingException}");
+        }
+    }
+
+    private static string NormalizeLogValue(string value) =>
+        value.Replace('"', '\'')
+            .Replace('\r', ' ')
+            .Replace('\n', ' ');
 }

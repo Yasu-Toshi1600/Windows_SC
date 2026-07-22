@@ -239,13 +239,17 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             .ToArray();
 
         List<AutomationCandidate> candidates = [];
+        Windows.Graphics.RectInt32? preferredStartOwnerBounds = null;
 
         // The focused UI Automation element identifies which monitor owns the
         // currently open Start surface. Win32 can expose more than one visible
         // SearchHost window in a multi-monitor environment, so enumeration order
         // must not override a focused Start window from another display.
         if (processIds.Length > 0
-            && TryCollectFocusedStartMenuElement(processIds, candidates))
+            && TryCollectFocusedStartMenuElement(
+                processIds,
+                candidates,
+                out preferredStartOwnerBounds))
         {
             System.Windows.Rect? startBounds = SelectStartMenuBounds(candidates);
             if (startBounds is not null)
@@ -260,7 +264,9 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             }
         }
 
-        if (_windowInspector.TryGetStartMenuBounds(out Windows.Graphics.RectInt32 windowBounds))
+        if (_windowInspector.TryGetStartMenuBounds(
+            preferredStartOwnerBounds,
+            out Windows.Graphics.RectInt32 windowBounds))
         {
             UpdateSnapshot(new StartMenuSnapshot(true, windowBounds, false, null));
             LogSnapshotIfChanged("visible-win32-window", []);
@@ -280,8 +286,10 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     private bool TryCollectFocusedStartMenuElement(
         IReadOnlyCollection<int> startMenuProcessIds,
-        ICollection<AutomationCandidate> candidates)
+        ICollection<AutomationCandidate> candidates,
+        out Windows.Graphics.RectInt32? preferredStartOwnerBounds)
     {
+        preferredStartOwnerBounds = null;
         AutomationElement focusedElement = AutomationElement.FocusedElement;
         AutomationElement.AutomationElementInformation focused = focusedElement.Current;
         string focusedSignature = $"{focused.ProcessId}:{focused.AutomationId}:{focused.Name}";
@@ -299,6 +307,14 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
         if (!startMenuProcessIds.Contains(focused.ProcessId))
         {
+            if (string.Equals(
+                    GetProcessName(focused.ProcessId),
+                    "explorer",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                preferredStartOwnerBounds = FindStartButtonBounds(focusedElement);
+            }
+
             return false;
         }
 
@@ -319,6 +335,35 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
 
         return true;
+    }
+
+    private static Windows.Graphics.RectInt32? FindStartButtonBounds(
+        AutomationElement focusedElement)
+    {
+        AutomationElement? currentElement = focusedElement;
+        for (int depth = 0; currentElement is not null && depth < 8; depth++)
+        {
+            try
+            {
+                AutomationElement.AutomationElementInformation current = currentElement.Current;
+                if (string.Equals(
+                        current.AutomationId,
+                        "StartButton",
+                        StringComparison.OrdinalIgnoreCase)
+                    && !current.BoundingRectangle.IsEmpty)
+                {
+                    return ToRectInt32(current.BoundingRectangle);
+                }
+
+                currentElement = TreeWalker.RawViewWalker.GetParent(currentElement);
+            }
+            catch (ElementNotAvailableException)
+            {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     private static System.Windows.Rect? SelectStartMenuBounds(

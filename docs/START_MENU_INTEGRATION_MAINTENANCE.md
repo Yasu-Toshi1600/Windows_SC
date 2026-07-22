@@ -84,11 +84,13 @@ OS依存の検出条件は `StartMenuWindowInspector` と `UiAutomationStartMenu
 UI Automationで有効なフォーカス矩形を取れない場合のみ、`StartMenuWindowInspector.TryGetStartMenuBounds` を実行する。
 
 1. 前景ウィンドウのプロセスが `StartMenuExperienceHost` または `SearchHost` なら矩形を確認する。
-2. 取れない場合はトップレベルウィンドウだけを列挙する。
-3. `IsWindowVisible == true` を要求する。
-4. `DWMWA_CLOAKED` でクローキングされていないことを要求する。
-5. 幅200px、高さ100px未満の矩形を除外する。
-6. モニター領域または作業領域の縦横90%以上を覆う矩形を除外する。
+2. フォーカスがExplorerの`StartButton`に残っている場合は、その矩形が属するモニターをクリック元として保持する。
+3. 取れない場合はトップレベルウィンドウだけを列挙する。
+4. `IsWindowVisible == true` を要求する。
+5. `DWMWA_CLOAKED` でクローキングされていないことを要求する。
+6. 幅200px、高さ100px未満の矩形を除外する。
+7. モニター領域または作業領域の縦横90%以上を覆う矩形を除外する。
+8. クリック元が分かる場合は同じモニターの候補だけを採用する。一致候補がなければ別モニターの候補へフォールバックせず、その回は未検出とする。
 
 `SearchHost`は環境によってスタートメニュー本体とは別にモニター全面のホストウィンドウを持つ。この矩形を採用すると、配置処理がスタートの右側に空きがないと誤判定するため、プロセス名と最小サイズだけで矩形を採用してはいけない。
 
@@ -120,22 +122,15 @@ UI Automationで有効なフォーカス矩形を取れない場合のみ、`Sta
 | `EnteringManual` | 手動ホットキーの167ms進入中。 | 完了または操作で `VisibleInteractive`。 |
 | `VisibleWithStart` | スタートと連動し、まだランチャー未操作。 | 操作で `VisibleInteractive`、スタート終了で `Exiting`。 |
 | `VisibleInteractive` | ランチャーが操作対象。スタート状態から独立。 | 外側クリック、Escape、アクション成功で `Exiting`。 |
-| `Exiting` | 125ms退出中。 | 完了で `Hidden`、退出中の新しいWindowsキー＋表示確認で進入へ反転。 |
+| `Exiting` | 125ms退出中。 | 完了で `Hidden`、最後に確認した要求がVisibleなら現在値から進入へ反転。 |
 
-### 退出中の反転ガード
+### 最終要求状態への収束
 
-`_startReopenRequestedDuringExit` は、退出中に新しいWindowsキー単体入力を受けた場合、またはスタートの`Hidden`を確認して退出を開始した場合に `true` になる。後者では、その後の`Visible`は連続クリックによる新しい表示なので進入へ反転する。`Hidden`を挟んでいない古い`Visible`だけでは反転しない。
+`_startLinkedVisibilityRequested`は、未操作のスタート連動中に最後に確認したSnapshotがVisibleかHiddenかを保持する。Hiddenなら退出方向、Visibleなら表示方向へ進める。退出完了とVisible通知が競合した場合も、Hide完了後に最新Snapshotを再確認し、Visibleなら直ちに進入へ戻す。
 
-このガードを外すと、古いSnapshotにより次が発生する。
+ランチャーがフォーカスを得て`VisibleInteractive`へ移った時点では、この要求を破棄してSnapshotをHiddenへ確定する。これにより、アクション成功後に古いVisibleへ戻ることを防ぐ。
 
-1. アクション成功で退出を開始する。
-2. 古い `Visible` が届く。
-3. 進入へ誤反転する。
-4. 古い退出完了通知が現在状態を上書きする。
-
-状態遷移を単純な `_isVisible` トグルへ戻してはいけない。
-
-連続クリックでは、退出アニメーション中に`Hidden → Visible`が約100～150msで到着する場合がある。この遷移を無視すると、退出完了後もSnapshotが`Visible`のままで変更通知が来ず、以降のクリックまで表示できない。ログのreasonは`start-menu-reopened-during-exit`となる。
+連続クリックでは、退出アニメーション中に`Hidden → Visible`が約100～150msで到着する場合がある。このVisibleを最後の要求として受け入れ、必要なら新しいStart矩形へ再配置してから反転する。状態遷移を単純な`_isVisible`トグルへ戻してはいけない。
 
 ## 7. 操作別シーケンス
 
@@ -281,7 +276,9 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 | 画面外クリックや設定画面表示が遅れる | Start/Searchの子孫ツリー全走査が1.0～1.2秒ブロックした | 子孫走査を削除し、Win32トップレベル＋UIA祖先方向だけに限定。対話開始時に監視停止。 |
 | Windowsキーで開かない回がある | UIAフォーカスだけに絞り、Startがフォーカスとして公開されない回を検出できなかった | 可視・非クローキングWin32ウィンドウを50msフォールバックで確認する。 |
 | スタートボタンクリックで起動しない | Windowsキー後だけ監視を有効にし、アイドル中のクリック経路を失った | フォーカス変更時にWin32可視状態を軽く確認し、クリック由来のSnapshotを許可する。 |
-| アクション成功後に一瞬再表示する | 対話開始前の `Visible` Snapshotが残り、退出中の再開条件を満たした | 対話開始時にSnapshotをHiddenへ確定し、退出反転には新しいWindowsキー入力を必須化。 |
+| アクション成功後に一瞬再表示する | 対話開始前の `Visible` Snapshotが残り、退出中の再開条件を満たした | 対話開始時にSnapshotをHiddenへ確定し、スタート連動の最終要求を破棄する。 |
+| 連続クリック後に起動しなくなる | 退出中の新しいVisibleを無視し、退出完了後に状態変更通知が残らなかった | 未操作のスタート連動中はVisible／Hiddenの最後の要求へ収束し、Hide完了時にも最新Snapshotを再確認する。 |
+| 複数モニターで別画面へ表示される | ExplorerのStartButtonにフォーカスが残る間、複数SearchHost候補を列挙順で選んだ | StartButton矩形のモニターと候補を対応付け、不一致候補へフォールバックしない。 |
 | 退出が体感上遅い | 167ms退出と同時間のOpacityが残った | Translation 125ms、Opacity 83msへ短縮。 |
 
 この表の防止策を削除・一般化する場合は、対応する回帰試験を先に自動化または実機実施する。
@@ -292,7 +289,7 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 2. 非表示アイドル中に50ms/250ms Timerを常時動かさない。
 3. Windowsキーで閉じるとき、UI AutomationのHidden通知を待たない。
 4. 表示ホットパスへ音声列挙、ファイルI/O、`UpdateLayout`、同期再描画を入れない。
-5. Snapshotの `Visible` だけで退出中の進入反転を許可しない。
+5. `VisibleInteractive`へ移った後に、スタート由来の古いVisibleで進入反転しない。
 6. `SearchHost` を検出対象から外さない。25H2実機ではスタートがSearchHostとして公開される。
 7. DWMクローキング確認なしに、存在するだけのSearchHostを表示中と判定しない。
 8. UI AutomationワーカーからWinUIやAppWindowを直接操作しない。
@@ -351,6 +348,6 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 - スマートフォン連携パネルの個別矩形検出は無効で、設定による予約幅を使用する。
 - スタートとランチャーは別プロセスであり、アニメーション進行率を共有していない。
 - セキュリティ製品や高負荷状態でキーボードフック、UI Automationイベントが遅延する可能性がある。
-- スタートボタンをクリックした直後は、フォーカスが一時的にExplorerの`StartButton`へ残り、スタート本体のUI Automation矩形を取得できない場合がある。複数の`SearchHost`が可視な環境ではWin32フォールバックの候補モニターを誤る余地があるため、クリック元モニターとの対応付けを追加検討する。
+- スタートボタンをクリックした直後にExplorerの`StartButton`を取得できる場合は、同じモニターのWin32候補だけを採用する。OS更新等で`StartButton`のAutomationIdもスタート本体のフォーカスも取得できない場合は、Win32候補だけではクリック元を確定できない可能性が残る。
 
 不具合時は、まず入力、検出、表示要求、Compositionのどの区間が遅いかログで分ける。検出精度を上げる目的で重い全ツリー走査へ戻さず、Win32条件、対象イベント、有界フォールバックの順に検討する。

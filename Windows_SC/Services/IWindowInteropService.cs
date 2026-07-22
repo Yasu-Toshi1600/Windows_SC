@@ -10,6 +10,8 @@ internal interface IWindowInteropService : IDisposable
     void Start(IntPtr windowHandle);
 
     bool IsForeground(IntPtr windowHandle);
+
+    bool TryActivate(IntPtr windowHandle);
 }
 
 internal sealed class DisplayEnvironmentChangedEventArgs(string reason) : EventArgs
