@@ -45,6 +45,22 @@ public partial class App : Application
             return;
         }
 
+        StartupCompatibilityResult compatibility = StartupCompatibilityChecker.Check();
+        if (!compatibility.IsSupported)
+        {
+            logger.Write(
+                $"[Compatibility] result=unsupported {compatibility.LogDetails}");
+            StartupCompatibilityChecker.ShowError(compatibility.UserMessage);
+            _singleInstanceService.Dispose();
+            _singleInstanceService = null;
+            logger.Dispose();
+            _logger = null;
+            Exit();
+            return;
+        }
+
+        logger.Write($"[Compatibility] result=supported {compatibility.LogDetails}");
+
         _settingsRepository = new JsonSettingsRepository(logger);
         IActionExecutionService actionExecutionService = new ActionExecutionService(logger);
         _audioOutputService = new WindowsAudioOutputService(logger);

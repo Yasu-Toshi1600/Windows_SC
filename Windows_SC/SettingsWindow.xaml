@@ -140,9 +140,18 @@
                                   DisplayMemberPath="DisplayLabel"
                                   ItemsSource="{Binding AvailableAudioOutputDevices}"
                                   SelectedItem="{Binding AudioDeviceToAdd, Mode=TwoWay}" />
-                        <Button HorizontalAlignment="Left"
-                                Command="{Binding AddAudioDeviceCommand}"
-                                Content="一覧に追加" />
+                        <StackPanel HorizontalAlignment="Left"
+                                    Orientation="Horizontal"
+                                    Spacing="8">
+                            <Button Command="{Binding AddAudioDeviceCommand}"
+                                    Content="一覧に追加" />
+                            <Button AutomationProperties.Name="音声デバイス一覧を更新"
+                                    Command="{Binding RefreshAudioDevicesCommand}"
+                                    Padding="10,6"
+                                    ToolTipService.ToolTip="音声デバイス一覧を更新">
+                                <FontIcon Glyph="&#xE72C;" />
+                            </Button>
+                        </StackPanel>
                         <ListView x:Name="AudioDeviceList"
                                   Height="180"
                                   ItemsSource="{Binding SelectedItem.RegisteredAudioDevices}"
@@ -266,7 +275,7 @@
                            TextWrapping="Wrap" />
                 <InfoBar IsClosable="False"
                          IsOpen="True"
-                         Message="切り替え後に［適用］を押してください。ログを共有する前に内容を確認してください。"
+                         Message="切り替え後に［適用］を押してください。詳細ログにはコマンド、音声デバイス名、例外情報などが含まれる場合があります。共有する前に必ず内容を確認してください。"
                          Severity="Informational" />
                 <Button HorizontalAlignment="Left"
                         Click="ApplyDetailedDiagnostics_Click"

@@ -34,6 +34,7 @@ internal sealed class SettingsViewModel : ObservableObject
     private bool _isDetailedDiagnosticsEnabled;
     private DateTimeOffset? _detailedLoggingExpiresAt;
     private bool _isApplyingDiagnosticsSetting;
+    private bool _isRefreshingAudioDevices;
 
     public SettingsViewModel(
         ISettingsRepository settingsRepository,
@@ -79,6 +80,10 @@ internal sealed class SettingsViewModel : ObservableObject
         AddSliderCommand = new RelayCommand(() => AddItem(LauncherItemKind.Slider));
         DeleteItemCommand = new RelayCommand(DeleteSelectedItem, () => SelectedItem is not null);
         AddAudioDeviceCommand = new RelayCommand(AddAudioDevice, CanAddAudioDevice);
+        RefreshAudioDevicesCommand = new RelayCommand(
+            () => _ = RefreshAudioDevicesAsync(),
+            () => !_isRefreshingAudioDevices
+                && SelectedItem is { IsToggle: true, CycleKind: CycleActionKind.AudioOutput });
         AddCommandStepCommand = new RelayCommand(
             AddCommandStep,
             () => SelectedItem is { IsToggle: true, CycleKind: CycleActionKind.Commands });
@@ -307,6 +312,7 @@ internal sealed class SettingsViewModel : ObservableObject
     public RelayCommand AddSliderCommand { get; }
     public RelayCommand DeleteItemCommand { get; }
     public RelayCommand AddAudioDeviceCommand { get; }
+    public RelayCommand RefreshAudioDevicesCommand { get; }
     public RelayCommand AddCommandStepCommand { get; }
     public RelayCommand RemoveAudioDeviceCommand { get; }
     public RelayCommand MoveAudioDeviceUpCommand { get; }
@@ -525,9 +531,96 @@ internal sealed class SettingsViewModel : ObservableObject
     private void NotifyAudioDeviceCommands()
     {
         AddAudioDeviceCommand.NotifyCanExecuteChanged();
+        RefreshAudioDevicesCommand.NotifyCanExecuteChanged();
         RemoveAudioDeviceCommand.NotifyCanExecuteChanged();
         MoveAudioDeviceUpCommand.NotifyCanExecuteChanged();
         MoveAudioDeviceDownCommand.NotifyCanExecuteChanged();
+    }
+
+    private async System.Threading.Tasks.Task RefreshAudioDevicesAsync()
+    {
+        if (_isRefreshingAudioDevices)
+        {
+            return;
+        }
+
+        _isRefreshingAudioDevices = true;
+        RefreshAudioDevicesCommand.NotifyCanExecuteChanged();
+        StatusMessage = "音声デバイスを更新しています…";
+
+        try
+        {
+            string? selectedAddDeviceId = AudioDeviceToAdd?.Id;
+            string? selectedRegisteredDeviceId = SelectedRegisteredAudioDevice?.Id;
+            await _audioOutputService.RefreshAsync();
+
+            IReadOnlyList<AudioOutputDeviceOption> refreshedDevices = _audioOutputService
+                .GetCachedDevices()
+                .Select(device => new AudioOutputDeviceOption(
+                    device.Id,
+                    device.DisplayName,
+                    device.IsAvailable))
+                .ToList();
+
+            AvailableAudioOutputDevices.Clear();
+            foreach (AudioOutputDeviceOption device in refreshedDevices)
+            {
+                AvailableAudioOutputDevices.Add(device);
+            }
+
+            foreach (LauncherItemEditorViewModel item in Items)
+            {
+                for (int index = 0; index < item.RegisteredAudioDevices.Count; index++)
+                {
+                    RegisteredAudioDeviceEditorViewModel registered =
+                        item.RegisteredAudioDevices[index];
+                    AudioOutputDeviceOption? available = refreshedDevices.FirstOrDefault(device =>
+                        string.Equals(
+                            AudioDeviceId.Normalize(device.Id),
+                            AudioDeviceId.Normalize(registered.Id),
+                            StringComparison.OrdinalIgnoreCase));
+                    item.RegisteredAudioDevices[index] = new RegisteredAudioDeviceEditorViewModel(
+                        registered.Id,
+                        available?.DisplayName ?? registered.DisplayName,
+                        available?.IsAvailable == true);
+                }
+            }
+
+            SelectedRegisteredAudioDevice = SelectedItem?.RegisteredAudioDevices.FirstOrDefault(device =>
+                string.Equals(
+                    device.Id,
+                    selectedRegisteredDeviceId,
+                    StringComparison.OrdinalIgnoreCase));
+            AudioDeviceToAdd = refreshedDevices.FirstOrDefault(device =>
+                    string.Equals(device.Id, selectedAddDeviceId, StringComparison.OrdinalIgnoreCase)
+                    && SelectedItem?.RegisteredAudioDevices.All(registered =>
+                        !string.Equals(
+                            registered.Id,
+                            device.Id,
+                            StringComparison.OrdinalIgnoreCase)) == true)
+                ?? refreshedDevices.FirstOrDefault(device =>
+                    SelectedItem?.RegisteredAudioDevices.All(registered =>
+                        !string.Equals(
+                            registered.Id,
+                            device.Id,
+                            StringComparison.OrdinalIgnoreCase)) == true);
+
+            StatusMessage = $"音声デバイスを更新しました（{refreshedDevices.Count}件）。";
+            _logger.Write($"[AudioOutput] action=manual-refresh result=success devices={refreshedDevices.Count}");
+            _mainWindowViewModel.RefreshAudioOutputState();
+        }
+        catch (Exception exception)
+        {
+            StatusMessage = $"音声デバイスを更新できませんでした: {exception.Message}";
+            _logger.Write(
+                $"[AudioOutput] action=manual-refresh result=failed " +
+                $"exception={exception.GetType().Name}");
+        }
+        finally
+        {
+            _isRefreshingAudioDevices = false;
+            NotifyAudioDeviceCommands();
+        }
     }
 
     private void AddCommandStep()

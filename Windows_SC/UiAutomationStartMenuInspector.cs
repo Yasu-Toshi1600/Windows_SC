@@ -292,15 +292,17 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         preferredStartOwnerBounds = null;
         AutomationElement focusedElement = AutomationElement.FocusedElement;
         AutomationElement.AutomationElementInformation focused = focusedElement.Current;
-        string focusedSignature = $"{focused.ProcessId}:{focused.AutomationId}:{focused.Name}";
+        System.Windows.Rect rectangle = focused.BoundingRectangle;
+        string focusedSignature =
+            $"{focused.ProcessId}:{focused.AutomationId}:{focused.ControlType?.ProgrammaticName}:" +
+            $"{rectangle.Left:F0}:{rectangle.Top:F0}:{rectangle.Width:F0}:{rectangle.Height:F0}";
 
         if (focusedSignature != _lastFocusedElementSignature)
         {
             _lastFocusedElementSignature = focusedSignature;
-            System.Windows.Rect rectangle = focused.BoundingRectangle;
             _logger.WriteDetailed(
                 $"[UIAutomationFocus] process={GetProcessName(focused.ProcessId)} pid={focused.ProcessId} " +
-                $"name=\"{Sanitize(focused.Name)}\" automation-id=\"{Sanitize(focused.AutomationId)}\" " +
+                $"automation-id=\"{Sanitize(focused.AutomationId)}\" " +
                 $"control-type=\"{focused.ControlType?.ProgrammaticName}\" " +
                 $"rect=({rectangle.Left:F0},{rectangle.Top:F0})-({rectangle.Right:F0},{rectangle.Bottom:F0})");
         }
@@ -429,7 +431,6 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             }
 
             candidates.Add(new AutomationCandidate(
-                Sanitize(current.Name),
                 Sanitize(current.AutomationId),
                 current.ControlType?.ProgrammaticName ?? string.Empty,
                 current.NativeWindowHandle,
@@ -476,7 +477,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         foreach (AutomationCandidate candidate in candidates)
         {
             _logger.WriteDetailed(
-                $"[UIAutomationCandidate] name=\"{candidate.Name}\" automation-id=\"{candidate.AutomationId}\" " +
+                $"[UIAutomationCandidate] automation-id=\"{candidate.AutomationId}\" " +
                 $"control-type=\"{candidate.ControlType}\" hwnd=0x{candidate.NativeWindowHandle:X} " +
                 $"rect=({candidate.Rectangle.Left:F0},{candidate.Rectangle.Top:F0})-" +
                 $"({candidate.Rectangle.Right:F0},{candidate.Rectangle.Bottom:F0}) " +
@@ -497,7 +498,6 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     }
 
     private sealed record AutomationCandidate(
-        string Name,
         string AutomationId,
         string ControlType,
         int NativeWindowHandle,
