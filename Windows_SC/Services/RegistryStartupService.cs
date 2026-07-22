@@ -28,12 +28,26 @@ internal sealed class RegistryStartupService(DiagnosticLogger logger) : IStartup
         {
             string command = GetStartupCommand();
             key.SetValue(ValueName, command, RegistryValueKind.String);
-            logger.Write($"[Startup] action=enable command=\"{command}\"");
+            if (key.GetValue(ValueName) is not string actualCommand
+                || !string.Equals(
+                    actualCommand,
+                    command,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("自動起動設定を登録後に確認できませんでした。");
+            }
+
+            logger.Write($"[Startup] action=enable result=success command=\"{command}\"");
         }
         else
         {
             key.DeleteValue(ValueName, throwOnMissingValue: false);
-            logger.Write("[Startup] action=disable");
+            if (key.GetValue(ValueName) is not null)
+            {
+                throw new InvalidOperationException("自動起動設定を解除後に確認できませんでした。");
+            }
+
+            logger.Write("[Startup] action=disable result=success");
         }
     }
 
