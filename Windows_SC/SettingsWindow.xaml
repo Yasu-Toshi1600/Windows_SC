@@ -68,25 +68,11 @@
                                     BorderThickness="1"
                                     CornerRadius="6">
                             <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
-                                <Grid ColumnDefinitions="*,Auto"
-                                      ColumnSpacing="6"
-                                      VerticalAlignment="Center">
-                                    <TextBlock VerticalAlignment="Center"
-                                               MaxLines="1"
-                                               Text="{Binding Title}"
-                                               TextTrimming="CharacterEllipsis"
-                                               ToolTipService.ToolTip="{Binding Title}" />
-                                    <Border Grid.Column="1"
-                                            Padding="6,2"
-                                            Background="{ThemeResource SettingsKindBadgeBackgroundBrush}"
-                                            BorderBrush="{ThemeResource SettingsKindBadgeBorderBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="4">
-                                        <TextBlock FontSize="12"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   Text="{Binding KindBadgeName}" />
-                                    </Border>
-                                </Grid>
+                                <TextBlock VerticalAlignment="Center"
+                                           MaxLines="1"
+                                           Text="{Binding ListDisplayText}"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTipService.ToolTip="{Binding ListDisplayText}" />
                                 <Button Grid.Column="1"
                                         Click="LauncherItemMoveUp_Click"
                                         Content="↑"
@@ -152,12 +138,13 @@
                             <Button Grid.Column="1"
                                     Width="40"
                                     Height="32"
+                                    Padding="0"
                                     VerticalAlignment="Bottom"
                                     AutomationProperties.Name="ファイルを選択"
                                     Click="SelectTargetFile_Click"
                                     ToolTipService.ToolTip="ファイルを選択"
                                     Visibility="{Binding SelectedItem.TargetFilePickerVisibility}">
-                                <FontIcon Glyph="&#xE8B7;" />
+                                <FontIcon FontSize="16" Glyph="&#xE8B7;" />
                             </Button>
                         </Grid>
                         <TextBox Header="引数"
@@ -284,20 +271,29 @@
             </Border>
         </Grid>
 
-        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
-            <Button Command="{Binding ExitApplicationCommand}"
+        <Grid Grid.Row="2"
+              MinHeight="40"
+              ColumnDefinitions="Auto,Auto,*,Auto"
+              ColumnSpacing="12">
+            <Button MinWidth="120"
+                    VerticalAlignment="Stretch"
+                    Command="{Binding ExitApplicationCommand}"
                     Content="アプリを終了" />
             <Button Grid.Column="1"
+                    MinWidth="160"
+                    VerticalAlignment="Stretch"
                     Click="TroubleshootingButton_Click"
                     Content="トラブルシューティング" />
             <InfoBar Grid.Column="2"
+                     MinHeight="40"
+                     VerticalAlignment="Stretch"
                      IsClosable="False"
                      IsOpen="{Binding IsStatusMessageOpen}"
                      Message="{Binding StatusMessage}"
                      Severity="{Binding StatusSeverity}" />
             <Button Grid.Column="3"
                     MinWidth="120"
-                    Height="40"
+                    VerticalAlignment="Stretch"
                     Command="{Binding SaveCommand}"
                     Content="保存"
                     Style="{ThemeResource AccentButtonStyle}" />
@@ -354,9 +350,9 @@
                     <Button Click="DeleteLogs_Click" Content="ログを削除" />
                 </StackPanel>
                 <InfoBar IsClosable="False"
-                         IsOpen="{Binding IsStatusMessageOpen}"
-                         Message="{Binding StatusMessage}"
-                         Severity="{Binding StatusSeverity}" />
+                         IsOpen="{Binding IsTroubleshootingStatusMessageOpen}"
+                         Message="{Binding TroubleshootingStatusMessage}"
+                         Severity="{Binding TroubleshootingStatusSeverity}" />
             </StackPanel>
         </ContentDialog>
     </Grid>

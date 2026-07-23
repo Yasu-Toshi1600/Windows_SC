@@ -35,6 +35,9 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private LayoutModeOption? _selectedLayoutMode;
     private string _statusMessage = string.Empty;
     private InfoBarSeverity _statusSeverity = InfoBarSeverity.Informational;
+    private string _troubleshootingStatusMessage = string.Empty;
+    private InfoBarSeverity _troubleshootingStatusSeverity =
+        InfoBarSeverity.Informational;
     private bool _isDirty;
     private bool _suppressDirtyTracking = true;
     private bool _isSaving;
@@ -318,6 +321,27 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     public bool IsDirty => _isDirty;
 
+    public string TroubleshootingStatusMessage
+    {
+        get => _troubleshootingStatusMessage;
+        private set
+        {
+            if (SetProperty(ref _troubleshootingStatusMessage, value))
+            {
+                OnPropertyChanged(nameof(IsTroubleshootingStatusMessageOpen));
+            }
+        }
+    }
+
+    public InfoBarSeverity TroubleshootingStatusSeverity
+    {
+        get => _troubleshootingStatusSeverity;
+        private set => SetProperty(ref _troubleshootingStatusSeverity, value);
+    }
+
+    public bool IsTroubleshootingStatusMessageOpen =>
+        !string.IsNullOrWhiteSpace(TroubleshootingStatusMessage);
+
     public bool IsDetailedDiagnosticsEnabled
     {
         get => _isDetailedDiagnosticsEnabled;
@@ -330,7 +354,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
             _detailedLoggingExpiresAt = null;
             OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
-            SetStatus(
+            SetTroubleshootingStatus(
                 value
                     ? "［適用］を押すと詳細診断ログが24時間有効になります。"
                     : "［適用］を押すと詳細診断ログが無効になります。",
@@ -390,14 +414,16 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 FileName = folderPath,
                 UseShellExecute = true
             });
-            SetStatus($"{displayName}を開きました。", InfoBarSeverity.Informational);
+            SetTroubleshootingStatus(
+                $"{displayName}を開きました。",
+                InfoBarSeverity.Informational);
         }
         catch (Exception exception) when (exception is InvalidOperationException
             or System.ComponentModel.Win32Exception
             or IOException
             or UnauthorizedAccessException)
         {
-            SetStatus(
+            SetTroubleshootingStatus(
                 $"{displayName}を開けませんでした: {exception.Message}",
                 InfoBarSeverity.Error);
         }
@@ -436,7 +462,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             _logger.ConfigureDetailedLogging(newExpiration);
             _environmentInformationService.LogIfChanged("diagnostics-setting");
             OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
-            SetStatus(
+            SetTroubleshootingStatus(
                 IsDetailedDiagnosticsEnabled
                     ? "詳細診断ログを24時間有効にしました。"
                     : "詳細診断ログを無効にしました。",
@@ -445,7 +471,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         catch (Exception exception)
         {
             settings.DetailedLoggingExpiresAtUtc = previousExpiration;
-            SetStatus(
+            SetTroubleshootingStatus(
                 $"詳細診断ログの設定を保存できませんでした: {exception.Message}",
                 InfoBarSeverity.Error);
         }
@@ -462,7 +488,9 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         _environmentInformationService.LogIfChanged("troubleshooting");
 
     internal void ReportEnvironmentInformationCopied() =>
-        SetStatus("環境情報をコピーしました。", InfoBarSeverity.Informational);
+        SetTroubleshootingStatus(
+            "環境情報をコピーしました。",
+            InfoBarSeverity.Informational);
 
     internal void ReportTargetFileSelectionFailed(string message) =>
         SetStatus($"ファイルを選択できませんでした: {message}", InfoBarSeverity.Error);
@@ -607,18 +635,24 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         StatusMessage = message;
     }
 
+    private void SetTroubleshootingStatus(string message, InfoBarSeverity severity)
+    {
+        TroubleshootingStatusSeverity = severity;
+        TroubleshootingStatusMessage = message;
+    }
+
     internal void ClearLogs()
     {
         try
         {
             _logger.ClearLogs();
             _environmentInformationService.LogIfChanged("logs-cleared", force: true);
-            SetStatus("ログを削除しました。", InfoBarSeverity.Success);
+            SetTroubleshootingStatus("ログを削除しました。", InfoBarSeverity.Success);
         }
         catch (Exception exception) when (exception is System.IO.IOException
             or UnauthorizedAccessException)
         {
-            SetStatus(
+            SetTroubleshootingStatus(
                 $"ログを削除できませんでした: {exception.Message}",
                 InfoBarSeverity.Error);
         }
@@ -1202,6 +1236,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         LauncherItemKind.Slider => "スライダー",
         _ => "ボタン"
     };
+    public string ListDisplayText => $"{Title} [{KindBadgeName}]";
     public string KindSummary => $"種類：{KindDisplayName}";
     public Visibility CommandButtonSettingsVisibility => IsButton
         && ActionKind == LauncherActionKind.Command
@@ -1221,7 +1256,13 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     public string Title
     {
         get => _title;
-        set => SetProperty(ref _title, value);
+        set
+        {
+            if (SetProperty(ref _title, value))
+            {
+                OnPropertyChanged(nameof(ListDisplayText));
+            }
+        }
     }
 
     public LauncherActionKind ActionKind

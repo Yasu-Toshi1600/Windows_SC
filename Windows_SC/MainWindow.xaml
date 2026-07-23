@@ -186,7 +186,8 @@
                                     BorderThickness="1"
                                     CornerRadius="8"
                                     Visibility="{Binding CompactSliderVisibility, Mode=OneWay}">
-                                    <Grid RowDefinitions="Auto,*">
+                                    <Grid RowDefinitions="20,32"
+                                          RowSpacing="4">
                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                             <TextBlock
                                                 VerticalAlignment="Center"
@@ -204,7 +205,7 @@
                                         </Grid>
                                         <Slider
                                             Grid.Row="1"
-                                            Margin="0,-3,0,-5"
+                                            Height="32"
                                             VerticalAlignment="Center"
                                             IsEnabled="{Binding CanAdjustVolume, Mode=OneWay}"
                                             Maximum="{Binding SliderMaximum, Mode=OneTime}"
