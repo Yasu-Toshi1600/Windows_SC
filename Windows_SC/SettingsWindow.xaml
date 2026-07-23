@@ -5,10 +5,14 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Windows_SC 設定">
 
-    <Grid x:Name="RootGrid" Padding="24" RowDefinitions="Auto,*,Auto" RowSpacing="16">
+    <Grid x:Name="RootGrid"
+          Padding="24"
+          Background="{ThemeResource SettingsPageBackgroundBrush}"
+          RowDefinitions="Auto,*,Auto"
+          RowSpacing="16">
         <Border Padding="16"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                Background="{ThemeResource SettingsCardBackgroundBrush}"
+                BorderBrush="{ThemeResource SettingsCardBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="8">
         <Grid ColumnDefinitions="*,180,Auto,Auto" ColumnSpacing="16">
@@ -37,40 +41,63 @@
 
         <Grid Grid.Row="1" ColumnDefinitions="*,16,430">
             <Border Padding="12"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                    Background="{ThemeResource SettingsCardBackgroundBrush}"
+                    BorderBrush="{ThemeResource SettingsCardBorderBrush}"
                     BorderThickness="1"
                     CornerRadius="8">
             <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
                 <TextBlock FontSize="16" FontWeight="SemiBold" Text="項目" />
                 <ListView x:Name="LauncherItemsList"
                           Grid.Row="1"
+                          HorizontalContentAlignment="Stretch"
                           ItemsSource="{Binding Items}"
                           SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Background"
+                                    Value="{ThemeResource SettingsListItemBackgroundBrush}" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Margin" Value="0,2" />
+                            <Setter Property="Padding" Value="0" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate>
-                            <Border Margin="0,2"
-                                    Padding="8"
-                                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                            <Border Padding="8"
+                                    BorderBrush="{ThemeResource SettingsCardBorderBrush}"
                                     BorderThickness="1"
                                     CornerRadius="6">
-                            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
-                                <TextBlock VerticalAlignment="Center" Text="{Binding Title}" />
-                                <TextBlock Grid.Column="1"
-                                           VerticalAlignment="Center"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           Text="{Binding KindDisplayName}" />
-                                <Button Grid.Column="2"
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
+                                <Grid ColumnDefinitions="*,Auto"
+                                      ColumnSpacing="6"
+                                      VerticalAlignment="Center">
+                                    <TextBlock VerticalAlignment="Center"
+                                               MaxLines="1"
+                                               Text="{Binding Title}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{Binding Title}" />
+                                    <Border Grid.Column="1"
+                                            Padding="6,2"
+                                            Background="{ThemeResource SettingsKindBadgeBackgroundBrush}"
+                                            BorderBrush="{ThemeResource SettingsKindBadgeBorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="4">
+                                        <TextBlock FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   Text="{Binding KindBadgeName}" />
+                                    </Border>
+                                </Grid>
+                                <Button Grid.Column="1"
                                         Click="LauncherItemMoveUp_Click"
                                         Content="↑"
                                         Padding="8,4"
                                         ToolTipService.ToolTip="上へ移動" />
-                                <Button Grid.Column="3"
+                                <Button Grid.Column="2"
                                         Click="LauncherItemMoveDown_Click"
                                         Content="↓"
                                         Padding="8,4"
                                         ToolTipService.ToolTip="下へ移動" />
-                                <Button Grid.Column="4"
+                                <Button Grid.Column="3"
                                         Click="LauncherItemRemove_Click"
                                         Content="×"
                                         Padding="8,4"
@@ -90,8 +117,8 @@
 
             <Border Grid.Column="2"
                     Padding="12"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                    Background="{ThemeResource SettingsCardBackgroundBrush}"
+                    BorderBrush="{ThemeResource SettingsCardBorderBrush}"
                     BorderThickness="1"
                     CornerRadius="8">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -99,8 +126,14 @@
                     <TextBlock FontSize="16" FontWeight="SemiBold" Text="選択項目" />
                     <TextBlock FontWeight="SemiBold"
                                Text="{Binding SelectedItem.KindSummary}" />
-                    <TextBox Header="表示名"
-                             Text="{Binding SelectedItem.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <StackPanel Spacing="4">
+                        <TextBox Header="表示名"
+                                 Text="{Binding SelectedItem.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   FontSize="12"
+                                   Text="長い名前はランチャー上で省略されます。マウスを重ねると全文を確認できます。"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
                     <ComboBox Header="実行後"
                               DisplayMemberPath="DisplayName"
                               ItemsSource="{Binding PostExecutionBehaviors}"
@@ -112,9 +145,21 @@
                                   DisplayMemberPath="DisplayName"
                                   ItemsSource="{Binding ActionKinds}"
                                   SelectedItem="{Binding SelectedActionKind, Mode=TwoWay}" />
-                        <TextBox Header="{Binding SelectedItem.TargetHeader}"
-                                 PlaceholderText="{Binding SelectedItem.TargetPlaceholderText}"
-                                 Text="{Binding SelectedItem.Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBox Header="{Binding SelectedItem.TargetHeader}"
+                                     PlaceholderText="{Binding SelectedItem.TargetPlaceholderText}"
+                                     Text="{Binding SelectedItem.Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1"
+                                    Width="40"
+                                    Height="32"
+                                    VerticalAlignment="Bottom"
+                                    AutomationProperties.Name="ファイルを選択"
+                                    Click="SelectTargetFile_Click"
+                                    ToolTipService.ToolTip="ファイルを選択"
+                                    Visibility="{Binding SelectedItem.TargetFilePickerVisibility}">
+                                <FontIcon Glyph="&#xE8B7;" />
+                            </Button>
+                        </Grid>
                         <TextBox Header="引数"
                                  Text="{Binding SelectedItem.Arguments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         <TextBox Header="作業フォルダー（通常は空欄）"
@@ -245,11 +290,14 @@
             <Button Grid.Column="1"
                     Click="TroubleshootingButton_Click"
                     Content="トラブルシューティング" />
-            <TextBlock Grid.Column="2"
-                       VerticalAlignment="Center"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                       Text="{Binding StatusMessage}" />
+            <InfoBar Grid.Column="2"
+                     IsClosable="False"
+                     IsOpen="{Binding IsStatusMessageOpen}"
+                     Message="{Binding StatusMessage}"
+                     Severity="{Binding StatusSeverity}" />
             <Button Grid.Column="3"
+                    MinWidth="120"
+                    Height="40"
                     Command="{Binding SaveCommand}"
                     Content="保存"
                     Style="{ThemeResource AccentButtonStyle}" />
@@ -262,6 +310,9 @@
             <StackPanel MinWidth="520" MaxWidth="620" Spacing="16">
                 <TextBlock FontWeight="SemiBold"
                            Text="{Binding ApplicationVersionText}" />
+                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Text="{Binding StartMenuMonitoringStatus}"
+                           TextWrapping="Wrap" />
                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            Text="問題の調査に使うログと環境情報を管理します。詳細ログでもファイルパスは匿名化されます。"
                            TextWrapping="Wrap" />
@@ -302,9 +353,10 @@
                     <Button Click="CopyEnvironmentInfo_Click" Content="環境情報をコピー" />
                     <Button Click="DeleteLogs_Click" Content="ログを削除" />
                 </StackPanel>
-                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           Text="{Binding StatusMessage}"
-                           TextWrapping="Wrap" />
+                <InfoBar IsClosable="False"
+                         IsOpen="{Binding IsStatusMessageOpen}"
+                         Message="{Binding StatusMessage}"
+                         Severity="{Binding StatusSeverity}" />
             </StackPanel>
         </ContentDialog>
     </Grid>

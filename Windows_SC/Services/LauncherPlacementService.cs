@@ -9,7 +9,7 @@ namespace Windows_SC.Services;
 internal sealed class LauncherPlacementService(DiagnosticLogger logger) : ILauncherPlacementService
 {
     private const int LauncherHeight = 600;
-    private const int LauncherMargin = 12;
+    private const double LauncherGapEffectivePixels = 4;
     private const double PhonePanelReservedEffectivePixels = 281;
     private const double LauncherBottomMarginEffectivePixels = 12;
     private const uint MonitorDefaultToNearest = 0x00000002;
@@ -53,7 +53,10 @@ internal sealed class LauncherPlacementService(DiagnosticLogger logger) : ILaunc
                     startCenter);
             }
 
-            x = anchorRight + LauncherMargin;
+            int launcherGap = ConvertEffectivePixelsToPhysical(
+                LauncherGapEffectivePixels,
+                startCenter);
+            x = anchorRight + launcherGap;
             launcherWidth = SelectLauncherWidth(
                 workArea.X + workArea.Width - x,
                 startCenter,

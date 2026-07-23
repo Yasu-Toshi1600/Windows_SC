@@ -17,6 +17,7 @@ public partial class App : Application
     private MainWindowViewModel? _viewModel;
     private DiagnosticLogger? _logger;
     private EnvironmentInformationService? _environmentInformationService;
+    private IStartMenuMonitor? _startMenuMonitor;
     private IStartupService? _startupService;
     private IAudioOutputService? _audioOutputService;
     private ISystemTrayService? _systemTrayService;
@@ -81,7 +82,7 @@ public partial class App : Application
                 $"exception={exception.GetType().Name}");
         }
         _viewModel.SettingsRequested += ViewModel_SettingsRequested;
-        IStartMenuMonitor startMenuMonitor = new HybridStartMenuMonitor(
+        _startMenuMonitor = new HybridStartMenuMonitor(
             DispatcherQueue.GetForCurrentThread(),
             logger);
         IGlobalInputService inputService = new GlobalInputService(logger);
@@ -96,7 +97,7 @@ public partial class App : Application
         _window = new MainWindow(
             _viewModel,
             logger,
-            startMenuMonitor,
+            _startMenuMonitor,
             inputService,
             placementService,
             windowInteropService,
@@ -172,7 +173,8 @@ public partial class App : Application
 
         if (_startupService is null
             || _logger is null
-            || _environmentInformationService is null)
+            || _environmentInformationService is null
+            || _startMenuMonitor is null)
         {
             return;
         }
@@ -183,7 +185,8 @@ public partial class App : Application
             _startupService,
             _viewModel.AudioOutputService,
             _logger,
-            _environmentInformationService);
+            _environmentInformationService,
+            _startMenuMonitor);
         _settingsViewModel.ExitApplicationRequested += SettingsViewModel_ExitApplicationRequested;
         _settingsWindow = new SettingsWindow(_settingsViewModel);
         _settingsWindow.Closed += SettingsWindow_Closed;
@@ -201,6 +204,7 @@ public partial class App : Application
         if (_settingsViewModel is not null)
         {
             _settingsViewModel.ExitApplicationRequested -= SettingsViewModel_ExitApplicationRequested;
+            _settingsViewModel.Dispose();
             _settingsViewModel = null;
         }
     }

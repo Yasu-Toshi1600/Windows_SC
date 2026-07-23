@@ -10,7 +10,24 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
                 <!-- Other merged dictionaries here -->
             </ResourceDictionary.MergedDictionaries>
-            <!-- Other app resources here -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="SettingsPageBackgroundBrush" Color="#FFF3F3F3" />
+                    <SolidColorBrush x:Key="SettingsCardBackgroundBrush" Color="#FFFBFBFB" />
+                    <SolidColorBrush x:Key="SettingsCardBorderBrush" Color="#FFE5E5E5" />
+                    <SolidColorBrush x:Key="SettingsListItemBackgroundBrush" Color="#FFFFFFFF" />
+                    <SolidColorBrush x:Key="SettingsKindBadgeBackgroundBrush" Color="#FFF0F0F0" />
+                    <SolidColorBrush x:Key="SettingsKindBadgeBorderBrush" Color="#FFDADADA" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="SettingsPageBackgroundBrush" Color="#FF202020" />
+                    <SolidColorBrush x:Key="SettingsCardBackgroundBrush" Color="#FF2B2B2B" />
+                    <SolidColorBrush x:Key="SettingsCardBorderBrush" Color="#FF3A3A3A" />
+                    <SolidColorBrush x:Key="SettingsListItemBackgroundBrush" Color="#FF323232" />
+                    <SolidColorBrush x:Key="SettingsKindBadgeBackgroundBrush" Color="#FF383838" />
+                    <SolidColorBrush x:Key="SettingsKindBadgeBorderBrush" Color="#FF4A4A4A" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -12,6 +12,14 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 {
     private const double MinimumCandidateWidth = 200;
     private const double MinimumCandidateHeight = 100;
+    private static readonly TimeSpan[] FocusEventRetryDelays =
+    [
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(5),
+        TimeSpan.FromSeconds(10),
+        TimeSpan.FromSeconds(30)
+    ];
 
     private readonly DiagnosticLogger _logger;
     private readonly StartMenuWindowInspector _windowInspector;
@@ -176,50 +184,82 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                 RequestScan();
             }
         };
-        bool registered = false;
-        long registrationStartedTimestamp = Stopwatch.GetTimestamp();
 
-        try
+        int attempt = 0;
+        while (!_isDisposed)
         {
-            Automation.AddAutomationFocusChangedEventHandler(_focusChangedHandler);
-            registered = true;
-            if (_isDisposed)
+            attempt++;
+            bool registered = false;
+            long registrationStartedTimestamp = Stopwatch.GetTimestamp();
+
+            try
             {
+                Automation.AddAutomationFocusChangedEventHandler(_focusChangedHandler);
+                registered = true;
+                if (_isDisposed)
+                {
+                    return;
+                }
+
+                Interlocked.Exchange(ref _isReady, 1);
+                ReadyChanged?.Invoke(this, EventArgs.Empty);
+                string registrationMessage =
+                    $"[UIAutomation] focus-event=registered elapsed-ms=" +
+                    $"{Stopwatch.GetElapsedTime(registrationStartedTimestamp).TotalMilliseconds:F1}";
+                if (attempt > 1)
+                {
+                    _logger.Write(
+                        $"{registrationMessage} recovered=true attempts={attempt}");
+                }
+                else
+                {
+                    _logger.WriteDetailed(registrationMessage);
+                }
+                _disposeRequested.WaitOne();
                 return;
             }
-
-            Interlocked.Exchange(ref _isReady, 1);
-            ReadyChanged?.Invoke(this, EventArgs.Empty);
-            _logger.WriteDetailed(
-                $"[UIAutomation] focus-event=registered elapsed-ms=" +
-                $"{Stopwatch.GetElapsedTime(registrationStartedTimestamp).TotalMilliseconds:F1}");
-            _disposeRequested.WaitOne();
-        }
-        catch (Exception exception)
-        {
-            _logger.Write(
-                $"[UIAutomation] focus-event=registration-failed " +
-                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
-        }
-        finally
-        {
-            if (Interlocked.Exchange(ref _isReady, 0) != 0)
+            catch (Exception exception)
             {
-                ReadyChanged?.Invoke(this, EventArgs.Empty);
-            }
-
-            if (registered && _focusChangedHandler is not null)
-            {
-                try
+                TimeSpan retryDelay = FocusEventRetryDelays[
+                    Math.Min(attempt - 1, FocusEventRetryDelays.Length - 1)];
+                string message =
+                    $"[UIAutomation] focus-event=registration-failed attempt={attempt} " +
+                    $"retry-in-seconds={retryDelay.TotalSeconds:F0} " +
+                    $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}";
+                if (attempt == 1)
                 {
-                    Automation.RemoveAutomationFocusChangedEventHandler(_focusChangedHandler);
-                    _logger.WriteDetailed("[UIAutomation] focus-event=unregistered");
+                    _logger.Write(message);
                 }
-                catch (Exception exception)
+                else
                 {
-                    _logger.WriteDetailed(
-                        $"[UIAutomation] focus-event=unregister-failed " +
-                        $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+                    _logger.WriteDetailed(message);
+                }
+
+                if (_disposeRequested.WaitOne(retryDelay))
+                {
+                    return;
+                }
+            }
+            finally
+            {
+                if (Interlocked.Exchange(ref _isReady, 0) != 0)
+                {
+                    ReadyChanged?.Invoke(this, EventArgs.Empty);
+                }
+
+                if (registered && _focusChangedHandler is not null)
+                {
+                    try
+                    {
+                        Automation.RemoveAutomationFocusChangedEventHandler(_focusChangedHandler);
+                        _logger.WriteDetailed("[UIAutomation] focus-event=unregistered");
+                    }
+                    catch (Exception exception)
+                    {
+                        _logger.WriteDetailed(
+                            $"[UIAutomation] focus-event=unregister-failed " +
+                            $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+                    }
                 }
             }
         }

@@ -1,16 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Windows_SC.Models;
 using Windows_SC.Services;
 
 namespace Windows_SC.ViewModels;
 
-internal sealed class SettingsViewModel : ObservableObject
+internal sealed class SettingsViewModel : ObservableObject, IDisposable
 {
     private readonly ISettingsRepository _settingsRepository;
     private readonly MainWindowViewModel _mainWindowViewModel;
@@ -18,6 +21,7 @@ internal sealed class SettingsViewModel : ObservableObject
     private readonly IAudioOutputService _audioOutputService;
     private readonly DiagnosticLogger _logger;
     private readonly EnvironmentInformationService _environmentInformationService;
+    private readonly IStartMenuMonitor _startMenuMonitor;
     private readonly Guid _pageId;
     private LauncherItemEditorViewModel? _selectedItem;
     private ActionKindOption? _selectedActionKind;
@@ -30,6 +34,9 @@ internal sealed class SettingsViewModel : ObservableObject
     private bool _startWithWindows;
     private LayoutModeOption? _selectedLayoutMode;
     private string _statusMessage = string.Empty;
+    private InfoBarSeverity _statusSeverity = InfoBarSeverity.Informational;
+    private bool _isDirty;
+    private bool _suppressDirtyTracking = true;
     private bool _isSaving;
     private bool _isDetailedDiagnosticsEnabled;
     private DateTimeOffset? _detailedLoggingExpiresAt;
@@ -42,7 +49,8 @@ internal sealed class SettingsViewModel : ObservableObject
         IStartupService startupService,
         IAudioOutputService audioOutputService,
         DiagnosticLogger logger,
-        EnvironmentInformationService environmentInformationService)
+        EnvironmentInformationService environmentInformationService,
+        IStartMenuMonitor startMenuMonitor)
     {
         _settingsRepository = settingsRepository;
         _mainWindowViewModel = mainWindowViewModel;
@@ -50,6 +58,8 @@ internal sealed class SettingsViewModel : ObservableObject
         _audioOutputService = audioOutputService;
         _logger = logger;
         _environmentInformationService = environmentInformationService;
+        _startMenuMonitor = startMenuMonitor;
+        _startMenuMonitor.ReadyChanged += StartMenuMonitor_ReadyChanged;
 
         foreach (AudioOutputDevice device in _audioOutputService.GetCachedDevices())
         {
@@ -73,6 +83,12 @@ internal sealed class SettingsViewModel : ObservableObject
         foreach (LauncherItemDefinition item in page.Items)
         {
             Items.Add(new LauncherItemEditorViewModel(item, AvailableAudioOutputDevices));
+        }
+
+        Items.CollectionChanged += Items_CollectionChanged;
+        foreach (LauncherItemEditorViewModel item in Items)
+        {
+            SubscribeToItem(item);
         }
 
         AddButtonCommand = new RelayCommand(() => AddItem(LauncherItemKind.Button));
@@ -100,6 +116,7 @@ internal sealed class SettingsViewModel : ObservableObject
         ExitApplicationCommand = new RelayCommand(
             () => ExitApplicationRequested?.Invoke(this, EventArgs.Empty));
         SelectedItem = Items.FirstOrDefault();
+        _suppressDirtyTracking = false;
     }
 
     public event EventHandler? ExitApplicationRequested;
@@ -246,26 +263,60 @@ internal sealed class SettingsViewModel : ObservableObject
     public bool AssumePhonePanelVisible
     {
         get => _assumePhonePanelVisible;
-        set => SetProperty(ref _assumePhonePanelVisible, value);
+        set
+        {
+            if (SetProperty(ref _assumePhonePanelVisible, value))
+            {
+                MarkDirty();
+            }
+        }
     }
 
     public bool StartWithWindows
     {
         get => _startWithWindows;
-        set => SetProperty(ref _startWithWindows, value);
+        set
+        {
+            if (SetProperty(ref _startWithWindows, value))
+            {
+                MarkDirty();
+            }
+        }
     }
 
     public LayoutModeOption? SelectedLayoutMode
     {
         get => _selectedLayoutMode;
-        set => SetProperty(ref _selectedLayoutMode, value);
+        set
+        {
+            if (SetProperty(ref _selectedLayoutMode, value))
+            {
+                MarkDirty();
+            }
+        }
     }
 
     public string StatusMessage
     {
         get => _statusMessage;
-        private set => SetProperty(ref _statusMessage, value);
+        private set
+        {
+            if (SetProperty(ref _statusMessage, value))
+            {
+                OnPropertyChanged(nameof(IsStatusMessageOpen));
+            }
+        }
     }
+
+    public InfoBarSeverity StatusSeverity
+    {
+        get => _statusSeverity;
+        private set => SetProperty(ref _statusSeverity, value);
+    }
+
+    public bool IsStatusMessageOpen => !string.IsNullOrWhiteSpace(StatusMessage);
+
+    public bool IsDirty => _isDirty;
 
     public bool IsDetailedDiagnosticsEnabled
     {
@@ -279,9 +330,11 @@ internal sealed class SettingsViewModel : ObservableObject
 
             _detailedLoggingExpiresAt = null;
             OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
-            StatusMessage = value
-                ? "［適用］を押すと詳細診断ログが24時間有効になります。"
-                : "［適用］を押すと詳細診断ログが無効になります。";
+            SetStatus(
+                value
+                    ? "［適用］を押すと詳細診断ログが24時間有効になります。"
+                    : "［適用］を押すと詳細診断ログが無効になります。",
+                InfoBarSeverity.Informational);
         }
     }
 
@@ -304,6 +357,10 @@ internal sealed class SettingsViewModel : ObservableObject
     public string NormalLogPath => GetDisplayPath(_logger.LogFilePath);
 
     public string DetailedLogPath => GetDisplayPath(_logger.DetailedLogFilePath);
+
+    public string StartMenuMonitoringStatus => _startMenuMonitor.IsReady
+        ? "スタートメニュー監視: 正常"
+        : "スタートメニュー監視: 代替モードで動作中（UI Automationイベントを利用できません）";
 
     public string ApplicationVersionText => $"Windows_SC バージョン {ApplicationInformation.Version}";
 
@@ -333,14 +390,16 @@ internal sealed class SettingsViewModel : ObservableObject
                 FileName = folderPath,
                 UseShellExecute = true
             });
-            StatusMessage = $"{displayName}を開きました。";
+            SetStatus($"{displayName}を開きました。", InfoBarSeverity.Informational);
         }
         catch (Exception exception) when (exception is InvalidOperationException
             or System.ComponentModel.Win32Exception
             or IOException
             or UnauthorizedAccessException)
         {
-            StatusMessage = $"{displayName}を開けませんでした: {exception.Message}";
+            SetStatus(
+                $"{displayName}を開けませんでした: {exception.Message}",
+                InfoBarSeverity.Error);
         }
     }
 
@@ -377,14 +436,18 @@ internal sealed class SettingsViewModel : ObservableObject
             _logger.ConfigureDetailedLogging(newExpiration);
             _environmentInformationService.LogIfChanged("diagnostics-setting");
             OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
-            StatusMessage = IsDetailedDiagnosticsEnabled
-                ? "詳細診断ログを24時間有効にしました。"
-                : "詳細診断ログを無効にしました。";
+            SetStatus(
+                IsDetailedDiagnosticsEnabled
+                    ? "詳細診断ログを24時間有効にしました。"
+                    : "詳細診断ログを無効にしました。",
+                InfoBarSeverity.Success);
         }
         catch (Exception exception)
         {
             settings.DetailedLoggingExpiresAtUtc = previousExpiration;
-            StatusMessage = $"詳細診断ログの設定を保存できませんでした: {exception.Message}";
+            SetStatus(
+                $"詳細診断ログの設定を保存できませんでした: {exception.Message}",
+                InfoBarSeverity.Error);
         }
         finally
         {
@@ -399,7 +462,150 @@ internal sealed class SettingsViewModel : ObservableObject
         _environmentInformationService.LogIfChanged("troubleshooting");
 
     internal void ReportEnvironmentInformationCopied() =>
-        StatusMessage = "環境情報をコピーしました。";
+        SetStatus("環境情報をコピーしました。", InfoBarSeverity.Informational);
+
+    internal void ReportTargetFileSelectionFailed(string message) =>
+        SetStatus($"ファイルを選択できませんでした: {message}", InfoBarSeverity.Error);
+
+    public void Dispose()
+    {
+        _startMenuMonitor.ReadyChanged -= StartMenuMonitor_ReadyChanged;
+        Items.CollectionChanged -= Items_CollectionChanged;
+        foreach (LauncherItemEditorViewModel item in Items)
+        {
+            UnsubscribeFromItem(item);
+        }
+    }
+
+    private void StartMenuMonitor_ReadyChanged(object? sender, EventArgs args) =>
+        OnPropertyChanged(nameof(StartMenuMonitoringStatus));
+
+    private void Items_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)
+    {
+        if (args.OldItems is not null)
+        {
+            foreach (LauncherItemEditorViewModel item in args.OldItems)
+            {
+                UnsubscribeFromItem(item);
+            }
+        }
+
+        if (args.NewItems is not null)
+        {
+            foreach (LauncherItemEditorViewModel item in args.NewItems)
+            {
+                SubscribeToItem(item);
+            }
+        }
+
+        MarkDirty();
+    }
+
+    private void SubscribeToItem(LauncherItemEditorViewModel item)
+    {
+        item.PropertyChanged += EditableItem_PropertyChanged;
+        item.RegisteredAudioDevices.CollectionChanged += EditableCollection_CollectionChanged;
+        item.CommandSteps.CollectionChanged += CommandSteps_CollectionChanged;
+        foreach (CommandCycleStepEditorViewModel step in item.CommandSteps)
+        {
+            step.PropertyChanged += EditableItem_PropertyChanged;
+        }
+    }
+
+    private void UnsubscribeFromItem(LauncherItemEditorViewModel item)
+    {
+        item.PropertyChanged -= EditableItem_PropertyChanged;
+        item.RegisteredAudioDevices.CollectionChanged -= EditableCollection_CollectionChanged;
+        item.CommandSteps.CollectionChanged -= CommandSteps_CollectionChanged;
+        foreach (CommandCycleStepEditorViewModel step in item.CommandSteps)
+        {
+            step.PropertyChanged -= EditableItem_PropertyChanged;
+        }
+    }
+
+    private void CommandSteps_CollectionChanged(
+        object? sender,
+        NotifyCollectionChangedEventArgs args)
+    {
+        if (args.OldItems is not null)
+        {
+            foreach (CommandCycleStepEditorViewModel step in args.OldItems)
+            {
+                step.PropertyChanged -= EditableItem_PropertyChanged;
+            }
+        }
+
+        if (args.NewItems is not null)
+        {
+            foreach (CommandCycleStepEditorViewModel step in args.NewItems)
+            {
+                step.PropertyChanged += EditableItem_PropertyChanged;
+            }
+        }
+
+        MarkDirty();
+    }
+
+    private void EditableCollection_CollectionChanged(
+        object? sender,
+        NotifyCollectionChangedEventArgs args) =>
+        MarkDirty();
+
+    private void EditableItem_PropertyChanged(object? sender, PropertyChangedEventArgs args) =>
+        MarkDirty();
+
+    private void MarkDirty()
+    {
+        if (_suppressDirtyTracking)
+        {
+            return;
+        }
+
+        if (!_isDirty)
+        {
+            _isDirty = true;
+            OnPropertyChanged(nameof(IsDirty));
+        }
+
+        SetStatus(
+            "変更内容はまだ保存されていません。",
+            InfoBarSeverity.Warning,
+            includeUnsavedReminder: false);
+    }
+
+    private void MarkSaved()
+    {
+        if (!_isDirty)
+        {
+            return;
+        }
+
+        _isDirty = false;
+        OnPropertyChanged(nameof(IsDirty));
+    }
+
+    private void SetStatus(
+        string message,
+        InfoBarSeverity severity,
+        bool includeUnsavedReminder = true)
+    {
+        if (_isDirty && includeUnsavedReminder)
+        {
+            const string unsavedReminder = "変更内容はまだ保存されていません。";
+            if (!message.Contains(unsavedReminder, StringComparison.Ordinal))
+            {
+                message = $"{message} {unsavedReminder}";
+            }
+
+            if (severity is InfoBarSeverity.Informational or InfoBarSeverity.Success)
+            {
+                severity = InfoBarSeverity.Warning;
+            }
+        }
+
+        StatusSeverity = severity;
+        StatusMessage = message;
+    }
 
     internal void ClearLogs()
     {
@@ -407,12 +613,14 @@ internal sealed class SettingsViewModel : ObservableObject
         {
             _logger.ClearLogs();
             _environmentInformationService.LogIfChanged("logs-cleared", force: true);
-            StatusMessage = "ログを削除しました。";
+            SetStatus("ログを削除しました。", InfoBarSeverity.Success);
         }
         catch (Exception exception) when (exception is System.IO.IOException
             or UnauthorizedAccessException)
         {
-            StatusMessage = $"ログを削除できませんでした: {exception.Message}";
+            SetStatus(
+                $"ログを削除できませんでした: {exception.Message}",
+                InfoBarSeverity.Error);
         }
     }
 
@@ -435,7 +643,7 @@ internal sealed class SettingsViewModel : ObservableObject
         LauncherItemEditorViewModel item = new(Guid.NewGuid(), kind, title);
         Items.Add(item);
         SelectedItem = item;
-        StatusMessage = "未保存の変更があります。";
+        MarkDirty();
     }
 
     private bool CanAddAudioDevice() =>
@@ -460,7 +668,7 @@ internal sealed class SettingsViewModel : ObservableObject
         AudioDeviceToAdd = AvailableAudioOutputDevices.FirstOrDefault(device =>
             SelectedItem.RegisteredAudioDevices.All(existing =>
                 !string.Equals(existing.Id, device.Id, StringComparison.OrdinalIgnoreCase)));
-        StatusMessage = "未保存の変更があります。";
+        MarkDirty();
         NotifyAudioDeviceCommands();
     }
 
@@ -481,7 +689,7 @@ internal sealed class SettingsViewModel : ObservableObject
         AudioDeviceToAdd ??= AvailableAudioOutputDevices.FirstOrDefault(device =>
             SelectedItem.RegisteredAudioDevices.All(existing =>
                 !string.Equals(existing.Id, device.Id, StringComparison.OrdinalIgnoreCase)));
-        StatusMessage = "未保存の変更があります。";
+        MarkDirty();
         NotifyAudioDeviceCommands();
     }
 
@@ -516,7 +724,7 @@ internal sealed class SettingsViewModel : ObservableObject
 
         int currentIndex = SelectedItem.RegisteredAudioDevices.IndexOf(SelectedRegisteredAudioDevice);
         SelectedItem.RegisteredAudioDevices.Move(currentIndex, currentIndex + offset);
-        StatusMessage = "未保存の変更があります。";
+        MarkDirty();
         NotifyAudioDeviceCommands();
     }
 
@@ -546,7 +754,7 @@ internal sealed class SettingsViewModel : ObservableObject
 
         _isRefreshingAudioDevices = true;
         RefreshAudioDevicesCommand.NotifyCanExecuteChanged();
-        StatusMessage = "音声デバイスを更新しています…";
+        SetStatus("音声デバイスを更新しています…", InfoBarSeverity.Informational);
 
         try
         {
@@ -568,6 +776,7 @@ internal sealed class SettingsViewModel : ObservableObject
                 AvailableAudioOutputDevices.Add(device);
             }
 
+            _suppressDirtyTracking = true;
             foreach (LauncherItemEditorViewModel item in Items)
             {
                 for (int index = 0; index < item.RegisteredAudioDevices.Count; index++)
@@ -605,19 +814,25 @@ internal sealed class SettingsViewModel : ObservableObject
                             device.Id,
                             StringComparison.OrdinalIgnoreCase)) == true);
 
-            StatusMessage = $"音声デバイスを更新しました（{refreshedDevices.Count}件）。";
+            _suppressDirtyTracking = false;
+            SetStatus(
+                $"音声デバイスを更新しました（{refreshedDevices.Count}件）。",
+                InfoBarSeverity.Success);
             _logger.Write($"[AudioOutput] action=manual-refresh result=success devices={refreshedDevices.Count}");
             _mainWindowViewModel.RefreshAudioOutputState();
         }
         catch (Exception exception)
         {
-            StatusMessage = $"音声デバイスを更新できませんでした: {exception.Message}";
+            SetStatus(
+                $"音声デバイスを更新できませんでした: {exception.Message}",
+                InfoBarSeverity.Error);
             _logger.Write(
                 $"[AudioOutput] action=manual-refresh result=failed " +
                 $"exception={exception.GetType().Name}");
         }
         finally
         {
+            _suppressDirtyTracking = false;
             _isRefreshingAudioDevices = false;
             NotifyAudioDeviceCommands();
         }
@@ -635,7 +850,7 @@ internal sealed class SettingsViewModel : ObservableObject
             $"操作 {item.CommandSteps.Count + 1}");
         item.CommandSteps.Add(step);
         SelectedCommandStep = step;
-        StatusMessage = "未保存の変更があります。";
+        MarkDirty();
     }
 
     internal void MoveCommandStep(CommandCycleStepEditorViewModel step, int offset)
@@ -654,7 +869,7 @@ internal sealed class SettingsViewModel : ObservableObject
 
         SelectedItem.CommandSteps.Move(currentIndex, targetIndex);
         SelectedCommandStep = step;
-        StatusMessage = "未保存の変更があります。";
+        MarkDirty();
     }
 
     internal void RemoveCommandStep(CommandCycleStepEditorViewModel step)
@@ -674,7 +889,7 @@ internal sealed class SettingsViewModel : ObservableObject
         SelectedCommandStep = SelectedItem.CommandSteps.Count == 0
             ? null
             : SelectedItem.CommandSteps[Math.Min(index, SelectedItem.CommandSteps.Count - 1)];
-        StatusMessage = "未保存の変更があります。";
+        MarkDirty();
     }
 
     internal void MoveItem(LauncherItemEditorViewModel item, int offset)
@@ -688,7 +903,7 @@ internal sealed class SettingsViewModel : ObservableObject
 
         Items.Move(currentIndex, targetIndex);
         SelectedItem = item;
-        StatusMessage = "未保存の変更があります。";
+        MarkDirty();
     }
 
     internal void RemoveItem(LauncherItemEditorViewModel item)
@@ -709,7 +924,7 @@ internal sealed class SettingsViewModel : ObservableObject
         SelectedItem = Items.Count == 0
             ? null
             : Items[Math.Min(index, Items.Count - 1)];
-        StatusMessage = "未保存の変更があります。";
+        MarkDirty();
     }
 
     private async System.Threading.Tasks.Task SaveAsync()
@@ -719,7 +934,7 @@ internal sealed class SettingsViewModel : ObservableObject
         if (unnamedItem is not null)
         {
             SelectedItem = unnamedItem;
-            StatusMessage = "表示名を入力してください。";
+            SetStatus("表示名を入力してください。", InfoBarSeverity.Warning);
             return;
         }
 
@@ -728,7 +943,9 @@ internal sealed class SettingsViewModel : ObservableObject
         if (incompleteButton is not null)
         {
             SelectedItem = incompleteButton;
-            StatusMessage = "ボタンの起動対象またはコマンドを入力してください。";
+            SetStatus(
+                "ボタンの起動対象またはコマンドを入力してください。",
+                InfoBarSeverity.Warning);
             return;
         }
 
@@ -742,7 +959,9 @@ internal sealed class SettingsViewModel : ObservableObject
         if (incompleteAudioItem is not null)
         {
             SelectedItem = incompleteAudioItem;
-            StatusMessage = "音声切り替えにはデバイスを2台以上登録してください。";
+            SetStatus(
+                "音声切り替えにはデバイスを2台以上登録してください。",
+                InfoBarSeverity.Warning);
             return;
         }
 
@@ -753,7 +972,9 @@ internal sealed class SettingsViewModel : ObservableObject
         if (incompleteCommandItem is not null)
         {
             SelectedItem = incompleteCommandItem;
-            StatusMessage = "コマンド切り替えには操作を2つ以上登録してください。";
+            SetStatus(
+                "コマンド切り替えには操作を2つ以上登録してください。",
+                InfoBarSeverity.Warning);
             return;
         }
 
@@ -767,14 +988,16 @@ internal sealed class SettingsViewModel : ObservableObject
             {
                 SelectedItem = item;
                 SelectedCommandStep = incompleteStep;
-                StatusMessage = "各操作の表示名と実行対象を入力してください。";
+                SetStatus(
+                    "各操作の表示名と実行対象を入力してください。",
+                    InfoBarSeverity.Warning);
                 return;
             }
         }
 
         _isSaving = true;
         SaveCommand.NotifyCanExecuteChanged();
-        StatusMessage = "保存しています…";
+        SetStatus("保存しています…", InfoBarSeverity.Informational);
 
         LauncherSettings previousSettings = _mainWindowViewModel.ExportSettings();
         try
@@ -813,19 +1036,22 @@ internal sealed class SettingsViewModel : ObservableObject
                     $"settings-rollback={settingsRollbackSucceeded.ToString().ToLowerInvariant()} " +
                     $"startup-rollback={startupRollbackSucceeded.ToString().ToLowerInvariant()} " +
                     $"actual-startup={actualStartupState}");
-                StatusMessage = settingsRollbackSucceeded
-                    ? $"自動起動を変更できなかったため、設定を保存前の状態へ戻しました。現在の自動起動: {actualStartupState}"
-                    : $"自動起動を変更できず、設定ファイルも元に戻せませんでした。現在の自動起動: {actualStartupState}。アプリを再起動して状態を確認してください。";
+                SetStatus(
+                    settingsRollbackSucceeded
+                        ? $"自動起動を変更できなかったため、設定を保存前の状態へ戻しました。現在の自動起動: {actualStartupState}"
+                        : $"自動起動を変更できず、設定ファイルも元に戻せませんでした。現在の自動起動: {actualStartupState}。アプリを再起動して状態を確認してください。",
+                    InfoBarSeverity.Error);
                 return;
             }
 
             _environmentInformationService.LogIfChanged("settings-save");
             _mainWindowViewModel.ApplySettings(settings);
-            StatusMessage = "保存しました。";
+            MarkSaved();
+            SetStatus("保存しました。", InfoBarSeverity.Success);
         }
         catch (Exception exception)
         {
-            StatusMessage = $"保存できませんでした: {exception.Message}";
+            SetStatus($"保存できませんでした: {exception.Message}", InfoBarSeverity.Error);
         }
         finally
         {
@@ -970,9 +1196,19 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         LauncherItemKind.Slider => "スライダー",
         _ => "ボタン"
     };
+    public string KindBadgeName => Kind switch
+    {
+        LauncherItemKind.Toggle => "循環",
+        LauncherItemKind.Slider => "スライダー",
+        _ => "ボタン"
+    };
     public string KindSummary => $"種類：{KindDisplayName}";
     public Visibility CommandButtonSettingsVisibility => IsButton
         && ActionKind == LauncherActionKind.Command
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    public Visibility TargetFilePickerVisibility => IsButton
+        && ActionKind == LauncherActionKind.Application
             ? Visibility.Visible
             : Visibility.Collapsed;
     public string TargetHeader => ActionKind == LauncherActionKind.Command
@@ -996,6 +1232,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
             if (SetProperty(ref _actionKind, value))
             {
                 OnPropertyChanged(nameof(CommandButtonSettingsVisibility));
+                OnPropertyChanged(nameof(TargetFilePickerVisibility));
                 OnPropertyChanged(nameof(TargetHeader));
                 OnPropertyChanged(nameof(TargetPlaceholderText));
             }

@@ -3,9 +3,11 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
+using Windows.Storage.Pickers;
 using Windows_SC.ViewModels;
 using WinRT.Interop;
 
@@ -104,6 +106,39 @@ public sealed partial class SettingsWindow : Window
         if (sender is Button { DataContext: CommandCycleStepEditorViewModel step })
         {
             _viewModel.RemoveCommandStep(step);
+        }
+    }
+
+    private async void SelectTargetFile_Click(object sender, RoutedEventArgs args)
+    {
+        if (_viewModel.SelectedItem is not { IsButton: true } selectedItem)
+        {
+            return;
+        }
+
+        try
+        {
+            FileOpenPicker picker = new()
+            {
+                SuggestedStartLocation = PickerLocationId.ComputerFolder,
+                ViewMode = PickerViewMode.List,
+                SettingsIdentifier = "LauncherTargetFile"
+            };
+            picker.FileTypeFilter.Add("*");
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+
+            Windows.Storage.StorageFile? file = await picker.PickSingleFileAsync();
+            if (file is not null)
+            {
+                selectedItem.Target = file.Path;
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException
+            or UnauthorizedAccessException
+            or IOException
+            or COMException)
+        {
+            _viewModel.ReportTargetFileSelectionFailed(exception.Message);
         }
     }
 

@@ -59,11 +59,18 @@
                                     Margin="6"
                                     HorizontalAlignment="Stretch"
                                     VerticalAlignment="Stretch"
-                                    Content="{Binding Title, Mode=OneTime}"
                                     Command="{Binding ExecuteCommand, Mode=OneTime}"
                                     FontSize="16"
                                     FontWeight="SemiBold"
-                                    Visibility="{Binding ButtonVisibility, Mode=OneTime}" />
+                                    ToolTipService.ToolTip="{Binding Title, Mode=OneTime}"
+                                    Visibility="{Binding ButtonVisibility, Mode=OneTime}">
+                                    <TextBlock
+                                        MaxLines="2"
+                                        Text="{Binding Title, Mode=OneTime}"
+                                        TextAlignment="Center"
+                                        TextTrimming="CharacterEllipsis"
+                                        TextWrapping="Wrap" />
+                                </Button>
 
                                 <Border
                                     Margin="6"
@@ -72,19 +79,24 @@
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1"
                                     CornerRadius="8"
-                                    Visibility="{Binding ToggleVisibility, Mode=OneTime}">
+                                    Visibility="{Binding StandardToggleVisibility, Mode=OneWay}">
                                     <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
                                         <TextBlock
                                             FontSize="16"
                                             FontWeight="SemiBold"
+                                            MaxLines="2"
                                             Text="{Binding Title, Mode=OneTime}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{Binding Title, Mode=OneTime}"
                                             TextWrapping="Wrap" />
                                         <TextBlock
                                             Grid.Row="1"
+                                            MaxLines="2"
                                             VerticalAlignment="Center"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                             Text="{Binding CycleStatusText, Mode=OneWay}"
                                             TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{Binding CycleStatusText, Mode=OneWay}"
                                             TextWrapping="Wrap" />
                                         <Button
                                             Grid.Row="2"
@@ -101,12 +113,15 @@
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1"
                                     CornerRadius="8"
-                                    Visibility="{Binding SliderVisibility, Mode=OneTime}">
+                                    Visibility="{Binding StandardSliderVisibility, Mode=OneWay}">
                                     <Grid RowDefinitions="Auto,*,Auto">
                                         <TextBlock
                                             FontSize="16"
                                             FontWeight="SemiBold"
+                                            MaxLines="2"
                                             Text="{Binding Title, Mode=OneTime}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{Binding Title, Mode=OneTime}"
                                             TextWrapping="Wrap" />
                                         <TextBlock
                                             Grid.Row="1"
@@ -119,6 +134,82 @@
                                             IsEnabled="{Binding CanAdjustVolume, Mode=OneWay}"
                                             Maximum="{Binding SliderMaximum, Mode=OneTime}"
                                             Minimum="{Binding SliderMinimum, Mode=OneTime}"
+                                            PointerWheelChanged="VolumeSlider_PointerWheelChanged"
+                                            StepFrequency="1"
+                                            Value="{Binding SliderValue, Mode=TwoWay}" />
+                                    </Grid>
+                                </Border>
+
+                                <Border
+                                    Margin="6"
+                                    Padding="10,6"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Visibility="{Binding CompactToggleVisibility, Mode=OneWay}">
+                                    <Grid ColumnDefinitions="*,Auto"
+                                          RowDefinitions="*,*"
+                                          ColumnSpacing="8">
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            FontSize="14"
+                                            FontWeight="SemiBold"
+                                            MaxLines="1"
+                                            Text="{Binding Title, Mode=OneTime}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{Binding Title, Mode=OneTime}" />
+                                        <TextBlock
+                                            Grid.Row="1"
+                                            VerticalAlignment="Center"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            MaxLines="1"
+                                            Text="{Binding CycleStatusText, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{Binding CycleStatusText, Mode=OneWay}" />
+                                        <Button
+                                            Grid.Column="1"
+                                            Grid.RowSpan="2"
+                                            MinWidth="52"
+                                            VerticalAlignment="Center"
+                                            Command="{Binding ExecuteCycleCommand, Mode=OneTime}"
+                                            Content="次へ"
+                                            Padding="10,5" />
+                                    </Grid>
+                                </Border>
+
+                                <Border
+                                    Margin="6"
+                                    Padding="10,4"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Visibility="{Binding CompactSliderVisibility, Mode=OneWay}">
+                                    <Grid RowDefinitions="Auto,*">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                FontSize="14"
+                                                FontWeight="SemiBold"
+                                                MaxLines="1"
+                                                Text="{Binding Title, Mode=OneTime}"
+                                                TextTrimming="CharacterEllipsis"
+                                                ToolTipService.ToolTip="{Binding Title, Mode=OneTime}" />
+                                            <TextBlock
+                                                Grid.Column="1"
+                                                VerticalAlignment="Center"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{Binding SliderValueDisplay, Mode=OneWay}" />
+                                        </Grid>
+                                        <Slider
+                                            Grid.Row="1"
+                                            Margin="0,-3,0,-5"
+                                            VerticalAlignment="Center"
+                                            IsEnabled="{Binding CanAdjustVolume, Mode=OneWay}"
+                                            Maximum="{Binding SliderMaximum, Mode=OneTime}"
+                                            Minimum="{Binding SliderMinimum, Mode=OneTime}"
+                                            PointerWheelChanged="VolumeSlider_PointerWheelChanged"
                                             StepFrequency="1"
                                             Value="{Binding SliderValue, Mode=TwoWay}" />
                                     </Grid>

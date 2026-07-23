@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using Windows_SC.Services;
@@ -51,6 +52,7 @@ public sealed partial class MainWindow : Window
     private string _activationReason = "manual";
     private bool _pendingActionFocusTransfer;
     private bool _preserveVisibilityWhileInactive;
+    private readonly Dictionary<Slider, int> _sliderWheelDeltas = [];
 
     internal MainWindowViewModel ViewModel { get; }
 
@@ -391,6 +393,35 @@ public sealed partial class MainWindow : Window
         {
             MarkLauncherInteractive("pointer-pressed");
         }
+    }
+
+    private void VolumeSlider_PointerWheelChanged(object sender, PointerRoutedEventArgs args)
+    {
+        if (sender is not Slider slider || !slider.IsEnabled)
+        {
+            return;
+        }
+
+        int delta = args.GetCurrentPoint(slider).Properties.MouseWheelDelta;
+        if (delta == 0)
+        {
+            return;
+        }
+
+        int accumulatedDelta = _sliderWheelDeltas.GetValueOrDefault(slider) + delta;
+        int notchCount = accumulatedDelta / 120;
+        _sliderWheelDeltas[slider] = accumulatedDelta - (notchCount * 120);
+        args.Handled = true;
+
+        if (notchCount == 0)
+        {
+            return;
+        }
+
+        slider.Value = Math.Clamp(
+            slider.Value + (notchCount * 2),
+            slider.Minimum,
+            slider.Maximum);
     }
 
     private void Window_Activated(object sender, WindowActivatedEventArgs args)

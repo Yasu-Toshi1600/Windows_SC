@@ -26,6 +26,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private bool _isSettingVolume;
     private int _layoutColumnSpan = 2;
     private double _tileHeight = 160;
+    private LauncherLayoutMode _layoutMode = LauncherLayoutMode.Standard;
 
     public LauncherItemViewModel(
         LauncherItemDefinition definition,
@@ -74,6 +75,26 @@ internal sealed class LauncherItemViewModel : ObservableObject
         ? Visibility.Visible
         : Visibility.Collapsed;
 
+    public Visibility StandardToggleVisibility =>
+        Kind == LauncherItemKind.Toggle && _layoutMode == LauncherLayoutMode.Standard
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    public Visibility CompactToggleVisibility =>
+        Kind == LauncherItemKind.Toggle && _layoutMode == LauncherLayoutMode.Compact
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    public Visibility StandardSliderVisibility =>
+        Kind == LauncherItemKind.Slider && _layoutMode == LauncherLayoutMode.Standard
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    public Visibility CompactSliderVisibility =>
+        Kind == LauncherItemKind.Slider && _layoutMode == LauncherLayoutMode.Compact
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
     public int LayoutColumnSpan
     {
         get => _layoutColumnSpan;
@@ -88,10 +109,15 @@ internal sealed class LauncherItemViewModel : ObservableObject
 
     public void ApplyLayoutMode(LauncherLayoutMode layoutMode)
     {
+        _layoutMode = layoutMode;
         bool compactButton = layoutMode == LauncherLayoutMode.Compact
             && Kind == LauncherItemKind.Button;
         LayoutColumnSpan = compactButton ? 1 : 2;
-        TileHeight = compactButton ? 80 : 160;
+        TileHeight = layoutMode == LauncherLayoutMode.Compact ? 80 : 160;
+        OnPropertyChanged(nameof(StandardToggleVisibility));
+        OnPropertyChanged(nameof(CompactToggleVisibility));
+        OnPropertyChanged(nameof(StandardSliderVisibility));
+        OnPropertyChanged(nameof(CompactSliderVisibility));
     }
 
     public bool IsOn
