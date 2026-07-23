@@ -783,9 +783,7 @@ internal sealed class SettingsViewModel : ObservableObject
             {
                 AssumePhonePanelVisible = AssumePhonePanelVisible,
                 StartWithWindows = StartWithWindows,
-                DetailedLoggingExpiresAtUtc = IsDetailedDiagnosticsEnabled
-                    ? DateTimeOffset.UtcNow.AddHours(24)
-                    : null,
+                DetailedLoggingExpiresAtUtc = previousSettings.DetailedLoggingExpiresAtUtc,
                 LayoutMode = SelectedLayoutMode?.Value ?? LauncherLayoutMode.Standard,
                 Pages =
                 [
@@ -821,11 +819,8 @@ internal sealed class SettingsViewModel : ObservableObject
                 return;
             }
 
-            _detailedLoggingExpiresAt = settings.DetailedLoggingExpiresAtUtc;
-            _logger.ConfigureDetailedLogging(_detailedLoggingExpiresAt);
             _environmentInformationService.LogIfChanged("settings-save");
             _mainWindowViewModel.ApplySettings(settings);
-            OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
             StatusMessage = "保存しました。";
         }
         catch (Exception exception)

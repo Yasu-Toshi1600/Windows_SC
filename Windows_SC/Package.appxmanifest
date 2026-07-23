@@ -12,7 +12,7 @@
   <Identity
     Name="f2c98583-2ab3-425c-b897-870aa8fd5a92"
     Publisher="CN=anxil"
-    Version="0.5.8.0" />
+    Version="0.5.9.0" />
 
   <mp:PhoneIdentity PhoneProductId="f2c98583-2ab3-425c-b897-870aa8fd5a92" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

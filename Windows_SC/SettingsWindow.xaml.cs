@@ -14,6 +14,7 @@ namespace Windows_SC;
 public sealed partial class SettingsWindow : Window
 {
     private readonly SettingsViewModel _viewModel;
+    private bool _isDeleteLogsFlowActive;
 
     internal SettingsWindow(SettingsViewModel viewModel)
     {
@@ -156,20 +157,47 @@ public sealed partial class SettingsWindow : Window
 
     private async void DeleteLogs_Click(object sender, RoutedEventArgs args)
     {
-        TroubleshootingDialog.Hide();
-        ContentDialog confirmation = new()
+        if (_isDeleteLogsFlowActive)
         {
-            XamlRoot = RootGrid.XamlRoot,
-            Title = "ログを削除しますか？",
-            Content = "通常ログ、詳細ログ、ローテーション済みログを削除します。この操作は元に戻せません。",
-            PrimaryButtonText = "削除",
-            CloseButtonText = "キャンセル",
-            DefaultButton = ContentDialogButton.Close
-        };
+            return;
+        }
 
-        if (await confirmation.ShowAsync() == ContentDialogResult.Primary)
+        _isDeleteLogsFlowActive = true;
+        try
         {
-            _viewModel.ClearLogs();
+            System.Threading.Tasks.TaskCompletionSource<bool> closed = new(
+                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+
+            void TroubleshootingDialog_Closed(
+                ContentDialog sender,
+                ContentDialogClosedEventArgs args)
+            {
+                TroubleshootingDialog.Closed -= TroubleshootingDialog_Closed;
+                closed.TrySetResult(true);
+            }
+
+            TroubleshootingDialog.Closed += TroubleshootingDialog_Closed;
+            TroubleshootingDialog.Hide();
+            await closed.Task;
+
+            ContentDialog confirmation = new()
+            {
+                XamlRoot = RootGrid.XamlRoot,
+                Title = "ログを削除しますか？",
+                Content = "通常ログ、詳細ログ、ローテーション済みログを削除します。この操作は元に戻せません。",
+                PrimaryButtonText = "削除",
+                CloseButtonText = "キャンセル",
+                DefaultButton = ContentDialogButton.Close
+            };
+
+            if (await confirmation.ShowAsync() == ContentDialogResult.Primary)
+            {
+                _viewModel.ClearLogs();
+            }
+        }
+        finally
+        {
+            _isDeleteLogsFlowActive = false;
         }
     }
 }
