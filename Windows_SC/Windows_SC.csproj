@@ -14,6 +14,7 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <UseCrtSDKReferenceStaticWarning>false</UseCrtSDKReferenceStaticWarning>
     <EnableMsixTooling>true</EnableMsixTooling>
+    <SatelliteResourceLanguages>ja;en</SatelliteResourceLanguages>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
@@ -41,7 +42,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260224000" />
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />

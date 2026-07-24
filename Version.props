@@ -1,9 +1,9 @@
 <Project>
   <PropertyGroup>
     <!-- Semantic Versioning: major.minor.patch -->
-    <VersionPrefix>0.6.1</VersionPrefix>
+    <VersionPrefix>0.6.2</VersionPrefix>
     <!-- Use dev/beta.N/rc.N during development; leave empty for a stable release. -->
-    <VersionSuffix>dev</VersionSuffix>
+    <VersionSuffix>beta.1</VersionSuffix>
 
     <AssemblyVersion>$(VersionPrefix).0</AssemblyVersion>
     <FileVersion>$(VersionPrefix).0</FileVersion>

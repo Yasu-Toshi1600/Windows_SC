@@ -4,7 +4,7 @@ Windows 11のスタートメニューと一緒に表示できる、常駐型の�
 アプリ、ファイル、フォルダー、URL、コマンド、音声出力先、マスター音量を
 一つの画面から操作できます。
 
-現在のバージョンは`0.6.1-dev`です。開発・配布前確認中のため、正式版では
+現在のバージョンは`0.6.2-beta.1`です。知人向けの最初のβ版であり、正式版では
 ありません。
 
 ## 対応環境
@@ -77,8 +77,30 @@ dotnet build Windows_SC.slnx -c Debug -p:Platform=x64
 dotnet build Windows_SC.slnx -c Release -p:Platform=x64
 ```
 
-配布物はx64自己完結版を使用する方針です。自己完結版の利用先にVisual Studioや
-.NET SDKは不要ですが、現在は配布方式と自動起動の保証範囲を最終決定中です。
+配布物はx64自己完結版です。利用先にVisual Studio、.NET SDK、Windows App SDKを
+別途インストールする必要はありません。
+
+配布物は次の2種類です。
+
+- `Windows_SC-0.6.2-beta.1-x64.zip`: 通常ZIP版。展開後、フォルダー内の
+  `Windows_SC.exe`を実行する。起動が安定し、問題発生時に中身を確認しやすいため
+  基準となる配布形式。
+- `Windows_SC-0.6.2-beta.1-x64-single.exe`: 単一EXE版。ファイルは1個だが、
+  初回起動時に内部ファイルを一時領域へ展開するため、通常ZIP版より起動に時間が
+  かかる場合がある。
+
+両方ともアプリ本体の機能は同じです。自動起動を有効にした後でファイルや
+フォルダーを移動すると登録先が古くなるため、移動後は設定から自動起動を
+設定し直してください。
+
+配布物の作成:
+
+```powershell
+.\scripts\Build-Distribution.ps1
+```
+
+成果物は`artifacts\distribution`に作成されます。詳しくは
+[配布手順](docs/DISTRIBUTION.md)を参照してください。
 
 ## 文書
 
@@ -87,5 +109,6 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64
 - [簡易テスト](docs/TEST_CHECKLIST.md)
 - [変更履歴](CHANGELOG.md)
 - [バージョン管理](docs/VERSIONING.md)
+- [配布手順](docs/DISTRIBUTION.md)
 
 `docs/archive`は過去の設計、検証、修正履歴です。現行仕様の判断には使用しません。
