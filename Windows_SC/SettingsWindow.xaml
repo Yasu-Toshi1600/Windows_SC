@@ -58,7 +58,7 @@
                                     Value="{ThemeResource SettingsListItemBackgroundBrush}" />
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                             <Setter Property="Margin" Value="0,2,18,2" />
-                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Padding" Value="2" />
                         </Style>
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
