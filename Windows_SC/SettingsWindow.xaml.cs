@@ -138,7 +138,40 @@ public sealed partial class SettingsWindow : Window
             or IOException
             or COMException)
         {
-            _viewModel.ReportTargetFileSelectionFailed(exception.Message);
+            _viewModel.ReportTargetSelectionFailed(exception.Message);
+        }
+    }
+
+    private async void SelectTargetFolder_Click(object sender, RoutedEventArgs args)
+    {
+        if (_viewModel.SelectedItem is not { IsButton: true } selectedItem)
+        {
+            return;
+        }
+
+        try
+        {
+            FolderPicker picker = new()
+            {
+                SuggestedStartLocation = PickerLocationId.ComputerFolder,
+                ViewMode = PickerViewMode.List,
+                SettingsIdentifier = "LauncherTargetFolder"
+            };
+            picker.FileTypeFilter.Add("*");
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+
+            Windows.Storage.StorageFolder? folder = await picker.PickSingleFolderAsync();
+            if (folder is not null)
+            {
+                selectedItem.Target = folder.Path;
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException
+            or UnauthorizedAccessException
+            or IOException
+            or COMException)
+        {
+            _viewModel.ReportTargetSelectionFailed(exception.Message);
         }
     }
 

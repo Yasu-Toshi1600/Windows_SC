@@ -156,11 +156,18 @@
                                     Height="32"
                                     Padding="0"
                                     VerticalAlignment="Bottom"
-                                    AutomationProperties.Name="ファイルを選択"
-                                    Click="SelectTargetFile_Click"
-                                    ToolTipService.ToolTip="ファイルを選択"
+                                    AutomationProperties.Name="起動対象を選択"
+                                    ToolTipService.ToolTip="起動対象を選択"
                                     Visibility="{Binding SelectedItem.TargetFilePickerVisibility}">
                                 <FontIcon FontSize="16" Glyph="&#xE8B7;" />
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuFlyoutItem Text="ファイルを選択"
+                                                        Click="SelectTargetFile_Click" />
+                                        <MenuFlyoutItem Text="フォルダーを選択"
+                                                        Click="SelectTargetFolder_Click" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
                             </Button>
                         </Grid>
                         <TextBox Header="引数"

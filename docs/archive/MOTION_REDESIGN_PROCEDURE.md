@@ -1,6 +1,6 @@
 # Windows_SC モーション再設計手順書
 
-> アーカイブ: この資料はPhase 4.5の設計・実装履歴である。現在のモーション仕様は[モーション仕様書](../MOTION_SPECIFICATION.md)、スタート検出順序と回帰対策は[スタート連動機能 保守ガイド](../START_MENU_INTEGRATION_MAINTENANCE.md)、残件は[現行修正課題・ドキュメント整理表](../REMAINING_WORK_AND_DOCUMENTATION_AUDIT.md)を参照する。
+> アーカイブ: この資料はPhase 4.5の設計・実装履歴である。現在のモーション仕様は[モーション仕様書](../MOTION_SPECIFICATION.md)、スタート検出順序と回帰対策は[スタート連動機能 保守ガイド](../START_MENU_INTEGRATION_MAINTENANCE.md)、現在の作業順は[次に行う作業と判断が必要な内容](../NEXT_STEPS_AND_DECISIONS.md)を参照する。
 
 スタート検出とランチャー状態機械の現行保守仕様は[スタート連動機能 保守ガイド](../START_MENU_INTEGRATION_MAINTENANCE.md)を参照する。
 

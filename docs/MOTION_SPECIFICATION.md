@@ -1,7 +1,7 @@
 # Windows_SC モーション仕様書
 
-更新日: 2026-07-22  
-対象: Windows_SC `0.5.9-dev` / Windows App SDK 1.8 / x64
+更新日: 2026-07-24
+対象: Windows_SC `0.6.1-dev` / Windows App SDK 1.8 / x64
 
 ## 1. 目的と文書境界
 
@@ -10,7 +10,7 @@
 - スタートメニューの検出条件、監視スレッド、Snapshot、Windowsキーとの同期は[スタート連動機能 保守ガイド](START_MENU_INTEGRATION_MAINTENANCE.md)を正とする。
 - アプリ全体の構成は[Windows_SC 設計書](DESIGN.md)を正とする。
 - 通常の回帰確認は[簡易テストチェックリスト](TEST_CHECKLIST.md)、網羅的な合否判定は[Phase 5～6 詳細テスト手順書](PHASE5_6_TEST_PROCEDURE.md)を使用する。
-- 未完了課題は[現行修正課題・ドキュメント整理表](REMAINING_WORK_AND_DOCUMENTATION_AUDIT.md)で管理する。
+- 未完了課題は[次に行う作業と判断が必要な内容](NEXT_STEPS_AND_DECISIONS.md)で管理する。
 
 本書は旧`MOTION_REDESIGN_PROCEDURE.md`と`MOTION_BASELINE.md`のうち、現在も有効な仕様と計測値を統合したものである。再設計の作業手順と当時の検討過程は`archive`内へ残す。
 

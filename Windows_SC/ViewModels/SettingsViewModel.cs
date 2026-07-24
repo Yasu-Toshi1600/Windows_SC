@@ -492,8 +492,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             "環境情報をコピーしました。",
             InfoBarSeverity.Informational);
 
-    internal void ReportTargetFileSelectionFailed(string message) =>
-        SetStatus($"ファイルを選択できませんでした: {message}", InfoBarSeverity.Error);
+    internal void ReportTargetSelectionFailed(string message) =>
+        SetStatus($"起動対象を選択できませんでした: {message}", InfoBarSeverity.Error);
 
     public void Dispose()
     {
