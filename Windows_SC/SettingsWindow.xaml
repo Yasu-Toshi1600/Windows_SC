@@ -57,7 +57,7 @@
                             <Setter Property="Background"
                                     Value="{ThemeResource SettingsListItemBackgroundBrush}" />
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                            <Setter Property="Margin" Value="0,2" />
+                            <Setter Property="Margin" Value="0,2,18,2" />
                             <Setter Property="Padding" Value="0" />
                         </Style>
                     </ListView.ItemContainerStyle>
@@ -68,11 +68,27 @@
                                     BorderThickness="1"
                                     CornerRadius="6">
                             <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
-                                <TextBlock VerticalAlignment="Center"
-                                           MaxLines="1"
-                                           Text="{Binding ListDisplayText}"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTipService.ToolTip="{Binding ListDisplayText}" />
+                                <Grid HorizontalAlignment="Left"
+                                      VerticalAlignment="Center"
+                                      ColumnDefinitions="Auto,Auto"
+                                      ColumnSpacing="6">
+                                    <TextBlock VerticalAlignment="Center"
+                                               MaxWidth="340"
+                                               MaxLines="1"
+                                               Text="{Binding Title}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{Binding Title}" />
+                                    <Border Grid.Column="1"
+                                            Padding="6,2"
+                                            Background="{ThemeResource SettingsKindBadgeBackgroundBrush}"
+                                            BorderBrush="{ThemeResource SettingsKindBadgeBorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="4">
+                                        <TextBlock FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   Text="{Binding KindBadgeName}" />
+                                    </Border>
+                                </Grid>
                                 <Button Grid.Column="1"
                                         Click="LauncherItemMoveUp_Click"
                                         Content="↑"
@@ -303,7 +319,15 @@
                        Grid.RowSpan="3"
                        CloseButtonText="閉じる"
                        Title="トラブルシューティング">
-            <StackPanel MinWidth="520" MaxWidth="620" Spacing="16">
+            <ScrollViewer x:Name="TroubleshootingScrollViewer"
+                          HorizontalScrollBarVisibility="Disabled"
+                          HorizontalScrollMode="Disabled"
+                          VerticalScrollBarVisibility="Auto"
+                          VerticalScrollMode="Enabled">
+            <StackPanel MinWidth="520"
+                        MaxWidth="620"
+                        Padding="0,0,16,0"
+                        Spacing="16">
                 <TextBlock FontWeight="SemiBold"
                            Text="{Binding ApplicationVersionText}" />
                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -354,6 +378,7 @@
                          Message="{Binding TroubleshootingStatusMessage}"
                          Severity="{Binding TroubleshootingStatusSeverity}" />
             </StackPanel>
+            </ScrollViewer>
         </ContentDialog>
     </Grid>
 </Window>

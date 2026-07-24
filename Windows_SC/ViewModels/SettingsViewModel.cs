@@ -1236,7 +1236,6 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         LauncherItemKind.Slider => "スライダー",
         _ => "ボタン"
     };
-    public string ListDisplayText => $"{Title} [{KindBadgeName}]";
     public string KindSummary => $"種類：{KindDisplayName}";
     public Visibility CommandButtonSettingsVisibility => IsButton
         && ActionKind == LauncherActionKind.Command
@@ -1256,13 +1255,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     public string Title
     {
         get => _title;
-        set
-        {
-            if (SetProperty(ref _title, value))
-            {
-                OnPropertyChanged(nameof(ListDisplayText));
-            }
-        }
+        set => SetProperty(ref _title, value);
     }
 
     public LauncherActionKind ActionKind

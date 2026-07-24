@@ -145,6 +145,9 @@ public sealed partial class SettingsWindow : Window
     private async void TroubleshootingButton_Click(object sender, RoutedEventArgs args)
     {
         _viewModel.RefreshEnvironmentInformationLog();
+        TroubleshootingScrollViewer.MaxHeight = Math.Max(
+            280,
+            RootGrid.ActualHeight - 180);
         TroubleshootingDialog.XamlRoot = RootGrid.XamlRoot;
         await TroubleshootingDialog.ShowAsync();
     }
