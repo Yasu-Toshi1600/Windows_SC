@@ -51,7 +51,8 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64
 合格条件:
 
 - Debug、Releaseともにビルドエラーが0件。
-- 新規警告がない。Releaseの既知のトリミング警告は件数と内容が以前から変化していないことを確認する。
+- Debug、Releaseともに警告が0件。トリミングは無効であり、トリミング解析警告を
+  既知警告として許容しない。
 - 実機の機能・性能判定は原則としてx64 Releaseを使う。Debugはログ確認と原因調査に使う。
 
 ### 2.2 設定とログの保全
@@ -59,7 +60,7 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64
 試験前にアプリを終了し、次を別フォルダーへコピーする。
 
 ```text
-%LOCALAPPDATA%\Windows_SC\settings.json
+%LOCALAPPDATA%\Windows_SC\Settings\settings.json
 %LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.log
 %LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.previous.log
 %LOCALAPPDATA%\Windows_SC\Logs\window-diagnostics.detail.log

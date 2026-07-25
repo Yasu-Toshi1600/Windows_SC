@@ -224,6 +224,11 @@ SnapshotChangedは `HybridStartMenuMonitor` が `DispatcherQueue` へ戻して�
 - 退出完了でランチャーが非表示になるとき: `SetLauncherVisible(false)`
 
 スマートフォン連携パネルの子孫UI Automation走査は性能問題のため現在無効。`AssumePhonePanelVisible` による予約幅を使用する。
+2026-07-25に`ShowHideCompanion`のToggle状態、ボタン矩形、トップレベル
+ウィンドウ矩形を使う自動検出を試したが、正確なパネル外周を得られず不採用とした。
+観測値と不採用理由は
+[スマートフォン連携パネル検出 実験記録](archive/PHONE_PANEL_DETECTION_EXPERIMENT_2026-07-25.md)
+を参照する。
 
 ## 10. ログの読み方
 
