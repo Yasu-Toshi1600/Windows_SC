@@ -48,14 +48,14 @@ internal sealed class EnvironmentInformationService(DiagnosticLogger logger)
             _lastLoggedFingerprint = fingerprint;
         }
 
-        string safeReason = NormalizeLogValue(reason);
+        string safeReason = LogValue.Normalize(reason);
         logger.Write(
             $"[Environment] reason={safeReason} changed=true " +
-            $"app=\"{NormalizeLogValue(snapshot.ApplicationVersion)}\" " +
-            $"os=\"{NormalizeLogValue(snapshot.WindowsVersion)}\" " +
+            $"app=\"{LogValue.Normalize(snapshot.ApplicationVersion)}\" " +
+            $"os=\"{LogValue.Normalize(snapshot.WindowsVersion)}\" " +
             $"os-architecture={snapshot.OsArchitecture} " +
             $"process-architecture={snapshot.ProcessArchitecture} " +
-            $"dotnet=\"{NormalizeLogValue(snapshot.FrameworkDescription)}\" " +
+            $"dotnet=\"{LogValue.Normalize(snapshot.FrameworkDescription)}\" " +
             $"monitors={snapshot.Monitors.Count} " +
             $"monitor-result={(snapshot.MonitorErrorType is null ? "success" : "failed")} " +
             $"detailed-logging={(snapshot.IsDetailedLoggingEnabled ? "enabled" : "disabled")}");
@@ -154,11 +154,6 @@ internal sealed class EnvironmentInformationService(DiagnosticLogger logger)
                 refreshRateText);
         }
     }
-
-    private static string NormalizeLogValue(string value) =>
-        value.Replace('"', '\'')
-            .Replace('\r', ' ')
-            .Replace('\n', ' ');
 
     private static (uint Dpi, int RefreshRate) GetMonitorDetails(RectInt32 bounds)
     {

@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Windows.Automation;
+using Windows_SC.Services;
 
 namespace Windows_SC;
 
@@ -342,7 +342,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             _lastFocusedElementSignature = focusedSignature;
             _logger.WriteDetailed(
                 $"[UIAutomationFocus] process={GetProcessName(focused.ProcessId)} pid={focused.ProcessId} " +
-                $"automation-id=\"{Sanitize(focused.AutomationId)}\" " +
+                $"automation-id=\"{LogValue.Normalize(focused.AutomationId)}\" " +
                 $"control-type=\"{focused.ControlType?.ProgrammaticName}\" " +
                 $"rect=({rectangle.Left:F0},{rectangle.Top:F0})-({rectangle.Right:F0},{rectangle.Bottom:F0})");
         }
@@ -471,7 +471,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             }
 
             candidates.Add(new AutomationCandidate(
-                Sanitize(current.AutomationId),
+                LogValue.Normalize(current.AutomationId),
                 current.ControlType?.ProgrammaticName ?? string.Empty,
                 current.NativeWindowHandle,
                 rectangle));
@@ -523,18 +523,6 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                 $"({candidate.Rectangle.Right:F0},{candidate.Rectangle.Bottom:F0}) " +
                 $"size={candidate.Rectangle.Width:F0}x{candidate.Rectangle.Height:F0}");
         }
-    }
-
-    private static string Sanitize(string value)
-    {
-        StringBuilder sanitized = new(value.Length);
-
-        foreach (char character in value)
-        {
-            sanitized.Append(character is '\r' or '\n' or '"' ? ' ' : character);
-        }
-
-        return sanitized.ToString();
     }
 
     private sealed record AutomationCandidate(

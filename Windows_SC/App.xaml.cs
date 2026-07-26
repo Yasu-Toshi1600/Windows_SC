@@ -269,7 +269,8 @@ public partial class App : Application
         {
             string exceptionType = exception?.GetType().Name ?? "unknown";
             string hresult = exception is null ? "unknown" : $"0x{exception.HResult:X8}";
-            string message = NormalizeLogValue(exception?.Message ?? "例外情報を取得できませんでした。");
+            string message = LogValue.Normalize(
+                exception?.Message ?? "例外情報を取得できませんでした。");
             DiagnosticLogger? logger = _logger;
             logger?.WriteCritical(
                 $"[UnhandledException] source={source} " +
@@ -283,8 +284,4 @@ public partial class App : Application
         }
     }
 
-    private static string NormalizeLogValue(string value) =>
-        value.Replace('"', '\'')
-            .Replace('\r', ' ')
-            .Replace('\n', ' ');
 }

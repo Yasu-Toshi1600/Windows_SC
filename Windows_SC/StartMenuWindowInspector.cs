@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using Windows.Graphics;
+using Windows_SC.Services;
 
 namespace Windows_SC;
 
@@ -242,7 +243,7 @@ internal sealed class StartMenuWindowInspector
     {
         StringBuilder value = new(256);
         _ = GetClassName(windowHandle, value, value.Capacity);
-        return Sanitize(value.ToString());
+        return LogValue.Normalize(value.ToString());
     }
 
     private static string GetWindowText(IntPtr windowHandle)
@@ -250,13 +251,8 @@ internal sealed class StartMenuWindowInspector
         int length = GetWindowTextLength(windowHandle);
         StringBuilder value = new(Math.Max(length + 1, 1));
         _ = GetWindowText(windowHandle, value, value.Capacity);
-        return Sanitize(value.ToString());
+        return LogValue.Normalize(value.ToString());
     }
-
-    private static string Sanitize(string value) =>
-        value.Replace("\r", " ", StringComparison.Ordinal)
-            .Replace("\n", " ", StringComparison.Ordinal)
-            .Replace("\"", "'", StringComparison.Ordinal);
 
     private sealed record WindowSnapshot(
         IntPtr WindowHandle,

@@ -26,7 +26,7 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
                 $"[Action] result=success kind={action.Kind} pid={processId} tracked=false");
             logger.WriteDetailed(
                 $"[ActionDetail] result=success kind={action.Kind} " +
-                $"target=\"{Sanitize(action.Target)}\"");
+                $"target=\"{LogValue.Normalize(action.Target)}\"");
             return Task.FromResult(ActionExecutionResult.Success);
         }
         catch (Exception exception) when (exception is Win32Exception
@@ -40,8 +40,8 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
                 $"exception={exception.GetType().Name}");
             logger.WriteDetailed(
                 $"[ActionDetail] result=failed kind={action.Kind} " +
-                $"target=\"{Sanitize(action.Target)}\" " +
-                $"message=\"{Sanitize(exception.Message)}\"");
+                $"target=\"{LogValue.Normalize(action.Target)}\" " +
+                $"message=\"{LogValue.Normalize(exception.Message)}\"");
             return Task.FromResult(ActionExecutionResult.Failure(
                 $"「{action.Target}」を起動できませんでした。\n{exception.Message}"));
         }
@@ -126,6 +126,4 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
         target.EndsWith(".bat", StringComparison.OrdinalIgnoreCase)
         || target.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase);
 
-    private static string Sanitize(string value) =>
-        value.Replace('\r', ' ').Replace('\n', ' ').Replace('"', '\'');
 }
