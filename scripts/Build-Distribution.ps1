@@ -1,9 +1,3 @@
-[CmdletBinding()]
-param(
-    [ValidateSet("All", "Folder", "SingleFile")]
-    [string]$Format = "All"
-)
-
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
@@ -61,77 +55,37 @@ function Remove-UnusedLanguageDirectories {
     }
 }
 
-if ($Format -in @("All", "Folder")) {
-    $folderName = "Windows_SC-$displayVersion-x64"
-    $folderStage = Join-Path $stagingRoot $folderName
-    $folderZip = Join-Path $artifactsRoot "$folderName.zip"
+$folderName = "Windows_SC-$displayVersion-x64"
+$folderStage = Join-Path $stagingRoot $folderName
+$folderZip = Join-Path $artifactsRoot "$folderName.zip"
 
-    & dotnet publish $projectPath `
-        -c Release `
-        --no-restore `
-        -p:Platform=x64 `
-        -p:PublishProfile=win-x64-folder.pubxml `
-        -p:PublishDir="$folderStage\"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Folder publish failed with exit code $LASTEXITCODE."
-    }
-
-    Remove-UnusedLanguageDirectories -PublishDirectory $folderStage
-    Set-Content -LiteralPath (Join-Path $folderStage "README.txt") `
-        -Value $readmeText `
-        -Encoding utf8
-    Compress-Archive -LiteralPath $folderStage -DestinationPath $folderZip -CompressionLevel Optimal
-
-    $folderFiles = Get-ChildItem -LiteralPath $folderStage -Recurse -File
-    $results.Add([pscustomobject]@{
-        Format = "Folder ZIP"
-        Path = $folderZip
-        Files = $folderFiles.Count
-        UnpackedMB = [math]::Round(
-            (($folderFiles | Measure-Object Length -Sum).Sum / 1MB),
-            1)
-        PackageMB = [math]::Round((Get-Item -LiteralPath $folderZip).Length / 1MB, 1)
-        SHA256 = (Get-FileHash -LiteralPath $folderZip -Algorithm SHA256).Hash
-    })
+& dotnet publish $projectPath `
+    -c Release `
+    --no-restore `
+    -p:Platform=x64 `
+    -p:PublishProfile=win-x64-folder.pubxml `
+    -p:PublishDir="$folderStage\"
+if ($LASTEXITCODE -ne 0) {
+    throw "Folder publish failed with exit code $LASTEXITCODE."
 }
 
-if ($Format -in @("All", "SingleFile")) {
-    $singlePublish = Join-Path $stagingRoot "single-file"
-    $singleAsset = Join-Path $artifactsRoot "Windows_SC-$displayVersion-x64-single.exe"
+Remove-UnusedLanguageDirectories -PublishDirectory $folderStage
+Set-Content -LiteralPath (Join-Path $folderStage "README.txt") `
+    -Value $readmeText `
+    -Encoding utf8
+Compress-Archive -LiteralPath $folderStage -DestinationPath $folderZip -CompressionLevel Optimal
 
-    & dotnet publish $projectPath `
-        -c Release `
-        --no-restore `
-        -p:Platform=x64 `
-        -p:PublishProfile=win-x64-singlefile.pubxml `
-        -p:PublishDir="$singlePublish\"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Single-file publish failed with exit code $LASTEXITCODE."
-    }
-
-    Remove-UnusedLanguageDirectories -PublishDirectory $singlePublish
-    $singleExecutable = Join-Path $singlePublish "Windows_SC.exe"
-    if (-not (Test-Path -LiteralPath $singleExecutable)) {
-        throw "Single-file publish did not produce Windows_SC.exe."
-    }
-
-    Copy-Item -LiteralPath $singleExecutable -Destination $singleAsset
-    $singleOutputFiles = Get-ChildItem -LiteralPath $singlePublish -File
-    $unexpectedFiles = @($singleOutputFiles | Where-Object Name -ne "Windows_SC.exe")
-    if ($unexpectedFiles.Count -gt 0) {
-        $unexpectedNames = $unexpectedFiles.Name -join ", "
-        throw "Single-file publish left additional files: $unexpectedNames"
-    }
-
-    $results.Add([pscustomobject]@{
-        Format = "Single EXE"
-        Path = $singleAsset
-        Files = 1
-        UnpackedMB = "-"
-        PackageMB = [math]::Round((Get-Item -LiteralPath $singleAsset).Length / 1MB, 1)
-        SHA256 = (Get-FileHash -LiteralPath $singleAsset -Algorithm SHA256).Hash
-    })
-}
+$folderFiles = Get-ChildItem -LiteralPath $folderStage -Recurse -File
+$results.Add([pscustomobject]@{
+    Format = "Folder ZIP"
+    Path = $folderZip
+    Files = $folderFiles.Count
+    UnpackedMB = [math]::Round(
+        (($folderFiles | Measure-Object Length -Sum).Sum / 1MB),
+        1)
+    PackageMB = [math]::Round((Get-Item -LiteralPath $folderZip).Length / 1MB, 1)
+    SHA256 = (Get-FileHash -LiteralPath $folderZip -Algorithm SHA256).Hash
+})
 
 Remove-Item -LiteralPath $stagingRoot -Recurse -Force
 $results | Format-Table -AutoSize

@@ -80,18 +80,14 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64
 配布物はx64自己完結版です。利用先にVisual Studio、.NET SDK、Windows App SDKを
 別途インストールする必要はありません。
 
-配布物は次の2種類です。
+配布物は次の通常ZIP版だけです。
 
-- `Windows_SC-0.6.2-beta.1-x64.zip`: 通常ZIP版。展開後、フォルダー内の
+- `Windows_SC-0.6.2-beta.1-x64.zip`: 展開後、フォルダー内の
   `Windows_SC.exe`を実行する。起動が安定し、問題発生時に中身を確認しやすいため
-  基準となる配布形式。
-- `Windows_SC-0.6.2-beta.1-x64-single.exe`: 単一EXE版。ファイルは1個だが、
-  初回起動時に内部ファイルを一時領域へ展開するため、通常ZIP版より起動に時間が
-  かかる場合がある。
+  配布形式をこの形式へ限定しています。
 
-両方ともアプリ本体の機能は同じです。自動起動を有効にした後でファイルや
-フォルダーを移動すると登録先が古くなるため、移動後は設定から自動起動を
-設定し直してください。
+自動起動を有効にした後で展開フォルダーを移動すると登録先が古くなるため、
+移動後は設定から自動起動を設定し直してください。
 
 現在、タスクバー中央揃えでスマートフォン連携パネルを表示した場合と、
 一部の720p環境で、スタートメニューとランチャーの間隔が広くなることを
@@ -111,6 +107,7 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64
 
 - [現行設計](docs/DESIGN.md)
 - [次に行う作業と判断事項](docs/NEXT_STEPS_AND_DECISIONS.md)
+- [リファクタリング・ログ整理準備](docs/REFACTORING_AND_LOG_CLEANUP_PLAN.md)
 - [簡易テスト](docs/TEST_CHECKLIST.md)
 - [変更履歴](CHANGELOG.md)
 - [バージョン管理](docs/VERSIONING.md)

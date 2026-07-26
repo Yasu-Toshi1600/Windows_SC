@@ -15,6 +15,7 @@
 | 日常確認、知人向け配布前の必須テスト | [簡易テストチェックリスト](TEST_CHECKLIST.md) |
 | 正式公開前、基盤変更、不具合調査の網羅試験 | [Phase 5～6 詳細テスト手順書](PHASE5_6_TEST_PROCEDURE.md) |
 | 直近の作業順と実装・配布前の判断事項 | [次に行う作業と判断が必要な内容](NEXT_STEPS_AND_DECISIONS.md) |
+| 正式版前のコード整理、ログ書式、実施順 | [リファクタリング・ログ整理準備](REFACTORING_AND_LOG_CLEANUP_PLAN.md) |
 | 配布形式、生成、確認方法 | [配布手順](DISTRIBUTION.md) |
 | `0.5.9-dev`までの修正・検証履歴 | [修正課題・ドキュメント整理表（2026-07-23）](archive/REMAINING_WORK_AND_DOCUMENTATION_AUDIT_2026-07-23.md) |
 | `0.6.0-dev`のUI調整履歴 | [v0.6 UI調整仕様（2026-07-24）](archive/UI_ADJUSTMENT_V0.6_2026-07-24.md) |
@@ -315,8 +316,8 @@ UI Automation要素名は取得・記録しない。詳細ログにはコマン�
 - バージョンの正: リポジトリ直下の`Version.props`
 
 配布物はVisual Studio、.NET SDK、Windows App SDKがない対応PCで起動できる
-x64自己完結版とする。通常ZIP版と単一EXE版を同じソースから作成し、通常ZIP版を
-基準形式とする。単一EXE版は初回起動時に内部ファイルを一時領域へ展開する。
+x64自己完結の通常ZIP版だけを作成・配布する。展開後はフォルダー内の
+`Windows_SC.exe`を実行し、同梱DLL等を同じ場所に維持する。
 同じバージョン番号で内容の異なる配布物を作らず、再配布時は最低でも
 パッチ番号を更新する。
 
