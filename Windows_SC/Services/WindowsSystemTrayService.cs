@@ -154,7 +154,7 @@ internal sealed class WindowsSystemTrayService(DiagnosticLogger logger) : ISyste
         ShellNotifyIcon(NimDelete, ref iconData);
         _isIconAdded = false;
         _usesVersion4 = false;
-        logger.Write("[SystemTray] action=remove");
+        logger.Write("[SystemTray] action=remove result=success");
     }
 
     private NotifyIconData CreateIconData() => new()
@@ -220,15 +220,16 @@ internal sealed class WindowsSystemTrayService(DiagnosticLogger logger) : ISyste
             switch (command)
             {
                 case CommandShowLauncher:
-                    logger.Write("[SystemTray] action=show-launcher source=menu");
+                    logger.Write(
+                        "[SystemTray] action=show-launcher result=success source=menu");
                     ShowLauncherRequested?.Invoke(this, EventArgs.Empty);
                     break;
                 case CommandSettings:
-                    logger.Write("[SystemTray] action=open-settings");
+                    logger.Write("[SystemTray] action=open-settings result=success");
                     SettingsRequested?.Invoke(this, EventArgs.Empty);
                     break;
                 case CommandExit:
-                    logger.Write("[SystemTray] action=exit");
+                    logger.Write("[SystemTray] action=exit result=success");
                     ExitRequested?.Invoke(this, EventArgs.Empty);
                     break;
             }
@@ -236,7 +237,8 @@ internal sealed class WindowsSystemTrayService(DiagnosticLogger logger) : ISyste
         catch (Win32Exception exception)
         {
             logger.Write(
-                $"[SystemTray] action=open-menu result=failed exception={exception.NativeErrorCode}");
+                $"[SystemTray] action=open-menu result=failed " +
+                $"exception={exception.GetType().Name} win32-error={exception.NativeErrorCode}");
         }
         finally
         {

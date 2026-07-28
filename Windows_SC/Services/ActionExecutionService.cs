@@ -23,9 +23,10 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
             string processId = process is null ? "unavailable" : process.Id.ToString();
             process?.Dispose();
             logger.Write(
-                $"[Action] result=success kind={action.Kind} pid={processId} tracked=false");
+                $"[Action] action=execute result=success kind={action.Kind} " +
+                $"pid={processId} tracked=false");
             logger.WriteDetailed(
-                $"[ActionDetail] result=success kind={action.Kind} " +
+                $"[Action] action=execute result=success kind={action.Kind} " +
                 $"target=\"{LogValue.Normalize(action.Target)}\"");
             return Task.FromResult(ActionExecutionResult.Success);
         }
@@ -36,10 +37,10 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
             or NotSupportedException)
         {
             logger.Write(
-                $"[Action] result=failed kind={action.Kind} " +
-                $"exception={exception.GetType().Name}");
+                $"[Action] action=execute result=failed kind={action.Kind} " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
             logger.WriteDetailed(
-                $"[ActionDetail] result=failed kind={action.Kind} " +
+                $"[Action] action=execute result=failed kind={action.Kind} " +
                 $"target=\"{LogValue.Normalize(action.Target)}\" " +
                 $"message=\"{LogValue.Normalize(exception.Message)}\"");
             return Task.FromResult(ActionExecutionResult.Failure(

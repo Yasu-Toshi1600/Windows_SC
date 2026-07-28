@@ -76,7 +76,8 @@ public sealed partial class MainWindow : Window
         _appWindow = AppWindow.GetFromWindowId(windowId);
         _logger = logger;
         _logger.WriteDetailed(
-            $"[LauncherVisual] compiled-bindings=initialized items={LauncherItemsControl.Items.Count}");
+            $"[Launcher] action=initialize-bindings result=success " +
+            $"items={LauncherItemsControl.Items.Count}");
         _startMenuMonitor = startMenuMonitor;
         _inputService = inputService;
         _placementService = placementService;
@@ -134,11 +135,14 @@ public sealed partial class MainWindow : Window
         _startMenuMonitor.ReadyChanged += StartMenuMonitor_ReadyChanged;
         _startMenuMonitor.StartConfirmationExpired += StartMenuMonitor_StartConfirmationExpired;
         _startMenuMonitor.Start();
-        _logger.Write("[Application] ===== diagnostic session started =====");
+        _logger.Write("[Application] action=start result=success");
         _environmentInformationService.LogIfChanged("startup", force: true);
-        _logger.Write($"[Application] input-monitor=started log=\"{_logger.LogFilePath}\"");
+        _logger.Write("[InputMonitor] action=start result=success");
+        _logger.WriteDetailed(
+            $"[InputMonitor] action=start result=success log=\"{_logger.LogFilePath}\"");
         _logger.Write(
-            $"[Motion] engine=composition animations-enabled={_motionService.AnimationsEnabled} " +
+            $"[Motion] action=initialize result=success engine=composition " +
+            $"animations-enabled={_motionService.AnimationsEnabled} " +
             "card-animation=disabled hwnd-frame-move=disabled");
         _isInitialized = true;
     }
@@ -176,7 +180,8 @@ public sealed partial class MainWindow : Window
         _placementDpiPoint = placement.DpiPoint;
         _appWindow.MoveAndResize(_targetWindowRect);
         _logger.WriteDetailed(
-            $"[WindowPlacement] result=success position=({_targetWindowRect.X},{_targetWindowRect.Y}) " +
+            $"[WindowPlacement] action=position result=success " +
+            $"position=({_targetWindowRect.X},{_targetWindowRect.Y}) " +
             $"size={_targetWindowRect.Width}x{_targetWindowRect.Height} " +
             $"display-work-area=({placement.WorkArea.X},{placement.WorkArea.Y}," +
             $"{placement.WorkArea.Width},{placement.WorkArea.Height}) " +
@@ -230,7 +235,9 @@ public sealed partial class MainWindow : Window
             or LauncherMotionState.VisibleWithStart)
         {
             _startLinkedVisibilityRequested = false;
-            _logger.Write("[LaunchTiming] event=windows-key-close action=exit-immediate");
+            _logger.Write(
+                "[Launcher] action=exit-request result=success " +
+                "reason=windows-key-close mode=immediate");
             _startMenuMonitor.NotifyStartMenuClosing();
             RequestExit("windows-key-close");
             return;
@@ -252,7 +259,9 @@ public sealed partial class MainWindow : Window
         if (needsPlacement && !PositionWindow(startMenuSnapshot))
         {
             _motionCoordinator.CancelStartConfirmation("placement-failed");
-            _logger.Write($"[Launcher] action=show-cancelled reason={reason} placement-failed=true");
+            _logger.Write(
+                $"[Launcher] action=show result=cancelled reason={reason} " +
+                "placement-failed=true");
             return;
         }
 
@@ -298,7 +307,8 @@ public sealed partial class MainWindow : Window
         }
 
         _logger.Write(
-            $"[Launcher] action=show-request reason={reason} activate={activate} " +
+            $"[Launcher] action=show-request result=success reason={reason} " +
+            $"activate={activate} " +
             $"start-linked={startLinked} reverse={reversingExit} " +
             $"detect-to-request-ms={ElapsedMilliseconds(_startDetectedTimestamp):F1}");
 
@@ -320,7 +330,8 @@ public sealed partial class MainWindow : Window
             _lastPlacementStartSnapshot is { IsVisible: true });
         if (_motionService.StartExit(exitTranslation, reason))
         {
-            _logger.Write($"[Launcher] action=exit-request reason={reason}");
+            _logger.Write(
+                $"[Launcher] action=exit-request result=success reason={reason}");
             return;
         }
 
@@ -338,7 +349,7 @@ public sealed partial class MainWindow : Window
         _actionFocusTransferTimer.Stop();
         _lastPlacementStartSnapshot = null;
         _motionCoordinator.CompleteExit(reason);
-        _logger.Write($"[Launcher] action=hidden reason={reason}");
+        _logger.Write($"[Launcher] action=hide result=success reason={reason}");
         _startMenuMonitor.SetLauncherVisible(false);
 
         StartMenuSnapshot latestSnapshot = _startMenuMonitor.Snapshot;
@@ -358,7 +369,7 @@ public sealed partial class MainWindow : Window
         LauncherMotionCompletedEventArgs args)
     {
         _logger.Write(
-            $"[Motion] direction={args.Direction} completed=true " +
+            $"[Motion] action=complete result=success direction={args.Direction} " +
             $"elapsed-ms={args.Elapsed.TotalMilliseconds:F1} reason={args.Reason}");
 
         if (args.Direction == LauncherMotionDirection.Exit)
@@ -374,7 +385,8 @@ public sealed partial class MainWindow : Window
     private void LogEntranceCompleted(TimeSpan motionElapsed)
     {
         _logger.Write(
-            $"[LaunchTiming] key-to-start-ms={ElapsedBetweenMilliseconds(_windowsKeyReleasedTimestamp, _startDetectedTimestamp):F1} " +
+            $"[Launcher] action=entrance-complete result=success " +
+            $"key-to-start-ms={ElapsedBetweenMilliseconds(_windowsKeyReleasedTimestamp, _startDetectedTimestamp):F1} " +
             $"start-to-request-ms={ElapsedBetweenMilliseconds(_startDetectedTimestamp, _showRequestedTimestamp):F1} " +
             $"request-to-complete-ms={ElapsedMilliseconds(_showRequestedTimestamp):F1} " +
             $"motion-ms={motionElapsed.TotalMilliseconds:F1}");
@@ -383,7 +395,8 @@ public sealed partial class MainWindow : Window
     private void RootBorder_Loaded(object sender, RoutedEventArgs args)
     {
         _logger.WriteDetailed(
-            $"[LauncherVisual] event=loaded size={RootBorder.ActualWidth:F0}x{RootBorder.ActualHeight:F0} " +
+            $"[Launcher] action=load-visual result=success " +
+            $"size={RootBorder.ActualWidth:F0}x{RootBorder.ActualHeight:F0} " +
             $"shortcuts={ViewModel.Shortcuts.Count} request-to-loaded-ms={ElapsedMilliseconds(_showRequestedTimestamp):F1}");
     }
 
@@ -427,7 +440,9 @@ public sealed partial class MainWindow : Window
     private void Window_Activated(object sender, WindowActivatedEventArgs args)
     {
         _launcherIsActivated = args.WindowActivationState != WindowActivationState.Deactivated;
-        _logger.WriteDetailed($"[Launcher] activation-state={args.WindowActivationState}");
+        _logger.WriteDetailed(
+            $"[Launcher] action=activation-change result=success " +
+            $"state={args.WindowActivationState}");
 
         if (!_isVisible)
         {
@@ -448,7 +463,8 @@ public sealed partial class MainWindow : Window
             _preserveVisibilityWhileInactive = true;
             _actionFocusTransferTimer.Stop();
             _logger.WriteDetailed(
-                "[Launcher] deactivation=action-focus-transfer action=keep-visible");
+                "[Launcher] action=handle-deactivation result=success " +
+                "reason=action-focus-transfer behavior=keep-visible");
         }
         else if (_motionCoordinator.IsInteractive)
         {
@@ -476,7 +492,8 @@ public sealed partial class MainWindow : Window
             || _lastLoggedStartMenuVisibility != startMenuIsVisible)
         {
             _logger.WriteDetailed(
-                $"[VisibilityState] state={_motionCoordinator.State} launcher-focus={launcherHasFocus} " +
+                $"[Launcher] action=synchronize-visibility result=success " +
+                $"state={_motionCoordinator.State} launcher-focus={launcherHasFocus} " +
                 $"start-menu-visible={startMenuIsVisible}");
             _lastLoggedLauncherFocus = launcherHasFocus;
             _lastLoggedStartMenuVisibility = startMenuIsVisible;
@@ -509,7 +526,8 @@ public sealed partial class MainWindow : Window
 
             _startDetectedTimestamp = Stopwatch.GetTimestamp();
             _logger.Write(
-                $"[LaunchTiming] event=start-confirmed key-to-start-ms={ElapsedMilliseconds(_windowsKeyReleasedTimestamp):F1}");
+                $"[Launcher] action=confirm-start result=success " +
+                $"key-to-start-ms={ElapsedMilliseconds(_windowsKeyReleasedTimestamp):F1}");
             ShowWindow(
                 activate: false,
                 openedWithoutWindowsKey
@@ -551,7 +569,8 @@ public sealed partial class MainWindow : Window
         if (result.Status != VirtualDesktopMoveStatus.Moved)
         {
             _logger.Write(
-                $"[VirtualDesktop] action=move result={result.Status.ToString().ToLowerInvariant()} " +
+                $"[VirtualDesktop] action=move result=failed " +
+                $"state={result.Status.ToString().ToLowerInvariant()} " +
                 $"reason={reason} hresult=0x{result.HResult:X8}");
             return;
         }
@@ -578,13 +597,15 @@ public sealed partial class MainWindow : Window
         SynchronizeWithStartMenu();
 
     private void StartMenuMonitor_ReadyChanged(object? sender, EventArgs args) =>
-        _logger.Write($"[StartMenuMonitor] ready={_startMenuMonitor.IsReady}");
+        _logger.Write(
+            $"[StartMenu] action=monitor-ready result=success ready={_startMenuMonitor.IsReady}");
 
     private void StartMenuMonitor_StartConfirmationExpired(object? sender, EventArgs args)
     {
         _startLinkedVisibilityRequested = false;
         _motionCoordinator.CancelStartConfirmation("start-confirmation-timeout");
-        _logger.Write("[Launcher] start-confirmation=expired action=none");
+        _logger.Write(
+            "[Launcher] action=confirm-start result=cancelled reason=timeout");
     }
 
     private void AudioOutputService_StateChanged(object? sender, EventArgs args)
@@ -602,7 +623,9 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(() =>
         {
             _motionService.AnimationsEnabled = sender.AnimationsEnabled;
-            _logger.Write($"[Motion] animations-enabled={sender.AnimationsEnabled}");
+            _logger.Write(
+                $"[Motion] action=configure result=success " +
+                $"animations-enabled={sender.AnimationsEnabled}");
             if (!sender.AnimationsEnabled && _motionCoordinator.State == LauncherMotionState.Exiting)
             {
                 _motionService.SetHidden(GetEntranceTranslation(
@@ -627,8 +650,10 @@ public sealed partial class MainWindow : Window
 
         _logger.Write(
             args.PropertyName == nameof(MainWindowViewModel.AssumePhonePanelVisible)
-                ? $"[PhonePanelSetting] source=launcher value={(ViewModel.AssumePhonePanelVisible ? "on" : "off")}"
-                : $"[LayoutSetting] source=settings value={ViewModel.LayoutMode}");
+                ? $"[Settings] action=update-phone-panel result=success source=launcher " +
+                  $"value={(ViewModel.AssumePhonePanelVisible ? "on" : "off")}"
+                : $"[Settings] action=update-layout result=success source=settings " +
+                  $"value={ViewModel.LayoutMode}");
 
         if (_isVisible && !_motionService.IsRunning)
         {
@@ -654,7 +679,7 @@ public sealed partial class MainWindow : Window
                 _actionFocusTransferTimer.Stop();
                 _actionFocusTransferTimer.Start();
                 _logger.WriteDetailed(
-                    "[Launcher] action-focus-transfer=pending timeout-ms=1000");
+                    "[Launcher] action=wait-focus-transfer result=success timeout-ms=1000");
             }
             return;
         }
@@ -722,7 +747,8 @@ public sealed partial class MainWindow : Window
 
         _pendingActionFocusTransfer = false;
         _logger.WriteDetailed(
-            "[Launcher] action-focus-transfer=expired action=normal-light-dismiss");
+            "[Launcher] action=wait-focus-transfer result=cancelled " +
+            "reason=timeout fallback=normal-light-dismiss");
     }
 
     private void TryActivateLauncher()
@@ -739,7 +765,7 @@ public sealed partial class MainWindow : Window
             _launcherIsActivated = true;
             MarkLauncherInteractive("activation-confirmed");
             _logger.WriteDetailed(
-                $"[Launcher] activation-result=success reason={_activationReason} " +
+                $"[Launcher] action=activate result=success reason={_activationReason} " +
                 $"attempts={_activationAttemptCount}");
             return;
         }
@@ -752,7 +778,7 @@ public sealed partial class MainWindow : Window
             _launcherIsActivated = true;
             MarkLauncherInteractive("activation-retry");
             _logger.WriteDetailed(
-                $"[Launcher] activation-result=success reason={_activationReason} " +
+                $"[Launcher] action=activate result=success reason={_activationReason} " +
                 $"attempts={_activationAttemptCount}");
             return;
         }
@@ -760,7 +786,7 @@ public sealed partial class MainWindow : Window
         if (_activationAttemptCount >= MaximumActivationAttempts)
         {
             _logger.Write(
-                $"[Launcher] activation-result=failed reason={_activationReason} " +
+                $"[Launcher] action=activate result=failed reason={_activationReason} " +
                 $"attempts={_activationAttemptCount}");
             return;
         }
@@ -841,6 +867,7 @@ public sealed partial class MainWindow : Window
         _actionFocusTransferTimer.Tick -= ActionFocusTransferTimer_Tick;
         _windowInteropService.Dispose();
         _inputService.Dispose();
-        _logger.Write("[Application] input-monitor=stopped; window=closed");
+        _logger.Write("[InputMonitor] action=stop result=success");
+        _logger.Write("[Application] action=window-close result=success");
     }
 }

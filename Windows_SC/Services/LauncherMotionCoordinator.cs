@@ -91,6 +91,8 @@ internal sealed class LauncherMotionCoordinator(DiagnosticLogger logger)
 
         LauncherMotionState previous = State;
         State = next;
-        logger.Write($"[MotionState] from={previous} to={next} reason={reason}");
+        logger.Write(
+            $"[Motion] action=transition result=success " +
+            $"from={previous} to={next} reason={reason}");
     }
 }

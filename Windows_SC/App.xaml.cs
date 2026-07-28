@@ -39,7 +39,8 @@ public partial class App : Application
         _singleInstanceService = new SingleInstanceService();
         if (!_singleInstanceService.TryAcquire())
         {
-            logger.Write("[Application] startup=cancelled reason=another-instance-running");
+            logger.Write(
+                "[Application] action=start result=cancelled reason=another-instance-running");
             logger.Dispose();
             _logger = null;
             Exit();
@@ -50,7 +51,8 @@ public partial class App : Application
         if (!compatibility.IsSupported)
         {
             logger.Write(
-                $"[Compatibility] result=unsupported {compatibility.LogDetails}");
+                $"[Compatibility] action=check result=failed state=unsupported " +
+                compatibility.LogDetails);
             StartupCompatibilityChecker.ShowError(compatibility.UserMessage);
             _singleInstanceService.Dispose();
             _singleInstanceService = null;
@@ -60,7 +62,9 @@ public partial class App : Application
             return;
         }
 
-        logger.Write($"[Compatibility] result=supported {compatibility.LogDetails}");
+        logger.Write(
+            $"[Compatibility] action=check result=success state=supported " +
+            compatibility.LogDetails);
 
         _settingsRepository = new JsonSettingsRepository(logger);
         IActionExecutionService actionExecutionService = new ActionExecutionService(logger);
@@ -79,7 +83,7 @@ public partial class App : Application
         {
             logger.Write(
                 $"[Startup] action=synchronize result=failed " +
-                $"exception={exception.GetType().Name}");
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
         }
         _viewModel.SettingsRequested += ViewModel_SettingsRequested;
         _startMenuMonitor = new HybridStartMenuMonitor(
@@ -118,7 +122,7 @@ public partial class App : Application
         catch (Exception exception)
         {
             _logger?.Write(
-                $"[Application] shutdown-save=failed " +
+                $"[Application] action=shutdown-save result=failed " +
                 $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
             System.Diagnostics.Debug.WriteLine($"設定の終了保存に失敗しました: {exception}");
         }
@@ -237,7 +241,8 @@ public partial class App : Application
         }
 
         _isShuttingDown = true;
-        _logger?.Write($"[Application] shutdown=requested source={source}");
+        _logger?.Write(
+            $"[Application] action=shutdown-request result=success source={source}");
         _settingsWindow?.Close();
         _window?.Close();
     }
@@ -273,7 +278,7 @@ public partial class App : Application
                 exception?.Message ?? "例外情報を取得できませんでした。");
             DiagnosticLogger? logger = _logger;
             logger?.WriteCritical(
-                $"[UnhandledException] source={source} " +
+                $"[Application] action=unhandled-exception result=failed source={source} " +
                 $"terminating={isTerminating.ToString().ToLowerInvariant()} " +
                 $"exception={exceptionType} hresult={hresult} message=\"{message}\"");
         }
