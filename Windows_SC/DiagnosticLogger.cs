@@ -81,8 +81,9 @@ internal sealed class DiagnosticLogger : IDisposable
         Interlocked.Exchange(ref _detailedLoggingExpiresUtcTicks, ticks);
         Write(
             ticks == 0
-                ? "[Diagnostics] detailed-logging=disabled"
-                : $"[Diagnostics] detailed-logging=enabled expires-at={new DateTimeOffset(ticks, TimeSpan.Zero):O}");
+                ? "[Diagnostics] action=configure-detailed-logging result=success state=disabled"
+                : $"[Diagnostics] action=configure-detailed-logging result=success " +
+                  $"state=enabled expires-at={new DateTimeOffset(ticks, TimeSpan.Zero):O}");
     }
 
     public void Write(string message)

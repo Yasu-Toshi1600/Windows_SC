@@ -60,7 +60,10 @@ internal static class ApplicationDataPaths
         }
         catch (Exception exception) when (exception is InvalidOperationException or COMException)
         {
-            messages.Add("[DataMigration] package-storage=unavailable mode=unpackaged");
+            messages.Add(
+                $"[DataMigration] action=discover-package-storage result=skipped " +
+                $"reason=unavailable mode=unpackaged exception={exception.GetType().Name} " +
+                $"hresult=0x{exception.HResult:X8}");
         }
     }
 
@@ -84,12 +87,16 @@ internal static class ApplicationDataPaths
                     : CreateUniqueBackupPath("settings.legacy");
                 File.Move(source, destination);
                 messages.Add(
-                    $"[DataMigration] type=settings result=success source=\"{source}\" destination=\"{destination}\"");
+                    $"[DataMigration] action=migrate result=success type=settings " +
+                    $"source=\"{LogValue.Normalize(source)}\" " +
+                    $"destination=\"{LogValue.Normalize(destination)}\"");
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 messages.Add(
-                    $"[DataMigration] type=settings result=failed exception={exception.GetType().Name} source=\"{source}\"");
+                    $"[DataMigration] action=migrate result=failed type=settings " +
+                    $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                    $"source=\"{LogValue.Normalize(source)}\"");
             }
         }
     }
@@ -116,13 +123,17 @@ internal static class ApplicationDataPaths
                         Path.GetFileNameWithoutExtension(source));
                     File.Move(source, destination);
                     messages.Add(
-                        $"[DataMigration] type=settings-backup result=success source=\"{source}\" destination=\"{destination}\"");
+                        $"[DataMigration] action=migrate result=success type=settings-backup " +
+                        $"source=\"{LogValue.Normalize(source)}\" " +
+                        $"destination=\"{LogValue.Normalize(destination)}\"");
                 }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 messages.Add(
-                    $"[DataMigration] type=settings-backup result=failed exception={exception.GetType().Name} source=\"{root}\"");
+                    $"[DataMigration] action=migrate result=failed type=settings-backup " +
+                    $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                    $"source=\"{LogValue.Normalize(root)}\"");
             }
         }
     }
@@ -164,7 +175,9 @@ internal static class ApplicationDataPaths
                     }
 
                     messages.Add(
-                        $"[DataMigration] type=log result=success source=\"{source}\" destination=\"{destination}\"");
+                        $"[DataMigration] action=migrate result=success type=log " +
+                        $"source=\"{LogValue.Normalize(source)}\" " +
+                        $"destination=\"{LogValue.Normalize(destination)}\"");
                 }
 
                 TryDeleteEmptyDirectory(sourceDirectory);
@@ -172,7 +185,9 @@ internal static class ApplicationDataPaths
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 messages.Add(
-                    $"[DataMigration] type=log result=failed exception={exception.GetType().Name} source=\"{sourceDirectory}\"");
+                    $"[DataMigration] action=migrate result=failed type=log " +
+                    $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                    $"source=\"{LogValue.Normalize(sourceDirectory)}\"");
             }
         }
     }

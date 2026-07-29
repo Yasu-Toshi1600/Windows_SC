@@ -472,9 +472,6 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             await _settingsRepository.SaveAsync(settings);
             _detailedLoggingExpiresAt = newExpiration;
             _logger.ConfigureDetailedLogging(newExpiration);
-            _logger.Write(
-                $"[Diagnostics] action=configure-detailed-logging result=success " +
-                $"state={(newExpiration is null ? "disabled" : "enabled")}");
             _environmentInformationService.LogIfChanged("diagnostics-setting");
             OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
             SetTroubleshootingStatus(
