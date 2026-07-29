@@ -1005,70 +1005,12 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     private async System.Threading.Tasks.Task SaveAsync()
     {
-        LauncherItemEditorViewModel? unnamedItem = Items.FirstOrDefault(item =>
-            string.IsNullOrWhiteSpace(item.Title));
-        if (unnamedItem is not null)
+        SettingsSaveValidationResult validationResult =
+            SettingsSaveValidator.Validate(Items);
+        if (!validationResult.IsValid)
         {
-            SelectedItem = unnamedItem;
-            SetStatus("表示名を入力してください。", InfoBarSeverity.Warning);
+            ApplySaveValidationFailure(validationResult);
             return;
-        }
-
-        LauncherItemEditorViewModel? incompleteButton = Items.FirstOrDefault(item =>
-            item.IsButton && string.IsNullOrWhiteSpace(item.Target));
-        if (incompleteButton is not null)
-        {
-            SelectedItem = incompleteButton;
-            SetStatus(
-                "ボタンの起動対象またはコマンドを入力してください。",
-                InfoBarSeverity.Warning);
-            return;
-        }
-
-        LauncherItemEditorViewModel? incompleteAudioItem = Items.FirstOrDefault(item =>
-            item.IsToggle
-            && item.CycleKind == CycleActionKind.AudioOutput
-            && item.RegisteredAudioDevices
-                .Select(device => device.Id)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count() < 2);
-        if (incompleteAudioItem is not null)
-        {
-            SelectedItem = incompleteAudioItem;
-            SetStatus(
-                "音声切り替えにはデバイスを2台以上登録してください。",
-                InfoBarSeverity.Warning);
-            return;
-        }
-
-        LauncherItemEditorViewModel? incompleteCommandItem = Items.FirstOrDefault(item =>
-            item.IsToggle
-            && item.CycleKind == CycleActionKind.Commands
-            && item.CommandSteps.Count < 2);
-        if (incompleteCommandItem is not null)
-        {
-            SelectedItem = incompleteCommandItem;
-            SetStatus(
-                "コマンド切り替えには操作を2つ以上登録してください。",
-                InfoBarSeverity.Warning);
-            return;
-        }
-
-        foreach (LauncherItemEditorViewModel item in Items.Where(item =>
-                     item.IsToggle && item.CycleKind == CycleActionKind.Commands))
-        {
-            CommandCycleStepEditorViewModel? incompleteStep = item.CommandSteps.FirstOrDefault(step =>
-                string.IsNullOrWhiteSpace(step.DisplayName)
-                || string.IsNullOrWhiteSpace(step.Target));
-            if (incompleteStep is not null)
-            {
-                SelectedItem = item;
-                SelectedCommandStep = incompleteStep;
-                SetStatus(
-                    "各操作の表示名と実行対象を入力してください。",
-                    InfoBarSeverity.Warning);
-                return;
-            }
         }
 
         _isSaving = true;
@@ -1078,22 +1020,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         LauncherSettings previousSettings = _mainWindowViewModel.ExportSettings();
         try
         {
-            LauncherSettings settings = new()
-            {
-                AssumePhonePanelVisible = AssumePhonePanelVisible,
-                StartWithWindows = StartWithWindows,
-                DetailedLoggingExpiresAtUtc = previousSettings.DetailedLoggingExpiresAtUtc,
-                LayoutMode = SelectedLayoutMode?.Value ?? LauncherLayoutMode.Standard,
-                Pages =
-                [
-                    new LauncherPageDefinition
-                    {
-                        Id = _pageId,
-                        Name = "メイン",
-                        Items = Items.Select(item => item.ToDefinition()).ToList()
-                    }
-                ]
-            };
+            LauncherSettings settings = CreateSettingsForSave(previousSettings);
             await _settingsRepository.SaveAsync(settings);
 
             try
@@ -1142,6 +1069,54 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             _isSaving = false;
             SaveCommand.NotifyCanExecuteChanged();
         }
+    }
+
+    private void ApplySaveValidationFailure(SettingsSaveValidationResult validationResult)
+    {
+        if (validationResult.ItemId is { } itemId)
+        {
+            LauncherItemEditorViewModel? item = Items.FirstOrDefault(
+                candidate => candidate.Id == itemId);
+            if (item is not null)
+            {
+                SelectedItem = item;
+                if (validationResult.CommandStepId is { } commandStepId)
+                {
+                    SelectedCommandStep = item.CommandSteps.FirstOrDefault(
+                        step => step.Id == commandStepId);
+                }
+            }
+        }
+
+        SetStatus(validationResult.Message, InfoBarSeverity.Warning);
+    }
+
+    private LauncherSettings CreateSettingsForSave(LauncherSettings previousSettings)
+    {
+        LauncherSettings settings = new()
+        {
+            AssumePhonePanelVisible = AssumePhonePanelVisible,
+            StartWithWindows = StartWithWindows,
+            DetailedLoggingExpiresAtUtc = previousSettings.DetailedLoggingExpiresAtUtc,
+            LayoutMode = SelectedLayoutMode?.Value ?? LauncherLayoutMode.Standard,
+            Pages =
+            [
+                new LauncherPageDefinition
+                {
+                    Id = _pageId,
+                    Name = "メイン",
+                    Items = Items.Select(item => item.ToDefinition()).ToList()
+                }
+            ]
+        };
+
+        IReadOnlyList<string> errors = LauncherSettingsValidator.Validate(settings);
+        if (errors.Count > 0)
+        {
+            throw new InvalidDataException(string.Join(" ", errors));
+        }
+
+        return settings;
     }
 
     private bool TryRestoreStartupSetting(bool enabled)
