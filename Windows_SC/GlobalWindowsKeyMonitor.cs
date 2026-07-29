@@ -109,8 +109,10 @@ internal sealed class GlobalWindowsKeyMonitor : IDisposable
                 || IsKeyCurrentlyDown(VkControl)
                 || IsKeyCurrentlyDown(VkMenu);
             _diagnosticLog(_chordDetected
-                ? "[WindowsKey] key-down; preexisting-modifier=true"
-                : "[WindowsKey] key-down; preexisting-modifier=false");
+                ? "[InputMonitor] action=windows-key-down result=success " +
+                  "preexisting-modifier=true"
+                : "[InputMonitor] action=windows-key-down result=success " +
+                  "preexisting-modifier=false");
         }
     }
 
@@ -135,12 +137,16 @@ internal sealed class GlobalWindowsKeyMonitor : IDisposable
 
         if (releasedAlone)
         {
-            _diagnosticLog("[WindowsKey] key-up; classification=standalone");
+            _diagnosticLog(
+                "[InputMonitor] action=classify-windows-key result=success " +
+                "classification=standalone");
             _windowsKeyReleasedAlone();
         }
         else
         {
-            _diagnosticLog("[WindowsKey] key-up; classification=shortcut; launcher-trigger=skipped");
+            _diagnosticLog(
+                "[InputMonitor] action=classify-windows-key result=skipped " +
+                "reason=shortcut launcher-trigger=skipped");
         }
     }
 

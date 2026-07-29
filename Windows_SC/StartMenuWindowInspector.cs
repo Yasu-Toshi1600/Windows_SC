@@ -64,13 +64,15 @@ internal sealed class StartMenuWindowInspector
             return true;
         }, IntPtr.Zero);
 
-        _logger.WriteDetailed($"[StartPanelScan] candidates={snapshots.Count}");
+        _logger.WriteDetailed(
+            $"[StartMenu] action=scan result=success candidates={snapshots.Count}");
 
         foreach (WindowSnapshot snapshot in snapshots)
         {
             NativeRectangle rectangle = snapshot.Rectangle;
             _logger.WriteDetailed(
-                $"[StartPanelCandidate] process={snapshot.ProcessName} " +
+                $"[StartMenu] action=inspect-candidate result=success " +
+                $"process={snapshot.ProcessName} " +
                 $"hwnd=0x{snapshot.WindowHandle.ToInt64():X} class=\"{snapshot.ClassName}\" " +
                 $"title=\"{snapshot.Title}\" rect=({rectangle.Left},{rectangle.Top})-({rectangle.Right},{rectangle.Bottom}) " +
                 $"size={rectangle.Right - rectangle.Left}x{rectangle.Bottom - rectangle.Top}");
@@ -78,7 +80,9 @@ internal sealed class StartMenuWindowInspector
 
         if (snapshots.Count == 0)
         {
-            _logger.WriteDetailed("[StartPanelScan] スタートメニュー／スマートフォン連携パネル候補を取得できませんでした。");
+            _logger.WriteDetailed(
+                "[StartMenu] action=scan result=skipped " +
+                "reason=no-candidates candidates=0");
         }
     }
 
@@ -140,14 +144,16 @@ internal sealed class StartMenuWindowInspector
             {
                 bounds = matchingCandidate.Bounds;
                 _logger.WriteDetailed(
-                    $"[StartPanelSelection] source=start-button-monitor " +
+                    $"[StartMenu] action=select-candidate result=success " +
+                    $"source=start-button-monitor " +
                     $"candidates={candidates.Count} bounds=({bounds.X},{bounds.Y}," +
                     $"{bounds.Width},{bounds.Height})");
                 return true;
             }
 
             _logger.Write(
-                $"[StartPanelSelection] result=none reason=owner-monitor-mismatch " +
+                $"[StartMenu] action=select-candidate result=skipped " +
+                $"reason=owner-monitor-mismatch " +
                 $"candidates={candidates.Count}");
             bounds = default;
             return false;
@@ -187,7 +193,8 @@ internal sealed class StartMenuWindowInspector
             {
                 _lastRejectedBoundsSignature = signature;
                 _logger.WriteDetailed(
-                    $"[StartPanelCandidate] rejected=monitor-sized " +
+                    $"[StartMenu] action=validate-candidate result=skipped " +
+                    $"reason=monitor-sized " +
                     $"rect=({rectangle.Left},{rectangle.Top},{width},{height})");
             }
 

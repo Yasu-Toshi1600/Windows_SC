@@ -56,7 +56,8 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
         _isStarted = true;
         _uiAutomationInspector.Start();
         UpdateFallbackMonitoring();
-        _logger.Write("[StartMenuMonitor] mode=hybrid-event-driven state=started");
+        _logger.Write(
+            "[StartMenu] action=start-monitor result=success mode=hybrid-event-driven");
     }
 
     public void NotifyWindowsKeyReleased()
@@ -66,7 +67,9 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
             return;
         }
 
-        _logger.Write("[WindowsKey] standalone trigger accepted; fallback-window-ms=1500");
+        _logger.Write(
+            "[StartMenu] action=begin-confirmation result=success " +
+            "source=windows-key fallback-window-ms=1500");
         _awaitingStartConfirmation = true;
         _fastMonitoringUntil = DateTimeOffset.UtcNow + FastMonitoringDuration;
         _uiAutomationInspector.SetMonitoringActive(true);
@@ -87,7 +90,8 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
         _fallbackTimer.Stop();
         _uiAutomationInspector.SetMonitoringActive(false);
         _uiAutomationInspector.AssumeHidden();
-        _logger.Write("[StartMenuMonitor] state=hidden source=windows-key-close");
+        _logger.Write(
+            "[StartMenu] action=assume-hidden result=success source=windows-key-close");
     }
 
     public void SetLauncherVisible(bool isVisible)
@@ -126,7 +130,7 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
         _uiAutomationInspector.SnapshotChanged -= UiAutomationInspector_SnapshotChanged;
         _uiAutomationInspector.ReadyChanged -= UiAutomationInspector_ReadyChanged;
         _uiAutomationInspector.Dispose();
-        _logger.Write("[StartMenuMonitor] state=stopped");
+        _logger.Write("[StartMenu] action=stop-monitor result=success");
     }
 
     private void FallbackTimer_Tick(DispatcherQueueTimer sender, object args)

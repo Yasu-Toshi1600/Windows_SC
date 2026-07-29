@@ -87,7 +87,8 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         _workerThread.Start();
         _focusEventThread.Start();
         RequestScan();
-        _logger.WriteDetailed("[UIAutomation] workers=started apartment=STA");
+        _logger.WriteDetailed(
+            "[UIAutomation] action=start-workers result=success apartment=sta");
     }
 
     public void RequestScan()
@@ -161,7 +162,8 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                 if (scanElapsed >= TimeSpan.FromMilliseconds(50))
                 {
                     _logger.Write(
-                        $"[UIAutomation] scan=slow elapsed-ms={scanElapsed.TotalMilliseconds:F1}");
+                        $"[UIAutomation] action=scan result=success slow=true " +
+                        $"elapsed-ms={scanElapsed.TotalMilliseconds:F1}");
                 }
             }
             catch (Exception exception) when (exception is ElementNotAvailableException
@@ -169,7 +171,9 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                 or System.Runtime.InteropServices.COMException)
             {
                 UpdateSnapshot(StartMenuSnapshot.Hidden);
-                _logger.Write($"[UIAutomation] scan=failed exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+                _logger.Write(
+                    $"[UIAutomation] action=scan result=failed " +
+                    $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
             }
         }
     }
@@ -204,7 +208,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                 Interlocked.Exchange(ref _isReady, 1);
                 ReadyChanged?.Invoke(this, EventArgs.Empty);
                 string registrationMessage =
-                    $"[UIAutomation] focus-event=registered elapsed-ms=" +
+                    $"[UIAutomation] action=register-focus-event result=success elapsed-ms=" +
                     $"{Stopwatch.GetElapsedTime(registrationStartedTimestamp).TotalMilliseconds:F1}";
                 if (attempt > 1)
                 {
@@ -223,7 +227,8 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                 TimeSpan retryDelay = FocusEventRetryDelays[
                     Math.Min(attempt - 1, FocusEventRetryDelays.Length - 1)];
                 string message =
-                    $"[UIAutomation] focus-event=registration-failed attempt={attempt} " +
+                    $"[UIAutomation] action=register-focus-event result=failed " +
+                    $"attempt={attempt} " +
                     $"retry-in-seconds={retryDelay.TotalSeconds:F0} " +
                     $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}";
                 if (attempt == 1)
@@ -252,12 +257,13 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                     try
                     {
                         Automation.RemoveAutomationFocusChangedEventHandler(_focusChangedHandler);
-                        _logger.WriteDetailed("[UIAutomation] focus-event=unregistered");
+                        _logger.WriteDetailed(
+                            "[UIAutomation] action=unregister-focus-event result=success");
                     }
                     catch (Exception exception)
                     {
                         _logger.WriteDetailed(
-                            $"[UIAutomation] focus-event=unregister-failed " +
+                            $"[UIAutomation] action=unregister-focus-event result=failed " +
                             $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
                     }
                 }
@@ -341,9 +347,10 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         {
             _lastFocusedElementSignature = focusedSignature;
             _logger.WriteDetailed(
-                $"[UIAutomationFocus] process={GetProcessName(focused.ProcessId)} pid={focused.ProcessId} " +
+                $"[UIAutomation] action=inspect-focus result=success " +
+                $"process={GetProcessName(focused.ProcessId)} pid={focused.ProcessId} " +
                 $"automation-id=\"{LogValue.Normalize(focused.AutomationId)}\" " +
-                $"control-type=\"{focused.ControlType?.ProgrammaticName}\" " +
+                $"control-type=\"{LogValue.Normalize(focused.ControlType?.ProgrammaticName ?? string.Empty)}\" " +
                 $"rect=({rectangle.Left:F0},{rectangle.Top:F0})-({rectangle.Right:F0},{rectangle.Bottom:F0})");
         }
 
@@ -512,13 +519,17 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
 
         _lastSnapshotSignature = signature;
-        _logger.Write($"[UIAutomation] start-menu-state={state} candidates={candidates.Count}");
+        _logger.Write(
+            $"[UIAutomation] action=update-start-menu-state result=success " +
+            $"state={state} candidates={candidates.Count}");
 
         foreach (AutomationCandidate candidate in candidates)
         {
             _logger.WriteDetailed(
-                $"[UIAutomationCandidate] automation-id=\"{candidate.AutomationId}\" " +
-                $"control-type=\"{candidate.ControlType}\" hwnd=0x{candidate.NativeWindowHandle:X} " +
+                $"[UIAutomation] action=inspect-candidate result=success " +
+                $"automation-id=\"{LogValue.Normalize(candidate.AutomationId)}\" " +
+                $"control-type=\"{LogValue.Normalize(candidate.ControlType)}\" " +
+                $"hwnd=0x{candidate.NativeWindowHandle:X} " +
                 $"rect=({candidate.Rectangle.Left:F0},{candidate.Rectangle.Top:F0})-" +
                 $"({candidate.Rectangle.Right:F0},{candidate.Rectangle.Bottom:F0}) " +
                 $"size={candidate.Rectangle.Width:F0}x{candidate.Rectangle.Height:F0}");

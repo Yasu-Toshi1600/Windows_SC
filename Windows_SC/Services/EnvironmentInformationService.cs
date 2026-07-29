@@ -50,7 +50,7 @@ internal sealed class EnvironmentInformationService(DiagnosticLogger logger)
 
         string safeReason = LogValue.Normalize(reason);
         logger.Write(
-            $"[Environment] reason={safeReason} changed=true " +
+            $"[Environment] action=capture result=success reason={safeReason} changed=true " +
             $"app=\"{LogValue.Normalize(snapshot.ApplicationVersion)}\" " +
             $"os=\"{LogValue.Normalize(snapshot.WindowsVersion)}\" " +
             $"os-architecture={snapshot.OsArchitecture} " +
@@ -63,15 +63,17 @@ internal sealed class EnvironmentInformationService(DiagnosticLogger logger)
         if (snapshot.MonitorErrorType is not null)
         {
             logger.Write(
-                $"[EnvironmentMonitor] result=failed exception={snapshot.MonitorErrorType}");
+                $"[Environment] action=enumerate-monitors result=failed " +
+                $"exception={snapshot.MonitorErrorType}");
             return;
         }
 
         for (int index = 0; index < snapshot.Monitors.Count; index++)
         {
             MonitorSnapshot monitor = snapshot.Monitors[index];
-            logger.Write(
-                $"[EnvironmentMonitor] index={index + 1} primary={monitor.IsPrimary.ToString().ToLowerInvariant()} " +
+            logger.WriteDetailed(
+                $"[Environment] action=enumerate-monitors result=success " +
+                $"index={index + 1} primary={monitor.IsPrimary.ToString().ToLowerInvariant()} " +
                 $"resolution={monitor.Bounds.Width}x{monitor.Bounds.Height} " +
                 $"position=({monitor.Bounds.X},{monitor.Bounds.Y}) " +
                 $"work-area=({monitor.WorkArea.X},{monitor.WorkArea.Y}," +
