@@ -55,6 +55,10 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
         {
             _logger.Write(
                 $"[AudioOutput] action=enumerate result=failed exception={exception.GetType().Name} " +
+                $"hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[AudioOutput] action=enumerate result=failed exception={exception.GetType().Name} " +
+                $"hresult=0x{exception.HResult:X8} " +
                 $"message=\"{LogValue.Normalize(exception.Message)}\"");
             return [];
         }
@@ -84,7 +88,11 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
         catch (COMException exception)
         {
             _logger.Write(
-                $"[AudioOutput] action=get-default result=failed hresult=0x{exception.HResult:X8} " +
+                $"[AudioOutput] action=get-default result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[AudioOutput] action=get-default result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
                 $"message=\"{LogValue.Normalize(exception.Message)}\"");
             return null;
         }
@@ -120,6 +128,10 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
         {
             _logger.Write(
                 $"[AudioVolume] action=get result=failed exception={exception.GetType().Name} " +
+                $"hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[AudioVolume] action=get result=failed exception={exception.GetType().Name} " +
+                $"hresult=0x{exception.HResult:X8} " +
                 $"message=\"{LogValue.Normalize(exception.Message)}\"");
             return AudioMasterVolumeResult.Failure(
                 $"現在の音量を取得できませんでした。\n{exception.Message}");
@@ -167,6 +179,10 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
         {
             _logger.Write(
                 $"[AudioVolume] action=set result=failed exception={exception.GetType().Name} " +
+                $"hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[AudioVolume] action=set result=failed exception={exception.GetType().Name} " +
+                $"hresult=0x{exception.HResult:X8} " +
                 $"message=\"{LogValue.Normalize(exception.Message)}\"");
             return Task.FromResult(AudioMasterVolumeResult.Failure(
                 $"音量を変更できませんでした。\n{exception.Message}"));
@@ -188,6 +204,9 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
                 .ToList();
             if (orderedIds.Count < 2)
             {
+                _logger.Write(
+                    $"[AudioOutput] action=cycle result=failed " +
+                    $"reason=insufficient-devices devices={orderedIds.Count}");
                 return Task.FromResult(AudioDeviceCycleResult.Failure(
                     "音声出力デバイスを2台以上登録してください。"));
             }
@@ -209,6 +228,8 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
                 currentDeviceId);
             if (nextDevice is null)
             {
+                _logger.Write(
+                    "[AudioOutput] action=cycle result=failed reason=no-available-device");
                 return Task.FromResult(AudioDeviceCycleResult.Failure(
                     "切り替え可能な音声出力デバイスがありません。"));
             }
@@ -223,7 +244,7 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
             QueueRefresh();
             _logger.Write("[AudioOutput] action=cycle result=success");
             _logger.WriteDetailed(
-                $"[AudioOutputDetail] action=cycle result=success " +
+                $"[AudioOutput] action=cycle result=success " +
                 $"device-id=\"{LogValue.Normalize(nextDevice.Id)}\" " +
                 $"device-name=\"{LogValue.Normalize(nextDevice.DisplayName)}\"");
             return Task.FromResult(AudioDeviceCycleResult.Success(nextDevice));
@@ -234,6 +255,10 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
         {
             _logger.Write(
                 $"[AudioOutput] action=cycle result=failed exception={exception.GetType().Name} " +
+                $"hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[AudioOutput] action=cycle result=failed exception={exception.GetType().Name} " +
+                $"hresult=0x{exception.HResult:X8} " +
                 $"message=\"{LogValue.Normalize(exception.Message)}\"");
             return Task.FromResult(AudioDeviceCycleResult.Failure(
                 $"音声出力デバイスを切り替えられませんでした。\n{exception.Message}"));

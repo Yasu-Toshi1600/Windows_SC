@@ -35,7 +35,10 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
         {
             LauncherSettings defaults = LauncherSettings.CreateDefault();
             await SaveAsync(defaults, cancellationToken).ConfigureAwait(false);
-            _logger.Write($"[Settings] action=create-default path=\"{_settingsFilePath}\"");
+            _logger.Write("[Settings] action=create-default result=success");
+            _logger.WriteDetailed(
+                $"[Settings] action=create-default result=success " +
+                $"path=\"{LogValue.Normalize(_settingsFilePath)}\"");
             return defaults;
         }
 
@@ -59,8 +62,12 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
             or NotSupportedException)
         {
             _logger.Write(
-                $"[Settings] action=load result=invalid exception={exception.GetType().Name} " +
-                $"message=\"{exception.Message}\"");
+                $"[Settings] action=load result=failed reason=invalid-settings " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[Settings] action=load result=failed reason=invalid-settings " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                $"message=\"{LogValue.Normalize(exception.Message)}\"");
             BackupInvalidSettings();
             LauncherSettings defaults = LauncherSettings.CreateDefault();
             await SaveAsync(defaults, cancellationToken).ConfigureAwait(false);
@@ -149,6 +156,9 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
             backupDirectory,
             $"settings.corrupt-{DateTimeOffset.Now:yyyyMMdd-HHmmss}.json");
         File.Move(_settingsFilePath, backupPath, overwrite: true);
-        _logger.Write($"[Settings] action=backup-invalid path=\"{backupPath}\"");
+        _logger.Write("[Settings] action=backup-invalid result=success");
+        _logger.WriteDetailed(
+            $"[Settings] action=backup-invalid result=success " +
+            $"path=\"{LogValue.Normalize(backupPath)}\"");
     }
 }

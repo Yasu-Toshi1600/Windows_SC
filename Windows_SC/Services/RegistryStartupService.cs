@@ -37,7 +37,10 @@ internal sealed class RegistryStartupService(DiagnosticLogger logger) : IStartup
                 throw new InvalidOperationException("自動起動設定を登録後に確認できませんでした。");
             }
 
-            logger.Write($"[Startup] action=enable result=success command=\"{command}\"");
+            logger.Write("[Startup] action=enable result=success");
+            logger.WriteDetailed(
+                $"[Startup] action=enable result=success " +
+                $"command=\"{LogValue.Normalize(command)}\"");
         }
         else
         {
