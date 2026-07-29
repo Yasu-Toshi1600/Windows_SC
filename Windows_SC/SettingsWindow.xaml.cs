@@ -138,7 +138,7 @@ public sealed partial class SettingsWindow : Window
             or IOException
             or COMException)
         {
-            _viewModel.ReportTargetSelectionFailed(exception.Message);
+            _viewModel.ReportTargetSelectionFailed("file", exception);
         }
     }
 
@@ -171,7 +171,7 @@ public sealed partial class SettingsWindow : Window
             or IOException
             or COMException)
         {
-            _viewModel.ReportTargetSelectionFailed(exception.Message);
+            _viewModel.ReportTargetSelectionFailed("folder", exception);
         }
     }
 

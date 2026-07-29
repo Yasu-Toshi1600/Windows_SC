@@ -27,7 +27,9 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
                 $"pid={processId} tracked=false");
             logger.WriteDetailed(
                 $"[Action] action=execute result=success kind={action.Kind} " +
-                $"target=\"{LogValue.Normalize(action.Target)}\"");
+                $"target=\"{LogValue.Normalize(action.Target)}\" " +
+                $"arguments=\"{LogValue.Normalize(action.Arguments)}\" " +
+                $"working-directory=\"{LogValue.Normalize(action.WorkingDirectory)}\"");
             return Task.FromResult(ActionExecutionResult.Success);
         }
         catch (Exception exception) when (exception is Win32Exception
@@ -42,6 +44,8 @@ internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionE
             logger.WriteDetailed(
                 $"[Action] action=execute result=failed kind={action.Kind} " +
                 $"target=\"{LogValue.Normalize(action.Target)}\" " +
+                $"arguments=\"{LogValue.Normalize(action.Arguments)}\" " +
+                $"working-directory=\"{LogValue.Normalize(action.WorkingDirectory)}\" " +
                 $"message=\"{LogValue.Normalize(exception.Message)}\"");
             return Task.FromResult(ActionExecutionResult.Failure(
                 $"「{action.Target}」を起動できませんでした。\n{exception.Message}"));

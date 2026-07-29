@@ -413,6 +413,11 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 FileName = folderPath,
                 UseShellExecute = true
             });
+            _logger.Write(
+                "[Diagnostics] action=open-data-folder result=success");
+            _logger.WriteDetailed(
+                $"[Diagnostics] action=open-data-folder result=success " +
+                $"path=\"{LogValue.Normalize(folderPath)}\"");
             SetTroubleshootingStatus(
                 $"{displayName}を開きました。",
                 InfoBarSeverity.Informational);
@@ -422,6 +427,14 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             or IOException
             or UnauthorizedAccessException)
         {
+            _logger.Write(
+                $"[Diagnostics] action=open-data-folder result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[Diagnostics] action=open-data-folder result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                $"path=\"{LogValue.Normalize(folderPath)}\" " +
+                $"message=\"{LogValue.Normalize(exception.Message)}\"");
             SetTroubleshootingStatus(
                 $"{displayName}を開けませんでした: {exception.Message}",
                 InfoBarSeverity.Error);
@@ -459,6 +472,9 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             await _settingsRepository.SaveAsync(settings);
             _detailedLoggingExpiresAt = newExpiration;
             _logger.ConfigureDetailedLogging(newExpiration);
+            _logger.Write(
+                $"[Diagnostics] action=configure-detailed-logging result=success " +
+                $"state={(newExpiration is null ? "disabled" : "enabled")}");
             _environmentInformationService.LogIfChanged("diagnostics-setting");
             OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
             SetTroubleshootingStatus(
@@ -470,6 +486,13 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         catch (Exception exception)
         {
             settings.DetailedLoggingExpiresAtUtc = previousExpiration;
+            _logger.Write(
+                $"[Diagnostics] action=configure-detailed-logging result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[Diagnostics] action=configure-detailed-logging result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                $"message=\"{LogValue.Normalize(exception.Message)}\"");
             SetTroubleshootingStatus(
                 $"詳細診断ログの設定を保存できませんでした: {exception.Message}",
                 InfoBarSeverity.Error);
@@ -491,8 +514,19 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             "環境情報をコピーしました。",
             InfoBarSeverity.Informational);
 
-    internal void ReportTargetSelectionFailed(string message) =>
-        SetStatus($"起動対象を選択できませんでした: {message}", InfoBarSeverity.Error);
+    internal void ReportTargetSelectionFailed(string targetType, Exception exception)
+    {
+        _logger.Write(
+            $"[Settings] action=select-target result=failed type={targetType} " +
+            $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+        _logger.WriteDetailed(
+            $"[Settings] action=select-target result=failed type={targetType} " +
+            $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+            $"message=\"{LogValue.Normalize(exception.Message)}\"");
+        SetStatus(
+            $"起動対象を選択できませんでした: {exception.Message}",
+            InfoBarSeverity.Error);
+    }
 
     public void Dispose()
     {
@@ -645,12 +679,20 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         try
         {
             _logger.ClearLogs();
+            _logger.Write("[Diagnostics] action=clear-logs result=success");
             _environmentInformationService.LogIfChanged("logs-cleared", force: true);
             SetTroubleshootingStatus("ログを削除しました。", InfoBarSeverity.Success);
         }
         catch (Exception exception) when (exception is System.IO.IOException
             or UnauthorizedAccessException)
         {
+            _logger.Write(
+                $"[Diagnostics] action=clear-logs result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[Diagnostics] action=clear-logs result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                $"message=\"{LogValue.Normalize(exception.Message)}\"");
             SetTroubleshootingStatus(
                 $"ログを削除できませんでした: {exception.Message}",
                 InfoBarSeverity.Error);
@@ -861,7 +903,11 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 InfoBarSeverity.Error);
             _logger.Write(
                 $"[AudioOutput] action=manual-refresh result=failed " +
-                $"exception={exception.GetType().Name}");
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[AudioOutput] action=manual-refresh result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                $"message=\"{LogValue.Normalize(exception.Message)}\"");
         }
         finally
         {
@@ -1066,6 +1112,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 _logger.Write(
                     $"[Settings] action=apply-startup result=failed " +
                     $"exception={startupException.GetType().Name} " +
+                    $"hresult=0x{startupException.HResult:X8} " +
                     $"settings-rollback={settingsRollbackSucceeded.ToString().ToLowerInvariant()} " +
                     $"startup-rollback={startupRollbackSucceeded.ToString().ToLowerInvariant()} " +
                     $"actual-startup={actualStartupState}");
@@ -1084,6 +1131,13 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         }
         catch (Exception exception)
         {
+            _logger.Write(
+                $"[Settings] action=save result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            _logger.WriteDetailed(
+                $"[Settings] action=save result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                $"message=\"{LogValue.Normalize(exception.Message)}\"");
             SetStatus($"保存できませんでした: {exception.Message}", InfoBarSeverity.Error);
         }
         finally
@@ -1104,7 +1158,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         {
             _logger.Write(
                 $"[Settings] action=rollback-startup result=failed " +
-                $"exception={exception.GetType().Name}");
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
             return false;
         }
     }
@@ -1121,7 +1175,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         {
             _logger.Write(
                 $"[Settings] action=rollback-file result=failed " +
-                $"exception={exception.GetType().Name}");
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
             return false;
         }
     }
@@ -1136,7 +1190,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         {
             _logger.Write(
                 $"[Settings] action=read-startup result=failed " +
-                $"exception={exception.GetType().Name}");
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
             return "確認できません";
         }
     }

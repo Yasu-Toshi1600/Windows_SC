@@ -65,7 +65,11 @@ internal sealed class LauncherPlacementService(DiagnosticLogger logger) : ILaunc
             {
                 int minimumWidth = ConvertEffectivePixelsToPhysical(280, startCenter);
                 logger.Write(
-                    $"[WindowPlacement] result=failed reason=insufficient-right-space " +
+                    $"[WindowPlacement] action=calculate result=failed " +
+                    $"reason=insufficient-right-space required-width={minimumWidth}");
+                logger.WriteDetailed(
+                    $"[WindowPlacement] action=calculate result=failed " +
+                    $"reason=insufficient-right-space " +
                     $"start=({startBounds.X},{startBounds.Y},{startBounds.Width},{startBounds.Height}) " +
                     $"work-area=({workArea.X},{workArea.Y},{workArea.Width},{workArea.Height}) " +
                     $"required-width={minimumWidth}");
