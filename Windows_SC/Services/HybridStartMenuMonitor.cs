@@ -8,6 +8,7 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
     private static readonly TimeSpan FastMonitoringDuration = TimeSpan.FromMilliseconds(1500);
     private static readonly TimeSpan FastMonitoringInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan VisibleFallbackInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan IdleFallbackInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan InitializationFallbackInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly DispatcherQueue _dispatcherQueue;
@@ -135,7 +136,7 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
 
     private void FallbackTimer_Tick(DispatcherQueueTimer sender, object args)
     {
-        if (!IsReady && !_awaitingStartConfirmation && !_launcherIsVisible)
+        if (!_awaitingStartConfirmation && !_launcherIsVisible)
         {
             _uiAutomationInspector.RequestScanIfStartMenuWindowVisible();
         }
@@ -175,13 +176,17 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
             return;
         }
 
-        _fallbackTimer.Stop();
         _uiAutomationInspector.SetMonitoringActive(false);
         if (_awaitingStartConfirmation && !Snapshot.IsVisible)
         {
             _awaitingStartConfirmation = false;
             StartConfirmationExpired?.Invoke(this, EventArgs.Empty);
         }
+
+        // UI Automation focus notifications can stop without reporting an
+        // error after long-running Explorer sessions. Keep a cheap Win32
+        // visibility check active so Start-button clicks still trigger a scan.
+        SetFallbackInterval(IdleFallbackInterval);
     }
 
     private void SetFallbackInterval(TimeSpan interval)

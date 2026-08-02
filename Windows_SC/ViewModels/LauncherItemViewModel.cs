@@ -196,23 +196,29 @@ internal sealed class LauncherItemViewModel : ObservableObject
             return;
         }
 
-        AudioOutputDevice? currentDevice = _audioOutputService.GetCachedDefaultDevice();
-        CycleStatusText = currentDevice?.DisplayName ?? "現在の出力を取得できません";
-
         IReadOnlyList<string> registeredIds = (_cycleAction?.AudioDeviceIds ?? [])
             .Select(AudioDeviceId.Normalize)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        HashSet<string> availableIds = _audioOutputService.GetCachedDevices()
+        IReadOnlyDictionary<string, AudioOutputDevice> availableDevices = _audioOutputService
+            .GetCachedDevices()
             .Where(device => device.IsAvailable)
-            .Select(device => device.Id)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        bool currentIsRegistered = currentDevice is not null
-            && registeredIds.Contains(currentDevice.Id, StringComparer.OrdinalIgnoreCase);
-        bool canCycle = registeredIds.Count >= 2
-            && registeredIds.Any(id => availableIds.Contains(id)
-                && (!currentIsRegistered
-                    || !string.Equals(id, currentDevice!.Id, StringComparison.OrdinalIgnoreCase)));
+            .GroupBy(device => device.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First(),
+                StringComparer.OrdinalIgnoreCase);
+        AudioOutputDevice? currentDevice = _audioOutputService.GetCachedDefaultDevice();
+        AudioOutputDevice? nextDevice = FindNextAudioOutputDevice(
+            registeredIds,
+            availableDevices,
+            currentDevice?.Id);
+        bool canCycle = registeredIds.Count >= 2 && nextDevice is not null;
+        CycleStatusText = canCycle
+            ? $"次: {nextDevice!.DisplayName}"
+            : registeredIds.Count < 2
+                ? "音声出力デバイスを2台以上登録してください"
+                : "切り替え可能な音声出力デバイスがありません";
 
         if (_canExecuteCycle != canCycle)
         {
@@ -282,7 +288,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
             _cycleAction?.AudioDeviceIds ?? []);
         if (result.IsSuccess && result.CurrentDevice is not null)
         {
-            CycleStatusText = result.CurrentDevice.DisplayName;
             Executed?.Invoke(
                 this,
                 new LauncherItemExecutedEventArgs(
@@ -336,6 +341,42 @@ internal sealed class LauncherItemViewModel : ObservableObject
             _canExecuteCycle = canExecute;
             ExecuteCycleCommand.NotifyCanExecuteChanged();
         }
+    }
+
+    private static AudioOutputDevice? FindNextAudioOutputDevice(
+        IReadOnlyList<string> orderedIds,
+        IReadOnlyDictionary<string, AudioOutputDevice> availableDevices,
+        string? currentDeviceId)
+    {
+        int currentIndex = currentDeviceId is null
+            ? -1
+            : orderedIds
+                .Select((id, index) => (id, index))
+                .Where(entry => string.Equals(
+                    entry.id,
+                    currentDeviceId,
+                    StringComparison.OrdinalIgnoreCase))
+                .Select(entry => entry.index)
+                .DefaultIfEmpty(-1)
+                .First();
+        int startIndex = currentIndex < 0 ? 0 : currentIndex + 1;
+
+        for (int offset = 0; offset < orderedIds.Count; offset++)
+        {
+            int index = (startIndex + offset) % orderedIds.Count;
+            if (availableDevices.TryGetValue(
+                    orderedIds[index],
+                    out AudioOutputDevice? device)
+                && !string.Equals(
+                    device.Id,
+                    currentDeviceId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return device;
+            }
+        }
+
+        return null;
     }
 
     private async System.Threading.Tasks.Task SetMasterVolumeAsync(double volumePercent)
