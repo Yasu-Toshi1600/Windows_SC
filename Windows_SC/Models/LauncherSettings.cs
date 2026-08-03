@@ -16,6 +16,8 @@ internal sealed class LauncherSettings
 
     public DateTimeOffset? DetailedLoggingExpiresAtUtc { get; set; }
 
+    public bool DetailedLoggingAlwaysEnabled { get; set; }
+
     public LauncherLayoutMode LayoutMode { get; set; } = LauncherLayoutMode.Standard;
 
     public List<LauncherPageDefinition> Pages { get; set; } = [];

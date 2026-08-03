@@ -23,6 +23,7 @@ internal sealed class DiagnosticLogger : IDisposable
     private readonly object _drainGate = new();
     private readonly object _fileGate = new();
     private long _detailedLoggingExpiresUtcTicks;
+    private int _detailedLoggingAlwaysEnabled;
     private int _isDisposed;
 
     public DiagnosticLogger()
@@ -60,7 +61,11 @@ internal sealed class DiagnosticLogger : IDisposable
     public string LogDirectoryPath => _logDirectoryPath;
 
     public bool IsDetailedLoggingEnabled =>
-        Volatile.Read(ref _detailedLoggingExpiresUtcTicks) > DateTime.UtcNow.Ticks;
+        IsDetailedLoggingAlwaysEnabled
+        || Volatile.Read(ref _detailedLoggingExpiresUtcTicks) > DateTime.UtcNow.Ticks;
+
+    public bool IsDetailedLoggingAlwaysEnabled =>
+        Volatile.Read(ref _detailedLoggingAlwaysEnabled) != 0;
 
     public DateTimeOffset? DetailedLoggingExpiresAt
     {
@@ -73,17 +78,24 @@ internal sealed class DiagnosticLogger : IDisposable
         }
     }
 
-    public void ConfigureDetailedLogging(DateTimeOffset? expiresAt)
+    public void ConfigureDetailedLogging(DateTimeOffset? expiresAt, bool alwaysEnabled = false)
     {
-        long ticks = expiresAt is { } expiration && expiration > DateTimeOffset.UtcNow
+        long ticks = !alwaysEnabled
+            && expiresAt is { } expiration
+            && expiration > DateTimeOffset.UtcNow
             ? expiration.UtcDateTime.Ticks
             : 0;
         Interlocked.Exchange(ref _detailedLoggingExpiresUtcTicks, ticks);
+        Interlocked.Exchange(ref _detailedLoggingAlwaysEnabled, alwaysEnabled ? 1 : 0);
         Write(
-            ticks == 0
+            alwaysEnabled
+                ? "[Diagnostics] action=configure-detailed-logging result=success " +
+                  "state=enabled mode=continuous"
+                : ticks == 0
                 ? "[Diagnostics] action=configure-detailed-logging result=success state=disabled"
                 : $"[Diagnostics] action=configure-detailed-logging result=success " +
-                  $"state=enabled expires-at={new DateTimeOffset(ticks, TimeSpan.Zero):O}");
+                  $"state=enabled mode=temporary " +
+                  $"expires-at={new DateTimeOffset(ticks, TimeSpan.Zero):O}");
     }
 
     public void Write(string message)

@@ -71,7 +71,9 @@ public partial class App : Application
         _audioOutputService = new WindowsAudioOutputService(logger);
         _viewModel = new MainWindowViewModel(actionExecutionService, _audioOutputService);
         LauncherSettings settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
-        logger.ConfigureDetailedLogging(settings.DetailedLoggingExpiresAtUtc);
+        logger.ConfigureDetailedLogging(
+            settings.DetailedLoggingExpiresAtUtc,
+            settings.DetailedLoggingAlwaysEnabled);
         _environmentInformationService = new EnvironmentInformationService(logger);
         _viewModel.ApplySettings(settings);
         _startupService = new RegistryStartupService(logger);

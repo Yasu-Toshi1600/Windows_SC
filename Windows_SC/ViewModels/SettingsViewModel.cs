@@ -41,6 +41,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private bool _suppressDirtyTracking = true;
     private bool _isSaving;
     private bool _isDetailedDiagnosticsEnabled;
+    private bool _isDetailedDiagnosticsAlwaysEnabled;
     private DateTimeOffset? _detailedLoggingExpiresAt;
     private bool _isApplyingDiagnosticsSetting;
     private bool _isRefreshingAudioDevices;
@@ -75,8 +76,11 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         _assumePhonePanelVisible = settings.AssumePhonePanelVisible;
         _startWithWindows = settings.StartWithWindows;
         _detailedLoggingExpiresAt = settings.DetailedLoggingExpiresAtUtc;
+        _isDetailedDiagnosticsAlwaysEnabled = settings.DetailedLoggingAlwaysEnabled;
         _isDetailedDiagnosticsEnabled =
-            _detailedLoggingExpiresAt is { } expiration && expiration > DateTimeOffset.UtcNow;
+            _isDetailedDiagnosticsAlwaysEnabled
+            || (_detailedLoggingExpiresAt is { } expiration
+                && expiration > DateTimeOffset.UtcNow);
         _selectedLayoutMode = LayoutModes.First(option => option.Value == settings.LayoutMode);
         LauncherPageDefinition page = settings.Pages.FirstOrDefault()
             ?? new LauncherPageDefinition { Name = "メイン" };
@@ -352,11 +356,43 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             }
 
             _detailedLoggingExpiresAt = null;
+            if (!value && _isDetailedDiagnosticsAlwaysEnabled)
+            {
+                _isDetailedDiagnosticsAlwaysEnabled = false;
+                OnPropertyChanged(nameof(IsDetailedDiagnosticsAlwaysEnabled));
+            }
+
             OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
             SetTroubleshootingStatus(
                 value
-                    ? "［適用］を押すと詳細診断ログが24時間有効になります。"
+                    ? "［適用］を押すと詳細診断ログが有効になります。"
                     : "［適用］を押すと詳細診断ログが無効になります。",
+                InfoBarSeverity.Informational);
+        }
+    }
+
+    public bool IsDetailedDiagnosticsAlwaysEnabled
+    {
+        get => _isDetailedDiagnosticsAlwaysEnabled;
+        set
+        {
+            if (!SetProperty(ref _isDetailedDiagnosticsAlwaysEnabled, value))
+            {
+                return;
+            }
+
+            if (value && !_isDetailedDiagnosticsEnabled)
+            {
+                _isDetailedDiagnosticsEnabled = true;
+                OnPropertyChanged(nameof(IsDetailedDiagnosticsEnabled));
+            }
+
+            _detailedLoggingExpiresAt = null;
+            OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
+            SetTroubleshootingStatus(
+                value
+                    ? "［適用］を押すと詳細診断ログが常時有効になります。"
+                    : "［適用］を押すと詳細診断ログが24時間有効になります。",
                 InfoBarSeverity.Informational);
         }
     }
@@ -368,6 +404,11 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             if (!IsDetailedDiagnosticsEnabled)
             {
                 return "現在は無効です。通常ログのみ記録します。";
+            }
+
+            if (IsDetailedDiagnosticsAlwaysEnabled)
+            {
+                return "常時有効です。手動で無効にするまで詳細ログを記録します。";
             }
 
             return _detailedLoggingExpiresAt is { } expiration
@@ -462,27 +503,35 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         _isApplyingDiagnosticsSetting = true;
         LauncherSettings settings = _mainWindowViewModel.ExportSettings();
         DateTimeOffset? previousExpiration = settings.DetailedLoggingExpiresAtUtc;
+        bool previousAlwaysEnabled = settings.DetailedLoggingAlwaysEnabled;
+        bool newAlwaysEnabled = IsDetailedDiagnosticsEnabled
+            && IsDetailedDiagnosticsAlwaysEnabled;
         DateTimeOffset? newExpiration = IsDetailedDiagnosticsEnabled
+            && !newAlwaysEnabled
             ? DateTimeOffset.UtcNow.AddHours(24)
             : null;
 
         try
         {
             settings.DetailedLoggingExpiresAtUtc = newExpiration;
+            settings.DetailedLoggingAlwaysEnabled = newAlwaysEnabled;
             await _settingsRepository.SaveAsync(settings);
             _detailedLoggingExpiresAt = newExpiration;
-            _logger.ConfigureDetailedLogging(newExpiration);
+            _logger.ConfigureDetailedLogging(newExpiration, newAlwaysEnabled);
             _environmentInformationService.LogIfChanged("diagnostics-setting");
             OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
             SetTroubleshootingStatus(
-                IsDetailedDiagnosticsEnabled
-                    ? "詳細診断ログを24時間有効にしました。"
-                    : "詳細診断ログを無効にしました。",
+                newAlwaysEnabled
+                    ? "詳細診断ログを常時有効にしました。"
+                    : IsDetailedDiagnosticsEnabled
+                        ? "詳細診断ログを24時間有効にしました。"
+                        : "詳細診断ログを無効にしました。",
                 InfoBarSeverity.Success);
         }
         catch (Exception exception)
         {
             settings.DetailedLoggingExpiresAtUtc = previousExpiration;
+            settings.DetailedLoggingAlwaysEnabled = previousAlwaysEnabled;
             _logger.Write(
                 $"[Diagnostics] action=configure-detailed-logging result=failed " +
                 $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
@@ -1098,6 +1147,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             AssumePhonePanelVisible = AssumePhonePanelVisible,
             StartWithWindows = StartWithWindows,
             DetailedLoggingExpiresAtUtc = previousSettings.DetailedLoggingExpiresAtUtc,
+            DetailedLoggingAlwaysEnabled = previousSettings.DetailedLoggingAlwaysEnabled,
             LayoutMode = SelectedLayoutMode?.Value ?? LauncherLayoutMode.Standard,
             Pages =
             [

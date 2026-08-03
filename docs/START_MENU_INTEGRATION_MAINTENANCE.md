@@ -266,6 +266,8 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 |---|---|---:|
 | `key-to-start-ms` | Windowsキー解放からスタート確認 | 通常10～100ms。コールド準備は分離する。 |
 | `start-to-request-ms` | スタート確認から表示要求 | 50ms以内。 |
+| `request-to-detect-ms` | UI Automationスキャン要求からスタート検出 | 検出元ごとに比較する。 |
+| `scan-ms` | スタート検出に成功したUI Automationスキャン | 50ms超が継続する場合は調査する。 |
 | `request-to-complete-ms` | 表示要求から進入完了 | 約250ms＋数ms。 |
 | Entrance `elapsed-ms` | Composition進入 | 約250ms。 |
 | Exit `elapsed-ms` | Composition退出 | 約125ms。 |
@@ -275,6 +277,7 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 
 - `WindowsKey standalone` の後に `start-confirmation=expired`: OSがスタートを開かなかったか検出漏れ。Win32候補とSearchHost PIDを確認する。
 - `scan=slow` が1秒前後で連続: 子孫ツリー走査の再導入、COM停止、対象プロセス応答停止を疑う。
+- `detect-start-menu source=idle-fallback`: フォーカス通知を利用できず、250msの可視ウィンドウ確認経由で検出した。クリック後の体感遅延と時刻を照合する。
 - `focus-event=registered elapsed-ms` が大きい: 外部UI Automationプロバイダーによる登録停止。スキャン用STAが独立しているため、Windowsキー起動は継続できなければならない。
 - `WindowPlacement result=failed` の `start` がモニター作業領域と一致: モニター全面サーフェス除外の回帰。
 - アクション成功直後に `Exiting → EnteringWithStart`: Snapshotリセットまたは反転ガードの回帰。

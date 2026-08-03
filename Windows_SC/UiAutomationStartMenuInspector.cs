@@ -10,6 +10,7 @@ namespace Windows_SC;
 
 internal sealed class UiAutomationStartMenuInspector : IDisposable
 {
+    private readonly object _scanRequestLock = new();
     private const double MinimumCandidateWidth = 200;
     private const double MinimumCandidateHeight = 100;
     private static readonly TimeSpan[] FocusEventRetryDelays =
@@ -35,6 +36,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     private int _monitoringActive;
     private int _isReady;
     private AutomationFocusChangedEventHandler? _focusChangedHandler;
+    private StartMenuScanRequest _pendingScanRequest;
 
     public event EventHandler? SnapshotChanged;
 
@@ -86,33 +88,47 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     {
         _workerThread.Start();
         _focusEventThread.Start();
-        RequestScan();
+        RequestScan(StartMenuScanTrigger.Startup);
         _logger.WriteDetailed(
             "[UIAutomation] action=start-workers result=success apartment=sta");
     }
 
-    public void RequestScan()
+    public void RequestScan(StartMenuScanTrigger trigger)
     {
-        if (!_isDisposed)
+        if (_isDisposed)
         {
-            _scanRequested.Set();
+            return;
+        }
+
+        lock (_scanRequestLock)
+        {
+            if (_pendingScanRequest.RequestedTimestamp == 0)
+            {
+                _pendingScanRequest = new StartMenuScanRequest(
+                    trigger,
+                    Stopwatch.GetTimestamp());
+            }
+        }
+
+        _scanRequested.Set();
+    }
+
+    public void SetMonitoringActive(
+        bool isActive,
+        StartMenuScanTrigger activationTrigger = StartMenuScanTrigger.MonitoringActivated)
+    {
+        int previous = Interlocked.Exchange(ref _monitoringActive, isActive ? 1 : 0);
+        if (isActive && previous == 0)
+        {
+            RequestScan(activationTrigger);
         }
     }
 
-    public void SetMonitoringActive(bool isActive)
-    {
-        Interlocked.Exchange(ref _monitoringActive, isActive ? 1 : 0);
-        if (isActive)
-        {
-            RequestScan();
-        }
-    }
-
-    public void RequestScanIfStartMenuWindowVisible()
+    public void RequestScanIfStartMenuWindowVisible(StartMenuScanTrigger trigger)
     {
         if (!_isDisposed && _windowInspector.IsStartMenuVisible())
         {
-            RequestScan();
+            RequestScan(trigger);
         }
     }
 
@@ -154,15 +170,30 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                 return;
             }
 
+            StartMenuScanRequest request = TakePendingScanRequest();
             try
             {
+                bool wasVisible = Snapshot.IsVisible;
                 long scanStartedTimestamp = Stopwatch.GetTimestamp();
                 ScanDesktopAutomationTree();
                 TimeSpan scanElapsed = Stopwatch.GetElapsedTime(scanStartedTimestamp);
+                if (!wasVisible && Snapshot.IsVisible)
+                {
+                    _logger.Write(
+                        $"[UIAutomation] action=detect-start-menu result=success " +
+                        $"source={request.Trigger.ToLogValue()} " +
+                        $"request-to-detect-ms={Stopwatch.GetElapsedTime(request.RequestedTimestamp).TotalMilliseconds:F1} " +
+                        $"scan-ms={scanElapsed.TotalMilliseconds:F1}" +
+                        (request.Trigger.IsFallback()
+                            ? " fallback=true poll-interval-ms=250"
+                            : " fallback=false"));
+                }
+
                 if (scanElapsed >= TimeSpan.FromMilliseconds(50))
                 {
                     _logger.Write(
                         $"[UIAutomation] action=scan result=success slow=true " +
+                        $"source={request.Trigger.ToLogValue()} " +
                         $"elapsed-ms={scanElapsed.TotalMilliseconds:F1}");
                 }
             }
@@ -173,6 +204,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                 UpdateSnapshot(StartMenuSnapshot.Hidden);
                 _logger.Write(
                     $"[UIAutomation] action=scan result=failed " +
+                    $"source={request.Trigger.ToLogValue()} " +
                     $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
             }
         }
@@ -185,7 +217,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             if (Volatile.Read(ref _monitoringActive) != 0
                 || _windowInspector.IsStartMenuVisible())
             {
-                RequestScan();
+                RequestScan(StartMenuScanTrigger.FocusEvent);
             }
         };
 
@@ -504,6 +536,20 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         }
     }
 
+    private StartMenuScanRequest TakePendingScanRequest()
+    {
+        lock (_scanRequestLock)
+        {
+            StartMenuScanRequest request = _pendingScanRequest;
+            _pendingScanRequest = default;
+            return request.RequestedTimestamp == 0
+                ? new StartMenuScanRequest(
+                    StartMenuScanTrigger.Unknown,
+                    Stopwatch.GetTimestamp())
+                : request;
+        }
+    }
+
     private void LogSnapshotIfChanged(string state, IReadOnlyCollection<AutomationCandidate> candidates)
     {
         string candidateSignature = string.Join(
@@ -543,3 +589,42 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
         System.Windows.Rect Rectangle);
 
 }
+
+internal enum StartMenuScanTrigger
+{
+    Unknown,
+    Startup,
+    MonitoringActivated,
+    FocusEvent,
+    WindowsKeyImmediate,
+    WindowsKeyFallback,
+    VisibleFallback,
+    IdleFallback,
+    InitializationFallback
+}
+
+internal static class StartMenuScanTriggerExtensions
+{
+    public static bool IsFallback(this StartMenuScanTrigger trigger) => trigger is
+        StartMenuScanTrigger.WindowsKeyFallback
+        or StartMenuScanTrigger.VisibleFallback
+        or StartMenuScanTrigger.IdleFallback
+        or StartMenuScanTrigger.InitializationFallback;
+
+    public static string ToLogValue(this StartMenuScanTrigger trigger) => trigger switch
+    {
+        StartMenuScanTrigger.Startup => "startup",
+        StartMenuScanTrigger.MonitoringActivated => "monitoring-activated",
+        StartMenuScanTrigger.FocusEvent => "focus-event",
+        StartMenuScanTrigger.WindowsKeyImmediate => "windows-key-immediate",
+        StartMenuScanTrigger.WindowsKeyFallback => "windows-key-fallback",
+        StartMenuScanTrigger.VisibleFallback => "visible-fallback",
+        StartMenuScanTrigger.IdleFallback => "idle-fallback",
+        StartMenuScanTrigger.InitializationFallback => "initialization-fallback",
+        _ => "unknown"
+    };
+}
+
+internal readonly record struct StartMenuScanRequest(
+    StartMenuScanTrigger Trigger,
+    long RequestedTimestamp);

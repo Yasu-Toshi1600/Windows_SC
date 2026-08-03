@@ -26,7 +26,7 @@ internal sealed class EnvironmentInformationService(DiagnosticLogger logger)
         information.AppendLine($".NET: {snapshot.FrameworkDescription}");
         AppendMonitorReport(information, snapshot);
         information.AppendLine(
-            $"詳細診断ログ: {(snapshot.IsDetailedLoggingEnabled ? "有効" : "無効")}");
+            $"詳細診断ログ: {GetDetailedLoggingState(snapshot)}");
         return information.ToString();
     }
 
@@ -58,7 +58,8 @@ internal sealed class EnvironmentInformationService(DiagnosticLogger logger)
             $"dotnet=\"{LogValue.Normalize(snapshot.FrameworkDescription)}\" " +
             $"monitors={snapshot.Monitors.Count} " +
             $"monitor-result={(snapshot.MonitorErrorType is null ? "success" : "failed")} " +
-            $"detailed-logging={(snapshot.IsDetailedLoggingEnabled ? "enabled" : "disabled")}");
+            $"detailed-logging={(snapshot.IsDetailedLoggingEnabled ? "enabled" : "disabled")} " +
+            $"detailed-logging-mode={GetDetailedLoggingMode(snapshot)}");
 
         if (snapshot.MonitorErrorType is not null)
         {
@@ -124,8 +125,33 @@ internal sealed class EnvironmentInformationService(DiagnosticLogger logger)
             RuntimeInformation.ProcessArchitecture.ToString(),
             RuntimeInformation.FrameworkDescription,
             logger.IsDetailedLoggingEnabled,
+            logger.IsDetailedLoggingAlwaysEnabled,
             monitors,
             monitorErrorType);
+    }
+
+    private static string GetDetailedLoggingState(EnvironmentSnapshot snapshot)
+    {
+        if (!snapshot.IsDetailedLoggingEnabled)
+        {
+            return "無効";
+        }
+
+        return snapshot.IsDetailedLoggingAlwaysEnabled
+            ? "有効（常時）"
+            : "有効（24時間）";
+    }
+
+    private static string GetDetailedLoggingMode(EnvironmentSnapshot snapshot)
+    {
+        if (!snapshot.IsDetailedLoggingEnabled)
+        {
+            return "disabled";
+        }
+
+        return snapshot.IsDetailedLoggingAlwaysEnabled
+            ? "continuous"
+            : "temporary";
     }
 
     private static void AppendMonitorReport(
@@ -203,6 +229,7 @@ internal sealed class EnvironmentInformationService(DiagnosticLogger logger)
         string ProcessArchitecture,
         string FrameworkDescription,
         bool IsDetailedLoggingEnabled,
+        bool IsDetailedLoggingAlwaysEnabled,
         IReadOnlyList<MonitorSnapshot> Monitors,
         string? MonitorErrorType)
     {
@@ -215,6 +242,7 @@ internal sealed class EnvironmentInformationService(DiagnosticLogger logger)
                 .Append(ProcessArchitecture).Append('|')
                 .Append(FrameworkDescription).Append('|')
                 .Append(IsDetailedLoggingEnabled).Append('|')
+                .Append(IsDetailedLoggingAlwaysEnabled).Append('|')
                 .Append(MonitorErrorType);
 
             foreach (MonitorSnapshot monitor in Monitors)

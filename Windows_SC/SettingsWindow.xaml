@@ -347,13 +347,18 @@
                 <ToggleSwitch Header="詳細診断ログ"
                               IsOn="{Binding IsDetailedDiagnosticsEnabled, Mode=TwoWay}"
                               OffContent="無効"
-                              OnContent="24時間有効" />
+                              OnContent="有効" />
+                <ToggleSwitch Header="開発用: 詳細ログを常時有効にする"
+                              IsEnabled="{Binding IsDetailedDiagnosticsEnabled}"
+                              IsOn="{Binding IsDetailedDiagnosticsAlwaysEnabled, Mode=TwoWay}"
+                              OffContent="24時間で自動停止"
+                              OnContent="手動で無効にするまで継続" />
                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            Text="{Binding DetailedDiagnosticsStatus}"
                            TextWrapping="Wrap" />
                 <InfoBar IsClosable="False"
                          IsOpen="True"
-                         Message="切り替え後に［適用］を押してください。詳細ログにはコマンド、音声デバイス名、例外情報などが含まれる場合があります。共有する前に必ず内容を確認してください。"
+                          Message="切り替え後に［適用］を押してください。常時有効は開発・調査中だけ使用してください。詳細ログにはコマンド、音声デバイス名、例外情報などが含まれる場合があります。共有する前に必ず内容を確認してください。"
                          Severity="Informational" />
                 <Button HorizontalAlignment="Left"
                         Click="ApplyDetailedDiagnostics_Click"

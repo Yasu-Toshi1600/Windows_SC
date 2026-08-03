@@ -73,10 +73,11 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
             "source=windows-key fallback-window-ms=1500");
         _awaitingStartConfirmation = true;
         _fastMonitoringUntil = DateTimeOffset.UtcNow + FastMonitoringDuration;
-        _uiAutomationInspector.SetMonitoringActive(true);
+        _uiAutomationInspector.SetMonitoringActive(
+            true,
+            StartMenuScanTrigger.WindowsKeyImmediate);
         _fallbackTimer.Interval = FastMonitoringInterval;
         _fallbackTimer.Start();
-        _uiAutomationInspector.RequestScan();
     }
 
     public void NotifyStartMenuClosing()
@@ -138,14 +139,32 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
     {
         if (!_awaitingStartConfirmation && !_launcherIsVisible)
         {
-            _uiAutomationInspector.RequestScanIfStartMenuWindowVisible();
+            _uiAutomationInspector.RequestScanIfStartMenuWindowVisible(
+                GetFallbackScanTrigger());
         }
         else
         {
-            _uiAutomationInspector.RequestScan();
+            _uiAutomationInspector.RequestScan(GetFallbackScanTrigger());
         }
 
         UpdateFallbackMonitoring();
+    }
+
+    private StartMenuScanTrigger GetFallbackScanTrigger()
+    {
+        if (_awaitingStartConfirmation)
+        {
+            return StartMenuScanTrigger.WindowsKeyFallback;
+        }
+
+        if (_launcherIsVisible)
+        {
+            return StartMenuScanTrigger.VisibleFallback;
+        }
+
+        return IsReady
+            ? StartMenuScanTrigger.IdleFallback
+            : StartMenuScanTrigger.InitializationFallback;
     }
 
     private void UpdateFallbackMonitoring()
