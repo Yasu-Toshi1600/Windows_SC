@@ -54,7 +54,7 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
         };
         _workerThread.SetApartmentState(ApartmentState.MTA);
         _workerThread.Start();
-        QueueWork(BindDefaultEndpoint);
+        TryQueueWork(BindDefaultEndpoint);
     }
 
     public event EventHandler? StateChanged;
@@ -528,25 +528,28 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
         return (IMMDeviceEnumerator)Activator.CreateInstance(type)!;
     }
 
-    private void QueueWork(Action action)
+    private bool TryQueueWork(Action action)
     {
         if (!_isDisposed && !_workQueue.IsAddingCompleted)
         {
             try
             {
                 _workQueue.Add(action);
+                return true;
             }
             catch (InvalidOperationException)
             {
                 // Shutdown won the race.
             }
         }
+
+        return false;
     }
 
     private Task EnqueueAsync(Action action, CancellationToken cancellationToken)
     {
         TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        QueueWork(() =>
+        bool queued = TryQueueWork(() =>
         {
             try
             {
@@ -563,13 +566,18 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
                 completion.TrySetException(exception);
             }
         });
+        if (!queued)
+        {
+            CompleteRejectedOperation(completion, cancellationToken);
+        }
+
         return completion.Task;
     }
 
     private Task<T> EnqueueAsync<T>(Func<T> action, CancellationToken cancellationToken)
     {
         TaskCompletionSource<T> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        QueueWork(() =>
+        bool queued = TryQueueWork(() =>
         {
             try
             {
@@ -585,7 +593,42 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
                 completion.TrySetException(exception);
             }
         });
+        if (!queued)
+        {
+            CompleteRejectedOperation(completion, cancellationToken);
+        }
+
         return completion.Task;
+    }
+
+    private static void CompleteRejectedOperation(
+        TaskCompletionSource completion,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            completion.TrySetCanceled(cancellationToken);
+        }
+        else
+        {
+            completion.TrySetException(
+                new ObjectDisposedException(nameof(WindowsApplicationVolumeService)));
+        }
+    }
+
+    private static void CompleteRejectedOperation<T>(
+        TaskCompletionSource<T> completion,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            completion.TrySetCanceled(cancellationToken);
+        }
+        else
+        {
+            completion.TrySetException(
+                new ObjectDisposedException(nameof(WindowsApplicationVolumeService)));
+        }
     }
 
     public void Dispose()
@@ -650,7 +693,7 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
     {
         public int OnSessionCreated(IAudioSessionControl newSession)
         {
-            owner.QueueWork(() =>
+            owner.TryQueueWork(() =>
             {
                 owner.AddSession(newSession);
                 owner.PublishCache();
@@ -669,7 +712,7 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
         public int OnSimpleVolumeChanged(float volume, bool isMuted, ref Guid eventContext)
         {
             Guid capturedContext = eventContext;
-            owner.QueueWork(() => owner.HandleVolumeChanged(instanceId, volume, capturedContext));
+            owner.TryQueueWork(() => owner.HandleVolumeChanged(instanceId, volume, capturedContext));
             return 0;
         }
 
@@ -680,7 +723,7 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
         {
             if (state == AudioSessionState.Expired)
             {
-                owner.QueueWork(() => owner.RemoveSession(instanceId));
+                owner.TryQueueWork(() => owner.RemoveSession(instanceId));
             }
 
             return 0;
@@ -688,7 +731,7 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
 
         public int OnSessionDisconnected(AudioSessionDisconnectReason reason)
         {
-            owner.QueueWork(() => owner.RemoveSession(instanceId));
+            owner.TryQueueWork(() => owner.RemoveSession(instanceId));
             return 0;
         }
     }
@@ -704,7 +747,7 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
         {
             if (flow == EDataFlow.Render && role == ERole.Multimedia)
             {
-                owner.QueueWork(owner.BindDefaultEndpoint);
+                owner.TryQueueWork(owner.BindDefaultEndpoint);
             }
 
             return 0;

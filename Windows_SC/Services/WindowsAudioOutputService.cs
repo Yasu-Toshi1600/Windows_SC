@@ -151,9 +151,14 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
         double volumePercent,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
         double clampedPercent = Math.Clamp(volumePercent, 0, 100);
+        return Task.Run(
+            () => SetMasterVolumeCore(clampedPercent),
+            cancellationToken);
+    }
 
+    private AudioMasterVolumeResult SetMasterVolumeCore(double clampedPercent)
+    {
         try
         {
             UseDefaultEndpointVolume(volume =>
@@ -171,7 +176,7 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
 
             StateChanged?.Invoke(this, EventArgs.Empty);
             _logger.Write($"[AudioVolume] action=set result=success value={clampedPercent:F0}");
-            return Task.FromResult(AudioMasterVolumeResult.Success(clampedPercent));
+            return AudioMasterVolumeResult.Success(clampedPercent);
         }
         catch (Exception exception) when (exception is COMException
             or InvalidCastException
@@ -184,8 +189,8 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
                 $"[AudioVolume] action=set result=failed exception={exception.GetType().Name} " +
                 $"hresult=0x{exception.HResult:X8} " +
                 $"message=\"{LogValue.Normalize(exception.Message)}\"");
-            return Task.FromResult(AudioMasterVolumeResult.Failure(
-                $"音量を変更できませんでした。\n{exception.Message}"));
+            return AudioMasterVolumeResult.Failure(
+                $"音量を変更できませんでした。\n{exception.Message}");
         }
     }
 

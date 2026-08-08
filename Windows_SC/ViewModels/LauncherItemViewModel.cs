@@ -19,6 +19,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private readonly IAudioOutputService _audioOutputService;
     private readonly IApplicationVolumeService _applicationVolumeService;
     private readonly ISystemMetricsService _systemMetricsService;
+    private readonly LatestValueUpdateCoordinator<double> _volumeUpdateCoordinator;
     private readonly LauncherActionDefinition? _action;
     private readonly CycleActionDefinition? _cycleAction;
     private readonly VolumeSliderDefinition? _volumeSlider;
@@ -33,7 +34,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private int _nextCommandStepIndex;
     private bool _canAdjustVolume;
     private bool _isRefreshingVolume;
-    private bool _isSettingVolume;
     private bool _isMixedVolume;
     private string _volumeStatusText = string.Empty;
     private int _layoutColumnSpan = 2;
@@ -70,6 +70,9 @@ internal sealed class LauncherItemViewModel : ObservableObject
         _audioOutputService = audioOutputService;
         _applicationVolumeService = applicationVolumeService;
         _systemMetricsService = systemMetricsService;
+        _volumeUpdateCoordinator = new(
+            ApplyVolumeAsync,
+            HandleVolumeUpdateException);
         ExecuteCommand = new RelayCommand(
             () => _ = ExecuteAsync(),
             () => Kind == LauncherItemKind.Button && !_isExecuting);
@@ -225,9 +228,9 @@ internal sealed class LauncherItemViewModel : ObservableObject
             }
 
             OnPropertyChanged(nameof(SliderValueDisplay));
-            if (Kind == LauncherItemKind.Slider && !_isRefreshingVolume)
+            if (Kind == LauncherItemKind.Slider && !_isRefreshingVolume && CanAdjustVolume)
             {
-                _ = SetVolumeAsync(clampedValue);
+                _volumeUpdateCoordinator.Request(clampedValue);
             }
         }
     }
@@ -275,7 +278,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
             _isMixedVolume = false;
             _volumeStatusText = volumeResult.IsSuccess ? string.Empty : "利用不能";
             OnPropertyChanged(nameof(SliderValueDisplay));
-            if (volumeResult.IsSuccess)
+            if (volumeResult.IsSuccess && !_volumeUpdateCoordinator.IsProcessing)
             {
                 _isRefreshingVolume = true;
                 try
@@ -657,7 +660,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
         CanAdjustVolume = info?.IsAvailable == true;
         _isMixedVolume = info?.IsMixed == true;
         _volumeStatusText = info is null ? "利用不能" : string.Empty;
-        if (info is not null)
+        if (info is not null && !_volumeUpdateCoordinator.IsProcessing)
         {
             _isRefreshingVolume = true;
             try
@@ -673,58 +676,53 @@ internal sealed class LauncherItemViewModel : ObservableObject
         OnPropertyChanged(nameof(SliderValueDisplay));
     }
 
-    private async System.Threading.Tasks.Task SetVolumeAsync(double volumePercent)
+    private async System.Threading.Tasks.Task ApplyVolumeAsync(double volumePercent)
     {
-        if (_isSettingVolume || !CanAdjustVolume)
+        if (!CanAdjustVolume)
         {
             return;
         }
 
-        _isSettingVolume = true;
-        try
+        if (_volumeSlider?.Type == VolumeSliderKind.Application)
         {
-            if (_volumeSlider?.Type == VolumeSliderKind.Application)
+            ApplicationAudioTarget? target = GetApplicationTarget();
+            ApplicationVolumeResult result = target is null
+                ? ApplicationVolumeResult.Failure("対象アプリが設定されていません。", 0, 0)
+                : await _applicationVolumeService.SetVolumeAsync(
+                    target,
+                    (int)Math.Round(volumePercent));
+            if (!result.IsSuccess)
             {
-                ApplicationAudioTarget? target = GetApplicationTarget();
-                ApplicationVolumeResult result = target is null
-                    ? ApplicationVolumeResult.Failure("対象アプリが設定されていません。", 0, 0)
-                    : await _applicationVolumeService.SetVolumeAsync(
-                        target,
-                        (int)Math.Round(volumePercent));
-                if (!result.IsSuccess)
-                {
-                    CanAdjustVolume = false;
-                    Executed?.Invoke(
-                        this,
-                        new LauncherItemExecutedEventArgs(
-                            ActionExecutionResult.Failure(result.ErrorMessage),
-                            shouldCloseOnSuccess: false));
-                }
-                else
-                {
-                    _isMixedVolume = false;
-                    OnPropertyChanged(nameof(SliderValueDisplay));
-                }
+                ReportVolumeFailure(result.ErrorMessage);
             }
             else
             {
-                AudioMasterVolumeResult result = await _audioOutputService.SetMasterVolumeAsync(
-                    volumePercent);
-                if (!result.IsSuccess)
-                {
-                    CanAdjustVolume = false;
-                    Executed?.Invoke(
-                        this,
-                        new LauncherItemExecutedEventArgs(
-                            ActionExecutionResult.Failure(result.ErrorMessage),
-                            shouldCloseOnSuccess: false));
-                }
+                _isMixedVolume = false;
+                OnPropertyChanged(nameof(SliderValueDisplay));
             }
+
+            return;
         }
-        finally
+
+        AudioMasterVolumeResult masterResult = await _audioOutputService.SetMasterVolumeAsync(
+            volumePercent);
+        if (!masterResult.IsSuccess)
         {
-            _isSettingVolume = false;
+            ReportVolumeFailure(masterResult.ErrorMessage);
         }
+    }
+
+    private void HandleVolumeUpdateException(Exception exception) =>
+        ReportVolumeFailure($"音量を変更できませんでした。\n{exception.Message}");
+
+    private void ReportVolumeFailure(string message)
+    {
+        CanAdjustVolume = false;
+        Executed?.Invoke(
+            this,
+            new LauncherItemExecutedEventArgs(
+                ActionExecutionResult.Failure(message),
+                shouldCloseOnSuccess: false));
     }
 
     private ApplicationAudioTarget? GetApplicationTarget()
