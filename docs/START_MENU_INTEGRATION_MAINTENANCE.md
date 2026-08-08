@@ -2,8 +2,8 @@
 
 ランチャーSurfaceの移動量、時間、イージング、Composition実装、途中反転の視覚仕様は[モーション仕様書](MOTION_SPECIFICATION.md)を参照する。
 
-更新日: 2026-07-21
-対象: Windows 11 25H2 / Windows App SDK 1.8 / Phase 4.5実装
+更新日: 2026-08-07
+対象: Windows_SC `0.7.2` / Windows 11 25H2 / Windows App SDK 1.8
 目的: スタートメニュー検出、Windowsキー監視、ランチャー状態、フォーカス、モーションの保守判断を一か所に集約する。
 
 ## 1. 複雑になる理由
@@ -50,17 +50,17 @@ Windowsには、外部アプリからスタートメニューの開閉、表示�
 
 | ファイル | 責務 |
 |---|---|
-| `GlobalWindowsKeyMonitor.cs` | 低レベルキーボードフック。左右Windowsキー、修飾キー、他キーとの組み合わせを分類する。入力は遮断しない。 |
-| `Services/GlobalInputService.cs` | Windowsキー単体イベントと `Ctrl+Alt+Space` の登録・公開。 |
-| `StartMenuWindowInspector.cs` | Win32による軽量検出。対象プロセス、可視状態、DWMクローキング、矩形を確認する。 |
-| `StartMenuBoundsValidator.cs` | SearchHost等のモニター全面サーフェスをスタートメニュー矩形から除外する。 |
-| `UiAutomationStartMenuInspector.cs` | スキャン用STAとイベント登録用STAを分離し、フォーカス中のUI Automation矩形を優先し、取得不能時だけWin32検出へフォールバックしてSnapshotを更新する。 |
-| `Services/HybridStartMenuMonitor.cs` | イベント監視と50/250msの有界フォールバック、監視の開始・停止。 |
-| `StartMenuSnapshot.cs` | 可視状態、スタート矩形、スマートフォン連携パネル情報の不変Snapshot。 |
-| `Services/LauncherMotionCoordinator.cs` | ランチャー表示の論理状態機械。 |
-| `Services/CompositionLauncherMotionService.cs` | SurfaceのTranslation / Opacity、完了通知、途中反転。 |
-| `MainWindow.xaml.cs` | 入力、Snapshot、フォーカス、状態機械、配置、モーションの統合。 |
-| `Services/LauncherPlacementService.cs` | Snapshot、モニター、DPI、作業領域から最終配置を計算する。 |
+| `Windows_SC/GlobalWindowsKeyMonitor.cs` | 低レベルキーボードフック。左右Windowsキー、修飾キー、他キーとの組み合わせを分類する。入力は遮断しない。 |
+| `Windows_SC/Services/GlobalInputService.cs` | Windowsキー単体イベントと`Ctrl+Alt+Space`の登録・公開。 |
+| `Windows_SC/StartMenuWindowInspector.cs` | Win32による軽量検出。対象プロセス、可視状態、DWMクローキング、矩形を確認する。 |
+| `Windows_SC/StartMenuBoundsValidator.cs` | SearchHost等のモニター全面サーフェスをスタートメニュー矩形から除外する。 |
+| `Windows_SC/UiAutomationStartMenuInspector.cs` | スキャン用STAとイベント登録用STAを分離し、フォーカス中のUI Automation矩形を優先し、取得不能時だけWin32検出へフォールバックしてSnapshotを更新する。 |
+| `Windows_SC/Services/HybridStartMenuMonitor.cs` | イベント監視と50/250msの有界フォールバック、監視の開始・停止。 |
+| `Windows_SC/StartMenuSnapshot.cs` | 可視状態、スタート矩形、スマートフォン連携パネル情報の不変Snapshot。 |
+| `Windows_SC/Services/LauncherMotionCoordinator.cs` | ランチャー表示の論理状態機械。 |
+| `Windows_SC/Services/CompositionLauncherMotionService.cs` | SurfaceのTranslation / Opacity、完了通知、途中反転。 |
+| `Windows_SC/MainWindow.xaml.cs` | 入力、Snapshot、フォーカス、状態機械、配置、モーションの統合。 |
+| `Windows_SC/Services/LauncherPlacementService.cs` | Snapshot、モニター、DPI、作業領域から最終配置を計算する。 |
 
 OS依存の検出条件は `StartMenuWindowInspector` と `UiAutomationStartMenuInspector` の外へ広げない。
 
@@ -96,7 +96,11 @@ UI Automationで有効なフォーカス矩形を取れない場合のみ、`Sta
 
 ### 4.3 スタートボタンクリック
 
-アイドル時は連続ポーリングしない。グローバルフォーカス変更時にWin32でスタートウィンドウが可視かだけを確認する。可視ならSTAワーカーへスキャンを要求し、`Hidden` から `EnteringWithStart` へ遷移する。
+グローバルフォーカス変更時にWin32でスタートウィンドウが可視か確認する。可視なら
+STAワーカーへスキャンを要求し、`Hidden`から`EnteringWithStart`へ遷移する。
+さらに、UI Automationのフォーカス通知が長時間稼働後に無言で途絶える場合に備え、
+非表示・非対話中も250ms間隔で同じ軽量なWin32可視確認を行う。スタート系
+ウィンドウが可視の場合だけUI Automationスキャンを要求する。
 
 ## 5. 監視期間と負荷制御
 
@@ -108,12 +112,13 @@ UI Automationで有効なフォーカス矩形を取れない場合のみ、`Sta
 | スタート連動表示中・未操作 | 250ms | スタート終了イベントの欠落を補う。 |
 | UI Automationイベント登録待ち | 250ms | Win32の軽量確認だけを行い、登録が外部プロバイダーで停止しても起動経路を維持する。 |
 | ランチャー対話状態 | 停止 | 外側クリックやアプリ操作と監視を競合させない。 |
-| 非表示アイドル | 停止 | CPUとCOM呼び出しを抑える。クリック起動はフォーカスイベントで拾う。 |
+| 非表示アイドル | 250ms | Win32で可視候補がある場合だけスキャンする。フォーカス通知の無言停止を補う。 |
 
 UI Automationのフォーカスイベント登録に失敗した場合は、1秒、2秒、5秒、10秒、
 30秒の順で待って再試行し、それ以降も30秒間隔で再試行する。再試行中も250msの
 Win32ゲート付きフォールバック監視を継続する。登録に成功するとイベント監視へ
-自動復帰し、アイドル時のフォールバックTimerを停止する。
+自動復帰するが、無言停止を検出できないため非表示アイドル時の250msゲート付き
+フォールバックは維持する。
 
 初回の登録失敗は通常ログへ記録し、以降の連続失敗は詳細ログだけへ記録する。
 復旧成功は通常ログへ試行回数とともに記録する。トラブルシューティング画面には
@@ -303,7 +308,7 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 ## 12. 変更時の禁止事項
 
 1. `TreeScope.Descendants` でStart/Searchツリー全体を同期走査しない。
-2. 非表示アイドル中に50ms/250ms Timerを常時動かさない。
+2. 非表示アイドル中に50ms監視または無条件のUI Automationスキャンを常時動かさない。250msのWin32可視ゲート付き確認は維持する。
 3. Windowsキーで閉じるとき、UI AutomationのHidden通知を待たない。
 4. 表示ホットパスへ音声列挙、ファイルI/O、`UpdateLayout`、同期再描画を入れない。
 5. `VisibleInteractive`へ移った後に、スタート由来の古いVisibleで進入反転しない。

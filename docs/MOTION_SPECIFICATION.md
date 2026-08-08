@@ -1,7 +1,7 @@
 # Windows_SC モーション仕様書
 
-更新日: 2026-07-24
-対象: Windows_SC `0.6.2-beta.1` / Windows App SDK 1.8 / x64
+更新日: 2026-08-07
+対象: Windows_SC `0.7.2` / Windows App SDK 1.8 / x64
 
 ## 1. 目的と文書境界
 
@@ -140,6 +140,8 @@ Windowsキー待機中でなくても、新しいスタートVisible Snapshotを
 記録する主な値:
 
 - `key-to-start-ms`: Windowsキー解放からスタート確認
+- `request-to-detect-ms`: スタート検出要求から検出成功
+- `scan-ms`: 検出に成功したUI Automationスキャン
 - `start-to-request-ms`: スタート確認から表示要求
 - `request-to-complete-ms`: 表示要求から進入完了
 - `motion-ms`: Compositionの実完了時間
@@ -153,7 +155,9 @@ Windowsキー待機中でなくても、新しいスタートVisible Snapshotを
 - 手動進入: 約167ms
 - 退出: 約125ms、継続的に200msを超えない
 
-OS側のスタート表示待ちを含む`key-to-start-ms`は別区間として評価し、ランチャーのComposition時間と混同しない。
+OS側のスタート表示待ちを含む`key-to-start-ms`、検出処理の
+`request-to-detect-ms`／`scan-ms`、Compositionの`motion-ms`は別区間として
+評価し、互いに混同しない。検出元とフォールバックの読み方はスタート保守ガイドを正とする。
 
 ## 11. 回帰試験
 

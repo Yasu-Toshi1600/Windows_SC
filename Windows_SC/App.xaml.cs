@@ -65,6 +65,13 @@ public partial class App : Application
         logger.Write(
             $"[Compatibility] action=check result=success state=supported " +
             compatibility.LogDetails);
+        if (!string.IsNullOrEmpty(compatibility.WarningMessage))
+        {
+            StartupCompatibilityChecker.ShowWarning(compatibility.WarningMessage);
+            logger.Write(
+                $"[Compatibility] action=show-warning result=acknowledged " +
+                $"reason=display-below-1080p {compatibility.LogDetails}");
+        }
 
         _settingsRepository = new JsonSettingsRepository(logger);
         IActionExecutionService actionExecutionService = new ActionExecutionService(logger);

@@ -12,6 +12,7 @@ Windows_SCは、Windows 11のスタートメニューと連動して表示する
 
 - 最初に`git status --short --branch`を確認し、既存の変更を上書きしない。
 - 関連する実装と現行文書を読んでから変更する。`docs/archive`は履歴であり、現行仕様の根拠にはしない。
+- 実装計画書は対象機能の実装・確認が完了するまで現行`docs`で進捗を管理し、完了後は日付付きで`docs/archive`へ移す。現行仕様と変更時の注意は別のメンテナンス文書へ分離し、計画書を保守仕様として残さない。
 - 文書に固定版番号が残っていても、それだけで現在の状態を判断しない。アプリ版は`Version.props`、MSIX版は`Windows_SC/Package.appxmanifest`、変更内容は`CHANGELOG.md`と実装を照合する。
 - 依頼と無関係な整形、名前変更、全面的なリファクタリングを同じ変更へ混ぜない。
 
@@ -47,7 +48,8 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
 
 ## バージョンと配布
 
-- 版を変更するときは、少なくとも`Version.props`、`Windows_SC/Package.appxmanifest`、`CHANGELOG.md`を同じ変更で同期する。利用者向け文書に旧版が残る場合も更新する。
+- 仕様変更またはバージョン更新を行うときは、関連するREADME、`docs`、配布手順、変更履歴を必ず同じ変更で更新し、アプリの実際の仕様・版と文書の内容を常に一致させる。古い仕様説明や旧版番号を残したまま完了としない。
+- 版を変更するときは、少なくとも`Version.props`、`Windows_SC/Package.appxmanifest`、`CHANGELOG.md`を同期し、リポジトリ内の旧版番号を検索して関連箇所を更新する。
 - 安定版では`VersionSuffix`を空にする。MSIXの`Identity Version`は4区切りの数値にする。
 - MSIX版は公開リリースの対象にしない。MSIX関連のプロジェクト設定やマニフェストを保守しても、通常の配布物には加えない。
 - 公開配布は、自己完結型の通常ZIP版または単一EXE版を目的とする。
