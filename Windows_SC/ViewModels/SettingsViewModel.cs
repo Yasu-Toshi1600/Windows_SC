@@ -3,13 +3,12 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 using Windows_SC.Models;
 using Windows_SC.Services;
+using Windows_SC.ViewModels.Settings;
 
 namespace Windows_SC.ViewModels;
 
@@ -20,10 +19,9 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private readonly IStartupService _startupService;
     private readonly IAudioOutputService _audioOutputService;
     private readonly IApplicationVolumeService _applicationVolumeService;
-    private readonly DispatcherQueue _dispatcherQueue;
+    private readonly IUiDispatcher _uiDispatcher;
     private readonly DiagnosticLogger _logger;
     private readonly EnvironmentInformationService _environmentInformationService;
-    private readonly IStartMenuMonitor _startMenuMonitor;
     private readonly IGlobalInputService _globalInputService;
     private readonly SettingsEditRevisionTracker _editRevisionTracker = new();
     private readonly SettingsPersistenceCoordinator _persistenceCoordinator = new();
@@ -48,15 +46,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private LayoutModeOption? _selectedLayoutMode;
     private string _statusMessage = string.Empty;
     private InfoBarSeverity _statusSeverity = InfoBarSeverity.Informational;
-    private string _troubleshootingStatusMessage = string.Empty;
-    private InfoBarSeverity _troubleshootingStatusSeverity =
-        InfoBarSeverity.Informational;
     private bool _suppressDirtyTracking = true;
     private bool _isSaving;
-    private bool _isDetailedDiagnosticsEnabled;
-    private bool _isDetailedDiagnosticsAlwaysEnabled;
-    private DateTimeOffset? _detailedLoggingExpiresAt;
-    private bool _isApplyingDiagnosticsSetting;
     private bool _isRefreshingAudioDevices;
     private bool _isRefreshingApplications;
     private bool _isRecordingShortcutKey;
@@ -71,22 +62,21 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         DiagnosticLogger logger,
         EnvironmentInformationService environmentInformationService,
         IStartMenuMonitor startMenuMonitor,
-        IGlobalInputService globalInputService)
+        IGlobalInputService globalInputService,
+        IUiDispatcher uiDispatcher)
     {
         _settingsRepository = settingsRepository;
         _mainWindowViewModel = mainWindowViewModel;
         _startupService = startupService;
         _audioOutputService = audioOutputService;
         _applicationVolumeService = applicationVolumeService;
-        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+        _uiDispatcher = uiDispatcher;
         _logger = logger;
         _environmentInformationService = environmentInformationService;
-        _startMenuMonitor = startMenuMonitor;
         _globalInputService = globalInputService;
         _shortcutRecordingSession = new ShortcutRecordingSession(
             _globalInputService.SetSuppressed);
         _globalInputService.ShortcutKeyCaptured += GlobalInputService_ShortcutKeyCaptured;
-        _startMenuMonitor.ReadyChanged += StartMenuMonitor_ReadyChanged;
         _applicationVolumeService.StateChanged += ApplicationVolumeService_StateChanged;
 
         foreach (AudioOutputDevice device in _audioOutputService.GetCachedDevices())
@@ -102,12 +92,14 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         LauncherSettings settings = mainWindowViewModel.ExportSettings();
         _assumePhonePanelVisible = settings.AssumePhonePanelVisible;
         _startWithWindows = settings.StartWithWindows;
-        _detailedLoggingExpiresAt = settings.DetailedLoggingExpiresAtUtc;
-        _isDetailedDiagnosticsAlwaysEnabled = settings.DetailedLoggingAlwaysEnabled;
-        _isDetailedDiagnosticsEnabled =
-            _isDetailedDiagnosticsAlwaysEnabled
-            || (_detailedLoggingExpiresAt is { } expiration
-                && expiration > DateTimeOffset.UtcNow);
+        Diagnostics = new DiagnosticsSettingsViewModel(
+            settings,
+            settingsRepository,
+            mainWindowViewModel,
+            _persistenceCoordinator,
+            logger,
+            environmentInformationService,
+            startMenuMonitor);
         _selectedLayoutMode = LayoutModes.First(option => option.Value == settings.LayoutMode);
         LauncherPageDefinition page = settings.Pages.FirstOrDefault()
             ?? new LauncherPageDefinition { Name = "メイン" };
@@ -130,12 +122,12 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         AddWidgetCommand = new RelayCommand(() => AddItem(LauncherItemKind.Widget));
         DeleteItemCommand = new RelayCommand(DeleteSelectedItem, () => SelectedItem is not null);
         AddAudioDeviceCommand = new RelayCommand(AddAudioDevice, CanAddAudioDevice);
-        RefreshAudioDevicesCommand = new RelayCommand(
-            () => _ = RefreshAudioDevicesAsync(),
+        RefreshAudioDevicesCommand = new AsyncRelayCommand(
+            RefreshAudioDevicesAsync,
             () => !_isRefreshingAudioDevices
                 && SelectedItem is { IsToggle: true, CycleKind: CycleActionKind.AudioOutput });
-        RefreshApplicationsCommand = new RelayCommand(
-            () => _ = RefreshApplicationsAsync(),
+        RefreshApplicationsCommand = new AsyncRelayCommand(
+            RefreshApplicationsAsync,
             () => !_isRefreshingApplications && SelectedItem is { IsSlider: true });
         AddCommandStepCommand = new RelayCommand(
             AddCommandStep,
@@ -157,7 +149,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         MoveAudioDeviceDownCommand = new RelayCommand(
             () => MoveAudioDevice(1),
             () => CanMoveAudioDevice(1));
-        SaveCommand = new RelayCommand(() => _ = SaveAsync(), () => !_isSaving);
+        SaveCommand = new AsyncRelayCommand(SaveAsync, () => !_isSaving);
         ExitApplicationCommand = new RelayCommand(
             () => ExitApplicationRequested?.Invoke(this, EventArgs.Empty));
         SelectedItem = Items.FirstOrDefault();
@@ -413,53 +405,6 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     public bool IsDirty => _editRevisionTracker.IsDirty;
 
-    public string TroubleshootingStatusMessage
-    {
-        get => _troubleshootingStatusMessage;
-        private set
-        {
-            if (SetProperty(ref _troubleshootingStatusMessage, value))
-            {
-                OnPropertyChanged(nameof(IsTroubleshootingStatusMessageOpen));
-            }
-        }
-    }
-
-    public InfoBarSeverity TroubleshootingStatusSeverity
-    {
-        get => _troubleshootingStatusSeverity;
-        private set => SetProperty(ref _troubleshootingStatusSeverity, value);
-    }
-
-    public bool IsTroubleshootingStatusMessageOpen =>
-        !string.IsNullOrWhiteSpace(TroubleshootingStatusMessage);
-
-    public bool IsDetailedDiagnosticsEnabled
-    {
-        get => _isDetailedDiagnosticsEnabled;
-        set
-        {
-            if (!SetProperty(ref _isDetailedDiagnosticsEnabled, value))
-            {
-                return;
-            }
-
-            _detailedLoggingExpiresAt = null;
-            if (!value && _isDetailedDiagnosticsAlwaysEnabled)
-            {
-                _isDetailedDiagnosticsAlwaysEnabled = false;
-                OnPropertyChanged(nameof(IsDetailedDiagnosticsAlwaysEnabled));
-            }
-
-            OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
-            SetTroubleshootingStatus(
-                value
-                    ? "［適用］を押すと詳細診断ログが有効になります。"
-                    : "［適用］を押すと詳細診断ログが無効になります。",
-                InfoBarSeverity.Informational);
-        }
-    }
-
     public ShortcutKeyInputModeOption? SelectedShortcutKeyInputMode
     {
         get => _selectedShortcutKeyInputMode;
@@ -594,62 +539,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _shortcutRecordingStatus, value);
     }
 
-    public bool IsDetailedDiagnosticsAlwaysEnabled
-    {
-        get => _isDetailedDiagnosticsAlwaysEnabled;
-        set
-        {
-            if (!SetProperty(ref _isDetailedDiagnosticsAlwaysEnabled, value))
-            {
-                return;
-            }
-
-            if (value && !_isDetailedDiagnosticsEnabled)
-            {
-                _isDetailedDiagnosticsEnabled = true;
-                OnPropertyChanged(nameof(IsDetailedDiagnosticsEnabled));
-            }
-
-            _detailedLoggingExpiresAt = null;
-            OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
-            SetTroubleshootingStatus(
-                value
-                    ? "［適用］を押すと詳細診断ログが常時有効になります。"
-                    : "［適用］を押すと詳細診断ログが24時間有効になります。",
-                InfoBarSeverity.Informational);
-        }
-    }
-
-    public string DetailedDiagnosticsStatus
-    {
-        get
-        {
-            if (!IsDetailedDiagnosticsEnabled)
-            {
-                return "現在は無効です。通常ログのみ記録します。";
-            }
-
-            if (IsDetailedDiagnosticsAlwaysEnabled)
-            {
-                return "常時有効です。手動で無効にするまで詳細ログを記録します。";
-            }
-
-            return _detailedLoggingExpiresAt is { } expiration
-                && expiration > DateTimeOffset.UtcNow
-                ? $"{expiration.ToLocalTime():yyyy/MM/dd HH:mm}まで有効です。"
-                : "［適用］を押すと、その時点から24時間有効になります。";
-        }
-    }
-
-    public string NormalLogPath => GetDisplayPath(_logger.LogFilePath);
-
-    public string DetailedLogPath => GetDisplayPath(_logger.DetailedLogFilePath);
-
-    public string StartMenuMonitoringStatus => _startMenuMonitor.IsReady
-        ? "スタートメニュー監視: 正常"
-        : "スタートメニュー監視: 代替モードで動作中（UI Automationイベントを利用できません）";
-
-    public string ApplicationVersionText => $"Windows_SC バージョン {ApplicationInformation.Version}";
+    public DiagnosticsSettingsViewModel Diagnostics { get; }
 
     public RelayCommand AddButtonCommand { get; }
     public RelayCommand AddToggleCommand { get; }
@@ -657,140 +547,15 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     public RelayCommand AddWidgetCommand { get; }
     public RelayCommand DeleteItemCommand { get; }
     public RelayCommand AddAudioDeviceCommand { get; }
-    public RelayCommand RefreshAudioDevicesCommand { get; }
-    public RelayCommand RefreshApplicationsCommand { get; }
+    public AsyncRelayCommand RefreshAudioDevicesCommand { get; }
+    public AsyncRelayCommand RefreshApplicationsCommand { get; }
     public RelayCommand AddCommandStepCommand { get; }
     public RelayCommand AddMacroStepCommand { get; }
     public RelayCommand RemoveAudioDeviceCommand { get; }
     public RelayCommand MoveAudioDeviceUpCommand { get; }
     public RelayCommand MoveAudioDeviceDownCommand { get; }
-    public RelayCommand SaveCommand { get; }
+    public AsyncRelayCommand SaveCommand { get; }
     public RelayCommand ExitApplicationCommand { get; }
-
-    internal void OpenDataFolder()
-        => OpenFolder(ApplicationDataPaths.RootDirectoryPath, "データフォルダー");
-
-    private void OpenFolder(string folderPath, string displayName)
-    {
-        try
-        {
-            Directory.CreateDirectory(folderPath);
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = folderPath,
-                UseShellExecute = true
-            });
-            _logger.Write(
-                "[Diagnostics] action=open-data-folder result=success");
-            _logger.WriteDetailed(
-                $"[Diagnostics] action=open-data-folder result=success " +
-                $"path=\"{LogValue.Normalize(folderPath)}\"");
-            SetTroubleshootingStatus(
-                $"{displayName}を開きました。",
-                InfoBarSeverity.Informational);
-        }
-        catch (Exception exception) when (exception is InvalidOperationException
-            or System.ComponentModel.Win32Exception
-            or IOException
-            or UnauthorizedAccessException)
-        {
-            _logger.Write(
-                $"[Diagnostics] action=open-data-folder result=failed " +
-                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
-            _logger.WriteDetailed(
-                $"[Diagnostics] action=open-data-folder result=failed " +
-                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
-                $"path=\"{LogValue.Normalize(folderPath)}\" " +
-                $"message=\"{LogValue.Normalize(exception.Message)}\"");
-            SetTroubleshootingStatus(
-                $"{displayName}を開けませんでした: {exception.Message}",
-                InfoBarSeverity.Error);
-        }
-    }
-
-    private static string GetDisplayPath(string path)
-    {
-        string localAppData = Environment
-            .GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-            .TrimEnd(Path.DirectorySeparatorChar);
-        string localAppDataPrefix = localAppData + Path.DirectorySeparatorChar;
-        return path.StartsWith(localAppDataPrefix, StringComparison.OrdinalIgnoreCase)
-            ? $"%LOCALAPPDATA%{Path.DirectorySeparatorChar}" + path[localAppDataPrefix.Length..]
-            : path;
-    }
-
-    internal async System.Threading.Tasks.Task ApplyDetailedDiagnosticsAsync()
-    {
-        if (_isApplyingDiagnosticsSetting)
-        {
-            return;
-        }
-
-        _isApplyingDiagnosticsSetting = true;
-        bool newAlwaysEnabled = IsDetailedDiagnosticsEnabled
-            && IsDetailedDiagnosticsAlwaysEnabled;
-        DateTimeOffset? newExpiration = IsDetailedDiagnosticsEnabled
-            && !newAlwaysEnabled
-            ? DateTimeOffset.UtcNow.AddHours(24)
-            : null;
-
-        try
-        {
-            await _persistenceCoordinator.RunAsync(async () =>
-            {
-                LauncherSettings settings = _mainWindowViewModel.ExportSettings();
-                DateTimeOffset? previousExpiration = settings.DetailedLoggingExpiresAtUtc;
-                bool previousAlwaysEnabled = settings.DetailedLoggingAlwaysEnabled;
-                try
-                {
-                    settings.DetailedLoggingExpiresAtUtc = newExpiration;
-                    settings.DetailedLoggingAlwaysEnabled = newAlwaysEnabled;
-                    await _settingsRepository.SaveAsync(settings);
-                    _detailedLoggingExpiresAt = newExpiration;
-                    _logger.ConfigureDetailedLogging(newExpiration, newAlwaysEnabled);
-                    _environmentInformationService.LogIfChanged("diagnostics-setting");
-                    OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
-                    SetTroubleshootingStatus(
-                        newAlwaysEnabled
-                            ? "詳細診断ログを常時有効にしました。"
-                            : IsDetailedDiagnosticsEnabled
-                                ? "詳細診断ログを24時間有効にしました。"
-                                : "詳細診断ログを無効にしました。",
-                        InfoBarSeverity.Success);
-                }
-                catch (Exception exception)
-                {
-                    settings.DetailedLoggingExpiresAtUtc = previousExpiration;
-                    settings.DetailedLoggingAlwaysEnabled = previousAlwaysEnabled;
-                    _logger.Write(
-                        $"[Diagnostics] action=configure-detailed-logging result=failed " +
-                        $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
-                    _logger.WriteDetailed(
-                        $"[Diagnostics] action=configure-detailed-logging result=failed " +
-                        $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
-                        $"message=\"{LogValue.Normalize(exception.Message)}\"");
-                    SetTroubleshootingStatus(
-                        $"詳細診断ログの設定を保存できませんでした: {exception.Message}",
-                        InfoBarSeverity.Error);
-                }
-            });
-        }
-        finally
-        {
-            _isApplyingDiagnosticsSetting = false;
-        }
-    }
-
-    internal string CreateEnvironmentInformation() =>
-        _environmentInformationService.CreateReport();
-
-    internal void RefreshEnvironmentInformationLog() =>
-        _environmentInformationService.LogIfChanged("troubleshooting");
-
-    internal void ReportEnvironmentInformationCopied() =>
-        SetTroubleshootingStatus(
-            "環境情報をコピーしました。",
-            InfoBarSeverity.Informational);
 
     internal void ReportTargetSelectionFailed(string targetType, Exception exception)
     {
@@ -811,7 +576,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         CancelShortcutKeyRecording();
         _globalInputService.ShortcutKeyCaptured -= GlobalInputService_ShortcutKeyCaptured;
         _applicationVolumeService.StateChanged -= ApplicationVolumeService_StateChanged;
-        _startMenuMonitor.ReadyChanged -= StartMenuMonitor_ReadyChanged;
+        Diagnostics.Dispose();
         Items.CollectionChanged -= Items_CollectionChanged;
         foreach (LauncherItemEditorViewModel item in Items)
         {
@@ -819,11 +584,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void StartMenuMonitor_ReadyChanged(object? sender, EventArgs args) =>
-        OnPropertyChanged(nameof(StartMenuMonitoringStatus));
-
     private void ApplicationVolumeService_StateChanged(object? sender, EventArgs args) =>
-        _dispatcherQueue.TryEnqueue(RefreshApplicationCandidatesFromCache);
+        _uiDispatcher.TryEnqueue(RefreshApplicationCandidatesFromCache);
 
     private void Items_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)
     {
@@ -938,7 +700,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         object? sender,
         ShortcutKeyCapturedEventArgs args)
     {
-        _dispatcherQueue.TryEnqueue(() =>
+        _uiDispatcher.TryEnqueue(() =>
         {
             if (!IsRecordingShortcutKey)
             {
@@ -1015,37 +777,6 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
         StatusSeverity = severity;
         StatusMessage = message;
-    }
-
-    private void SetTroubleshootingStatus(string message, InfoBarSeverity severity)
-    {
-        TroubleshootingStatusSeverity = severity;
-        TroubleshootingStatusMessage = message;
-    }
-
-    internal void ClearLogs()
-    {
-        try
-        {
-            _logger.ClearLogs();
-            _logger.Write("[Diagnostics] action=clear-logs result=success");
-            _environmentInformationService.LogIfChanged("logs-cleared", force: true);
-            SetTroubleshootingStatus("ログを削除しました。", InfoBarSeverity.Success);
-        }
-        catch (Exception exception) when (exception is System.IO.IOException
-            or UnauthorizedAccessException)
-        {
-            _logger.Write(
-                $"[Diagnostics] action=clear-logs result=failed " +
-                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
-            _logger.WriteDetailed(
-                $"[Diagnostics] action=clear-logs result=failed " +
-                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
-                $"message=\"{LogValue.Normalize(exception.Message)}\"");
-            SetTroubleshootingStatus(
-                $"ログを削除できませんでした: {exception.Message}",
-                InfoBarSeverity.Error);
-        }
     }
 
     private ActionKindOption GetVisibleActionKind(LauncherActionKind actionKind)

@@ -47,6 +47,9 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Windows_SC.Core\Windows_SC.Core.csproj" />
+  </ItemGroup>
 
   <!--
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution

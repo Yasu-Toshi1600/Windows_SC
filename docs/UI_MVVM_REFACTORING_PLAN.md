@@ -32,8 +32,8 @@ CoreとWinUI本体の2プロジェクト構成へ移行する。ファイル行�
 
 ## 3. 現在の確認結果
 
-2026-08-09時点の現行コードを対象に、View、ViewModel、サービス境界、イベント購読、
-非同期処理、XAMLバインディングを確認した。
+2026-08-09のPhase 0着手前コードを対象に、View、ViewModel、サービス境界、イベント購読、
+非同期処理、XAMLバインディングを確認した。次の表と21テストは着手前の基準値である。
 
 | 対象 | 現在の状態 |
 |---|---|
@@ -152,10 +152,10 @@ UIスレッドから同期的に呼ぶため、連続操作時の応答低下要
 | 2 | B-02 音量連続入力の修正 | コード完了（GUI手動確認待ち） |
 | 3 | B-03 キー記録ライフサイクルの修正 | コード完了（GUI手動確認待ち） |
 | 4 | B-04 UI寿命とエラー通知の修正 | コード完了（GUI手動確認待ち） |
-| 5 | SettingsViewModelと設定XAMLの分割 | 未着手 |
-| 6 | LauncherItemViewModelとMainWindowの低リスク整理 | 未着手 |
-| 7 | 2プロジェクト化に向けた依存境界の準備 | 未着手 |
-| 8 | Windows_SC.Coreの作成とProjectReferenceへの移行 | 未着手 |
+| 5 | SettingsViewModelと設定XAMLの分割 | 着手（診断領域を分離、他エディターは未着手） |
+| 6 | LauncherItemViewModelとMainWindowの低リスク整理 | 着手（実行、音声循環、モニター履歴を分離） |
+| 7 | 2プロジェクト化に向けた依存境界の準備 | コード完了（GUI手動確認待ち） |
+| 8 | Windows_SC.Coreの作成とProjectReferenceへの移行 | コード完了（GUI・ZIP確認待ち） |
 | 9 | 構成ルート、不要コード、文書、配布確認の整理 | 未着手 |
 
 ### Phase 0: 回帰基準
@@ -245,6 +245,15 @@ XAML分割時は次を守る。
 - 上下移動と削除はパラメーター付きCommandへ統一し、端では無効化する。
 - 記号ボタンへ明示的な`AutomationProperties.Name`を付ける。
 
+2026-08-09のPhase 5着手結果:
+
+- 詳細診断、環境情報、ログ操作を`DiagnosticsSettingsViewModel`へ分離した。
+- トラブルシューティングのXAMLとクリップボード等のView操作を`DiagnosticsPanel`へ分離した。
+- 保存、音声候補更新、アプリ候補更新を再入管理付き`AsyncRelayCommand`へ切り替えた。
+- 項目とマクロステップのDataTemplateへ`x:DataType`を指定し、表示専用Bindingを`x:Bind`へ移した。
+- 項目とマクロステップの記号ボタンへAutomation名を追加した。
+- Button、Cycle、Volume、Monitorの各Editor分割と、音声候補・アプリ候補ViewModelの分離は未着手である。
+
 ### Phase 6: ランチャー側の整理
 
 `LauncherItemViewModel`は、永続化モデルを変えずに次の状態を内部構成要素へ分離する。
@@ -261,6 +270,13 @@ XAML分割時は次を守る。
 必要な場合だけpartialファイルへ機械的に分類し、フィールド、タイマー、イベント購読順、
 表示・退出条件を維持する。
 
+2026-08-09のPhase 6着手結果:
+
+- ボタン／循環操作の再入管理を`AsyncRelayCommand`へ移し、ViewModel内の重複した実行中フラグを除いた。
+- 音声循環の次候補選択を`AudioOutputCycleSelector`へ分離し、登録順、利用可能性、折返しをCoreで扱うようにした。
+- システムモニターの履歴保持、上限、クランプ、グラフ座標生成を`SystemMonitorHistory`へ分離した。
+- 音量表示状態の追加分離、標準／コンパクトXAMLの重複整理、`MainWindow`のpartial分類は未着手である。
+
 ### Phase 7: 2プロジェクト化に向けた依存境界の準備
 
 物理的なプロジェクト移動より先に依存方向を整理する。このPhaseではファイルの所属を
@@ -274,6 +290,14 @@ XAML分割時は次を守る。
   直接参照せず、インターフェースから操作できる状態にする。
 - `StateChanged`の直後に共有可変状態を再取得する方式を避け、必要な通知では不変スナップショットを渡す。
 - Coreへ移す候補とWinUI本体へ残す対象を依存関係で分類し、単なる名前やフォルダーの印象で決めない。
+
+2026-08-09のPhase 7結果:
+
+- `AsyncRelayCommand`と`RelayCommand<T>`を追加した。
+- ViewModelが直接`DispatcherQueue`を取得する構造を`IUiDispatcher`とWinUI側実装へ置換した。
+- モニターグラフはCore内でWinUIの`PointCollection`を使用せず、座標値をViewModel側で変換するようにした。
+- 設定、保存調整、音量最新値、キー記録、ログマスキングをUI非依存コードとして分類した。
+- `StateChanged`通知を不変スナップショットへ全面移行する変更は、COM音声制御を同時に広げないため見送った。
 
 Coreへ移す主な候補:
 
@@ -326,6 +350,15 @@ Phase 8の完了条件:
 - Coreのプロジェクト参照とパッケージ参照にWinUI本体またはWindows App SDKが含まれない。
 - テストがCoreの実際の成果物を参照し、製品ソースの複製コンパイルに依存しない。
 - Debug／Release x64ビルドと全自動テストが、移動前後で同じ動作基準を満たす。
+
+2026-08-09のPhase 8コード結果:
+
+- `net8.0`の`Windows_SC.Core`を追加し、Models、Application、ContractsへUI非依存コードを移した。
+- `Windows_SC`からCoreへの一方向`ProjectReference`を追加し、CoreはWinUI／Windows App SDKを参照していない。
+- `Windows_SC.Tests`の製品ソース`Compile Include`を廃止し、Core成果物の`ProjectReference`へ移行した。
+- Core化で自動確認できる範囲を追加し、全69テストがDebug／Releaseで成功した。
+- `Windows_SC.Tests`をWindows専用TFMから`net8.0`へ変更し、WinUI／Windows App SDKなしでCoreを確認できるようにした。
+- Debug／Release x64は警告0・エラー0で成功した。GUI実操作と通常ZIP生成・起動は未確認である。
 
 ### Phase 9: 構成ルート、不要コード、文書、配布確認の整理
 
@@ -409,8 +442,6 @@ Phase 8以後はプロジェクト構成と出力を変更するため、`Build-
 
 - [Windows_SC 設計書](DESIGN.md)
 - [簡易テストチェックリスト](TEST_CHECKLIST.md)
-- [アクション／マクロ保守ガイド](ACTION_AND_MACRO_MAINTENANCE.md)
-- [アプリ別音量保守ガイド](APPLICATION_VOLUME_MAINTENANCE.md)
-- [システムモニター保守ガイド](SYSTEM_MONITOR_WIDGET_MAINTENANCE.md)
+- [機能保守ガイド](FEATURE_MAINTENANCE.md)
 - [スタート連動機能 保守ガイド](START_MENU_INTEGRATION_MAINTENANCE.md)
 - [旧リファクタリング・ログ整理計画](archive/REFACTORING_AND_LOG_CLEANUP_PLAN_2026-08-09.md)

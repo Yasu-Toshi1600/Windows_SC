@@ -26,6 +26,7 @@ public partial class App : Application
     private ISystemTrayService? _systemTrayService;
     private IGlobalInputService? _inputService;
     private IMacroExecutionService? _macroExecutionService;
+    private IUiDispatcher? _uiDispatcher;
     private bool _isShuttingDown;
 
     public App()
@@ -79,15 +80,18 @@ public partial class App : Application
         }
 
         _settingsRepository = new JsonSettingsRepository(logger);
+        _uiDispatcher = new DispatcherQueueUiDispatcher(DispatcherQueue.GetForCurrentThread());
         ShortcutKeyExecutionCoordinator shortcutKeyExecutionCoordinator = new();
         IShortcutKeyExecutionService shortcutKeyExecutionService =
             new ShortcutKeyExecutionService(logger, shortcutKeyExecutionCoordinator);
         IActionExecutionService actionExecutionService = new ActionExecutionService(
             logger,
             shortcutKeyExecutionService);
-        _macroExecutionService = new MacroExecutionService(actionExecutionService, logger);
+        _macroExecutionService = new MacroExecutionService(actionExecutionService, logger.Write);
         _audioOutputService = new WindowsAudioOutputService(logger);
-        _applicationVolumeStateStore = new ApplicationVolumeStateStore(logger);
+        _applicationVolumeStateStore = new ApplicationVolumeStateStore(
+            ApplicationDataPaths.ApplicationVolumeStateFilePath,
+            logger.Write);
         _applicationVolumeService = new WindowsApplicationVolumeService(
             logger,
             _applicationVolumeStateStore);
@@ -97,7 +101,8 @@ public partial class App : Application
             _macroExecutionService,
             _audioOutputService,
             _applicationVolumeService,
-            _systemMetricsService);
+            _systemMetricsService,
+            _uiDispatcher);
         LauncherSettings settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
         logger.ConfigureDetailedLogging(
             settings.DetailedLoggingExpiresAtUtc,
@@ -205,7 +210,8 @@ public partial class App : Application
             || _environmentInformationService is null
             || _startMenuMonitor is null
             || _inputService is null
-            || _applicationVolumeService is null)
+            || _applicationVolumeService is null
+            || _uiDispatcher is null)
         {
             return;
         }
@@ -219,7 +225,8 @@ public partial class App : Application
             _logger,
             _environmentInformationService,
             _startMenuMonitor,
-            _inputService);
+            _inputService,
+            _uiDispatcher);
         _settingsViewModel.ExitApplicationRequested += SettingsViewModel_ExitApplicationRequested;
         _settingsWindow = new SettingsWindow(_settingsViewModel);
         _settingsWindow.Closed += SettingsWindow_Closed;

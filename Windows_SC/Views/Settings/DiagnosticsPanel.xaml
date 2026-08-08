@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Windows_SC.Views.Settings.DiagnosticsPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <StackPanel MinWidth="520"
+                MaxWidth="620"
+                Padding="0,0,16,0"
+                Spacing="16">
+        <TextBlock FontWeight="SemiBold"
+                   Text="{Binding ApplicationVersionText}" />
+        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   Text="{Binding StartMenuMonitoringStatus}"
+                   TextWrapping="Wrap" />
+        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   Text="問題の調査に使うログと環境情報を管理します。詳細ログでもファイルパスは匿名化されます。"
+                   TextWrapping="Wrap" />
+
+        <ToggleSwitch Header="詳細診断ログ"
+                      IsOn="{Binding IsDetailedDiagnosticsEnabled, Mode=TwoWay}"
+                      OffContent="無効"
+                      OnContent="有効" />
+        <ToggleSwitch Header="開発用: 詳細ログを常時有効にする"
+                      IsEnabled="{Binding IsDetailedDiagnosticsEnabled}"
+                      IsOn="{Binding IsDetailedDiagnosticsAlwaysEnabled, Mode=TwoWay}"
+                      OffContent="24時間で自動停止"
+                      OnContent="手動で無効にするまで継続" />
+        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   Text="{Binding DetailedDiagnosticsStatus}"
+                   TextWrapping="Wrap" />
+        <InfoBar IsClosable="False"
+                 IsOpen="True"
+                 Message="切り替え後に［適用］を押してください。常時有効は開発・調査中だけ使用してください。詳細ログにはコマンド、音声デバイス名、例外情報などが含まれる場合があります。共有する前に必ず内容を確認してください。"
+                 Severity="Informational" />
+        <Button HorizontalAlignment="Left"
+                Click="ApplyDetailedDiagnostics_Click"
+                Content="詳細診断ログ設定を適用"
+                Style="{ThemeResource AccentButtonStyle}" />
+
+        <StackPanel Spacing="4">
+            <TextBlock FontWeight="SemiBold" Text="通常ログ" />
+            <TextBlock FontFamily="Consolas"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       Text="{Binding NormalLogPath}"
+                       TextWrapping="Wrap" />
+            <TextBlock Margin="0,8,0,0" FontWeight="SemiBold" Text="詳細ログ" />
+            <TextBlock FontFamily="Consolas"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       Text="{Binding DetailedLogPath}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Button HorizontalAlignment="Left"
+                Click="OpenDataFolder_Click"
+                Content="データフォルダーを開く" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Click="CopyEnvironmentInfo_Click" Content="環境情報をコピー" />
+            <Button Click="DeleteLogs_Click" Content="ログを削除" />
+        </StackPanel>
+        <InfoBar IsClosable="False"
+                 IsOpen="{Binding IsTroubleshootingStatusMessageOpen}"
+                 Message="{Binding TroubleshootingStatusMessage}"
+                 Severity="{Binding TroubleshootingStatusSeverity}" />
+    </StackPanel>
+</UserControl>

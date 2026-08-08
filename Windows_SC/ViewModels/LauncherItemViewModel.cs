@@ -28,7 +28,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private readonly LauncherPostExecutionBehavior _postExecutionBehavior;
     private bool _isOn;
     private double _sliderValue = 50;
-    private bool _isExecuting;
     private string _cycleStatusText = "切り替え内容が設定されていません";
     private bool _canExecuteCycle;
     private int _nextCommandStepIndex;
@@ -46,7 +45,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private string _secondaryMonitorText = string.Empty;
     private readonly PointCollection _standardMonitorGraphPoints = [];
     private readonly PointCollection _compactMonitorGraphPoints = [];
-    private readonly Queue<double> _monitorHistory = new();
+    private readonly SystemMonitorHistory _monitorHistory = new();
 
     public LauncherItemViewModel(
         LauncherItemDefinition definition,
@@ -73,12 +72,12 @@ internal sealed class LauncherItemViewModel : ObservableObject
         _volumeUpdateCoordinator = new(
             ApplyVolumeAsync,
             HandleVolumeUpdateException);
-        ExecuteCommand = new RelayCommand(
-            () => _ = ExecuteAsync(),
-            () => Kind == LauncherItemKind.Button && !_isExecuting);
-        ExecuteCycleCommand = new RelayCommand(
-            () => _ = ExecuteCycleAsync(),
-            () => Kind == LauncherItemKind.Toggle && _canExecuteCycle && !_isExecuting);
+        ExecuteCommand = new AsyncRelayCommand(
+            ExecuteAsync,
+            () => Kind == LauncherItemKind.Button);
+        ExecuteCycleCommand = new AsyncRelayCommand(
+            ExecuteCycleAsync,
+            () => Kind == LauncherItemKind.Toggle && _canExecuteCycle);
         RefreshAudioOutputState();
         RefreshSystemMetrics();
     }
@@ -91,9 +90,9 @@ internal sealed class LauncherItemViewModel : ObservableObject
 
     public string Title { get; }
 
-    public RelayCommand ExecuteCommand { get; }
+    public AsyncRelayCommand ExecuteCommand { get; }
 
-    public RelayCommand ExecuteCycleCommand { get; }
+    public AsyncRelayCommand ExecuteCycleCommand { get; }
 
     public Visibility ButtonVisibility => Kind == LauncherItemKind.Button
         ? Visibility.Visible
@@ -318,7 +317,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
                 group => group.First(),
                 StringComparer.OrdinalIgnoreCase);
         AudioOutputDevice? currentDevice = _audioOutputService.GetCachedDefaultDevice();
-        AudioOutputDevice? nextDevice = FindNextAudioOutputDevice(
+        AudioOutputDevice? nextDevice = AudioOutputCycleSelector.FindNext(
             registeredIds,
             availableDevices,
             currentDevice?.Id);
@@ -338,7 +337,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
 
     private async System.Threading.Tasks.Task ExecuteAsync()
     {
-        if (_action is null || _isExecuting)
+        if (_action is null)
         {
             Executed?.Invoke(
                 this,
@@ -348,34 +347,21 @@ internal sealed class LauncherItemViewModel : ObservableObject
             return;
         }
 
-        _isExecuting = true;
-        ExecuteCommand.NotifyCanExecuteChanged();
-
-        try
-        {
-            ActionExecutionResult result = _action.Kind == LauncherActionKind.Macro
-                ? await _macroExecutionService.ExecuteAsync(
-                    Id,
-                    _action.Macro ?? new MacroDefinition())
-                : await _actionExecutionService.ExecuteAsync(_action);
-            RaiseExecuted(result);
-        }
-        finally
-        {
-            _isExecuting = false;
-            ExecuteCommand.NotifyCanExecuteChanged();
-        }
+        ActionExecutionResult result = _action.Kind == LauncherActionKind.Macro
+            ? await _macroExecutionService.ExecuteAsync(
+                Id,
+                _action.Macro ?? new MacroDefinition())
+            : await _actionExecutionService.ExecuteAsync(_action);
+        RaiseExecuted(result);
     }
 
     private async System.Threading.Tasks.Task ExecuteCycleAsync()
     {
-        if (_cycleAction is null || _isExecuting)
+        if (_cycleAction is null)
         {
             return;
         }
 
-        _isExecuting = true;
-        ExecuteCycleCommand.NotifyCanExecuteChanged();
         try
         {
             if (_cycleAction.Kind == CycleActionKind.Commands)
@@ -389,9 +375,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
         }
         finally
         {
-            _isExecuting = false;
             RefreshAudioOutputState();
-            ExecuteCycleCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -424,15 +408,11 @@ internal sealed class LauncherItemViewModel : ObservableObject
             double? value = GetMonitorMetricValue(_selectedMonitorMetrics[0], snapshot);
             if (value is null)
             {
-                _monitorHistory.Clear();
+                _monitorHistory.Add(null);
             }
             else
             {
-                _monitorHistory.Enqueue(Math.Clamp(value.Value, 0, 100));
-                while (_monitorHistory.Count > 60)
-                {
-                    _monitorHistory.Dequeue();
-                }
+                _monitorHistory.Add(value);
             }
 
             UpdateMonitorGraphPoints();
@@ -511,26 +491,10 @@ internal sealed class LauncherItemViewModel : ObservableObject
         ReplacePoints(_compactMonitorGraphPoints, points);
     }
 
-    private List<Point> BuildMonitorGraphPoints()
-    {
-        List<Point> points = [];
-        if (_monitorHistory.Count == 0)
-        {
-            return points;
-        }
-
-        double xStep = _monitorHistory.Count == 1
-            ? 0
-            : 100d / (_monitorHistory.Count - 1);
-        int index = 0;
-        foreach (double value in _monitorHistory)
-        {
-            points.Add(new Point(index * xStep, 40d - (value * 0.4d)));
-            index++;
-        }
-
-        return points;
-    }
+    private List<Point> BuildMonitorGraphPoints() =>
+        _monitorHistory.CreateGraphPoints()
+            .Select(point => new Point(point.X, point.Y))
+            .ToList();
 
     private static void ReplacePoints(
         PointCollection target,
@@ -608,42 +572,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
             _canExecuteCycle = canExecute;
             ExecuteCycleCommand.NotifyCanExecuteChanged();
         }
-    }
-
-    private static AudioOutputDevice? FindNextAudioOutputDevice(
-        IReadOnlyList<string> orderedIds,
-        IReadOnlyDictionary<string, AudioOutputDevice> availableDevices,
-        string? currentDeviceId)
-    {
-        int currentIndex = currentDeviceId is null
-            ? -1
-            : orderedIds
-                .Select((id, index) => (id, index))
-                .Where(entry => string.Equals(
-                    entry.id,
-                    currentDeviceId,
-                    StringComparison.OrdinalIgnoreCase))
-                .Select(entry => entry.index)
-                .DefaultIfEmpty(-1)
-                .First();
-        int startIndex = currentIndex < 0 ? 0 : currentIndex + 1;
-
-        for (int offset = 0; offset < orderedIds.Count; offset++)
-        {
-            int index = (startIndex + offset) % orderedIds.Count;
-            if (availableDevices.TryGetValue(
-                    orderedIds[index],
-                    out AudioOutputDevice? device)
-                && !string.Equals(
-                    device.Id,
-                    currentDeviceId,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return device;
-            }
-        }
-
-        return null;
     }
 
     private void RefreshApplicationVolumeState()

@@ -42,6 +42,39 @@ public sealed class MacroTests
     }
 
     [TestMethod]
+    public async Task ExecuteAsync_RejectsConcurrentMacroWithoutInterleavingSteps()
+    {
+        BlockingActionService actionService = new();
+        using MacroExecutionService service = new(actionService, _ => { });
+        Task<ActionExecutionResult> first = service.ExecuteAsync(
+            Guid.NewGuid(),
+            CreateMacro("first"));
+        await actionService.Started.Task;
+
+        ActionExecutionResult second = await service.ExecuteAsync(
+            Guid.NewGuid(),
+            CreateMacro("second"));
+        actionService.Release.SetResult();
+        ActionExecutionResult firstResult = await first;
+
+        Assert.IsFalse(second.IsSuccess);
+        StringAssert.Contains(second.ErrorMessage, "実行中");
+        Assert.IsTrue(firstResult.IsSuccess);
+        CollectionAssert.AreEqual(new[] { "first" }, actionService.Targets);
+    }
+
+    [TestMethod]
+    public async Task ExecuteAsync_AfterDisposeThrowsObjectDisposedException()
+    {
+        RecordingActionService actionService = new();
+        MacroExecutionService service = new(actionService, _ => { });
+        service.Dispose();
+
+        await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() =>
+            service.ExecuteAsync(Guid.NewGuid(), CreateMacro("first")));
+    }
+
+    [TestMethod]
     public void Validate_RejectsNestedMacro()
     {
         LauncherSettings settings = LauncherSettings.CreateDefault();
@@ -109,6 +142,27 @@ public sealed class MacroTests
                 string.Equals(action.Target, failingTarget, StringComparison.Ordinal)
                     ? ActionExecutionResult.Failure("expected failure")
                     : ActionExecutionResult.Success);
+        }
+    }
+
+    private sealed class BlockingActionService : IActionExecutionService
+    {
+        public List<string> Targets { get; } = [];
+
+        public TaskCompletionSource Started { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<ActionExecutionResult> ExecuteAsync(
+            LauncherActionDefinition action,
+            CancellationToken cancellationToken = default)
+        {
+            Targets.Add(action.Target);
+            Started.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            return ActionExecutionResult.Success;
         }
     }
 }

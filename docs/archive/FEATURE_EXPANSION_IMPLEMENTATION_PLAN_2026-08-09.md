@@ -7,8 +7,7 @@
 状態: Phase 0～4コード実装完了・手動確認は現行試験文書へ移管
 
 > 本書は、ShortcutKey、マクロ、アプリ別音量、システムモニターを実装した際の判断と進捗の履歴である。
-> 現行仕様は`../ACTION_AND_MACRO_MAINTENANCE.md`、`../APPLICATION_VOLUME_MAINTENANCE.md`、
-> `../SYSTEM_MONITOR_WIDGET_MAINTENANCE.md`を正とする。未完了のGUI／実機確認は
+> 現行仕様は`../FEATURE_MAINTENANCE.md`を正とする。未完了のGUI／実機確認は
 > `../NEXT_STEPS_AND_DECISIONS.md`、`../TEST_CHECKLIST.md`、`../PHASE5_6_TEST_PROCEDURE.md`で管理する。
 
 ## 1. 文書の目的

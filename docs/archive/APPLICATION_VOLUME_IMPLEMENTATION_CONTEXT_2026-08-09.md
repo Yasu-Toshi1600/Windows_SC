@@ -4,7 +4,7 @@
 アーカイブ日: 2026-08-09
 
 > 本書はPhase 3実装時の検討と引継ぎの記録である。現行仕様は
-> `../APPLICATION_VOLUME_MAINTENANCE.md`と`../DESIGN.md`を正とし、
+> `../FEATURE_MAINTENANCE.md`と`../DESIGN.md`を正とし、
 > 実装計画の履歴は`FEATURE_EXPANSION_IMPLEMENTATION_PLAN_2026-08-09.md`を参照する。
 
 ## 対象

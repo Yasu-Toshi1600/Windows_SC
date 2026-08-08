@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System;
 using System.Linq;
-using Microsoft.UI.Dispatching;
 using Windows_SC.Models;
 using Windows_SC.Services;
 
@@ -18,20 +17,21 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly IMacroExecutionService _macroExecutionService;
     private readonly IApplicationVolumeService _applicationVolumeService;
     private readonly ISystemMetricsService _systemMetricsService;
-    private readonly DispatcherQueue _dispatcherQueue;
+    private readonly IUiDispatcher _uiDispatcher;
 
     public MainWindowViewModel(
         IActionExecutionService actionExecutionService,
         IMacroExecutionService macroExecutionService,
         IAudioOutputService audioOutputService,
         IApplicationVolumeService applicationVolumeService,
-        ISystemMetricsService systemMetricsService)
+        ISystemMetricsService systemMetricsService,
+        IUiDispatcher uiDispatcher)
     {
         _actionExecutionService = actionExecutionService;
         _macroExecutionService = macroExecutionService;
         _applicationVolumeService = applicationVolumeService;
         _systemMetricsService = systemMetricsService;
-        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+        _uiDispatcher = uiDispatcher;
         _applicationVolumeService.StateChanged += ApplicationVolumeService_StateChanged;
         _systemMetricsService.MetricsChanged += SystemMetricsService_MetricsChanged;
         AudioOutputService = audioOutputService;
@@ -137,10 +137,10 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
     }
 
     private void ApplicationVolumeService_StateChanged(object? sender, EventArgs args) =>
-        _dispatcherQueue.TryEnqueue(RefreshAudioOutputState);
+        _uiDispatcher.TryEnqueue(RefreshAudioOutputState);
 
     private void SystemMetricsService_MetricsChanged(object? sender, EventArgs args) =>
-        _dispatcherQueue.TryEnqueue(() =>
+        _uiDispatcher.TryEnqueue(() =>
         {
             foreach (LauncherItemViewModel shortcut in Shortcuts)
             {

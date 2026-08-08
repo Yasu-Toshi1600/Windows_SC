@@ -4,8 +4,8 @@ Windows 11のスタートメニューと一緒に表示できる、常駐型の�
 アプリ、ファイル、フォルダー、URL、コマンド、キー入力、マクロ、音声出力先、
 マスター／アプリ別音量を一つの画面から操作し、CPU／GPU／メモリも確認できます。
 
-現在のソースバージョンは`0.8.1`です。GitHubで公開済みのタグ／配布版は
-`v0.6.2-beta.1`で、`0.8.1`はまだ配布物の作成、配布前確認、タグ付けを
+現在のソースバージョンは`0.9.0`です。GitHubで公開済みのタグ／配布版は
+`v0.6.2-beta.1`で、`0.9.0`はまだ配布物の作成、配布前確認、タグ付けを
 完了していません。
 
 ## 対応環境
@@ -86,6 +86,9 @@ PATHで解決できる`notepad.exe`等、URL、Windows URIは手入力も可能�
 
 ## 開発用ビルド
 
+製品コードは、UI非依存の`Windows_SC.Core`とWinUIアプリの`Windows_SC`で構成されています。
+`Windows_SC.Tests`はCore成果物を参照してテストします。
+
 ```powershell
 dotnet build Windows_SC.slnx -c Debug -p:Platform=x64 --no-restore
 dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
@@ -113,9 +116,9 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
 パネルの正確な外周を安定して取得できない点と合わせ、既知の配置制約として
 管理しています。
 
-`0.8.1`の未リリースソースには、スタート検出診断に加え、ShortcutKey、マクロ、
+`0.9.0`の未リリースソースには、スタート検出診断に加え、ShortcutKey、マクロ、
 出力先別のアプリ音量、システムモニターを実装しています。Debug／Release x64は
-警告・エラー0、単体テスト30件は成功しています。新機能のGUI操作、2台の音声出力での
+警告・エラー0、Core自動テスト69件は成功しています。新機能のGUI操作、2台の音声出力での
 復元、長時間常駐、現在版ZIP、別PCは未確認であり、配布前に試験チェックリストを
 実施する必要があります。
 
@@ -135,10 +138,9 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
 - [モーション仕様](docs/MOTION_SPECIFICATION.md)
 - [ログ・詳細診断・プライバシー仕様](docs/LOGGING_AND_PRIVACY.md)
 - [次に行う作業と判断事項](docs/NEXT_STEPS_AND_DECISIONS.md)
-- [アクション／マクロ保守ガイド](docs/ACTION_AND_MACRO_MAINTENANCE.md)
-- [アプリ別音量保守ガイド](docs/APPLICATION_VOLUME_MAINTENANCE.md)
-- [システムモニター保守ガイド](docs/SYSTEM_MONITOR_WIDGET_MAINTENANCE.md)
+- [機能保守ガイド](docs/FEATURE_MAINTENANCE.md)
 - [UI・MVVMリファクタリング計画](docs/UI_MVVM_REFACTORING_PLAN.md)
+- [Core自動テスト方針](docs/CORE_TESTING.md)
 - [簡易テスト](docs/TEST_CHECKLIST.md)
 - [変更履歴](CHANGELOG.md)
 - [バージョン管理](docs/VERSIONING.md)

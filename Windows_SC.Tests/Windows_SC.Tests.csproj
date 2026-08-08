@@ -1,12 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <TargetFramework>net8.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
-    <Platforms>x64</Platforms>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,47 +14,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\Windows_SC\DiagnosticLogger.cs"
-             Link="Source\DiagnosticLogger.cs" />
-    <Compile Include="..\Windows_SC\Models\LauncherSettings.cs"
-             Link="Source\LauncherSettings.cs" />
-    <Compile Include="..\Windows_SC\Services\LauncherSettingsMigrator.cs"
-             Link="Source\LauncherSettingsMigrator.cs" />
-    <Compile Include="..\Windows_SC\Services\LauncherSettingsValidator.cs"
-             Link="Source\LauncherSettingsValidator.cs" />
-    <Compile Include="..\Windows_SC\Services\SettingsEditRevisionTracker.cs"
-             Link="Source\SettingsEditRevisionTracker.cs" />
-    <Compile Include="..\Windows_SC\Services\SettingsPersistenceCoordinator.cs"
-             Link="Source\SettingsPersistenceCoordinator.cs" />
-    <Compile Include="..\Windows_SC\Services\LatestValueUpdateCoordinator.cs"
-             Link="Source\LatestValueUpdateCoordinator.cs" />
-    <Compile Include="..\Windows_SC\Services\ShortcutRecordingSession.cs"
-             Link="Source\ShortcutRecordingSession.cs" />
-    <Compile Include="..\Windows_SC\Services\SequentialAsyncQueue.cs"
-             Link="Source\SequentialAsyncQueue.cs" />
-    <Compile Include="..\Windows_SC\Services\IActionExecutionService.cs"
-             Link="Source\IActionExecutionService.cs" />
-    <Compile Include="..\Windows_SC\Services\IAudioOutputService.cs"
-             Link="Source\IAudioOutputService.cs" />
-    <Compile Include="..\Windows_SC\Services\IApplicationVolumeService.cs"
-             Link="Source\IApplicationVolumeService.cs" />
-    <Compile Include="..\Windows_SC\Services\ApplicationVolumeStateStore.cs"
-             Link="Source\ApplicationVolumeStateStore.cs" />
-    <Compile Include="..\Windows_SC\Services\IMacroExecutionService.cs"
-             Link="Source\IMacroExecutionService.cs" />
-    <Compile Include="..\Windows_SC\Services\MacroExecutionService.cs"
-             Link="Source\MacroExecutionService.cs" />
-    <Compile Include="..\Windows_SC\Services\ShortcutKeyText.cs"
-             Link="Source\ShortcutKeyText.cs" />
-    <Compile Include="..\Windows_SC\Services\ShortcutKeyInputSequence.cs"
-             Link="Source\ShortcutKeyInputSequence.cs" />
-    <Compile Include="..\Windows_SC\Services\ShortcutKeyValidator.cs"
-             Link="Source\ShortcutKeyValidator.cs" />
-    <Compile Include="..\Windows_SC\Services\ApplicationDataPaths.cs"
-             Link="Source\ApplicationDataPaths.cs" />
-    <Compile Include="..\Windows_SC\Services\LogValue.cs"
-             Link="Source\LogValue.cs" />
-    <Compile Include="..\Windows_SC\Services\LogPrivacySanitizer.cs"
-             Link="Source\LogPrivacySanitizer.cs" />
+    <ProjectReference Include="..\Windows_SC.Core\Windows_SC.Core.csproj" />
   </ItemGroup>
 </Project>

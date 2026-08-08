@@ -6,7 +6,6 @@ using Microsoft.UI.Xaml.Input;
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
-using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Storage.Pickers;
 using Windows_SC.ViewModels;
@@ -27,6 +26,8 @@ public sealed partial class SettingsWindow : Window
         InitializeComponent();
         RootGrid.DataContext = viewModel;
         TroubleshootingDialog.DataContext = viewModel;
+        DiagnosticsPanel.DataContext = viewModel.Diagnostics;
+        DiagnosticsPanel.DeleteLogsRequested += DiagnosticsPanel_DeleteLogsRequested;
 
         nint windowHandle = WindowNative.GetWindowHandle(this);
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
@@ -283,7 +284,7 @@ public sealed partial class SettingsWindow : Window
 
     private async void TroubleshootingButton_Click(object sender, RoutedEventArgs args)
     {
-        _viewModel.RefreshEnvironmentInformationLog();
+        _viewModel.Diagnostics.RefreshEnvironmentInformationLog();
         TroubleshootingScrollViewer.MaxHeight = Math.Max(
             280,
             RootGrid.ActualHeight - 180);
@@ -321,21 +322,7 @@ public sealed partial class SettingsWindow : Window
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int virtualKey);
 
-    private void OpenDataFolder_Click(object sender, RoutedEventArgs args) =>
-        _viewModel.OpenDataFolder();
-
-    private async void ApplyDetailedDiagnostics_Click(object sender, RoutedEventArgs args) =>
-        await _viewModel.ApplyDetailedDiagnosticsAsync();
-
-    private void CopyEnvironmentInfo_Click(object sender, RoutedEventArgs args)
-    {
-        DataPackage package = new();
-        package.SetText(_viewModel.CreateEnvironmentInformation());
-        Clipboard.SetContent(package);
-        _viewModel.ReportEnvironmentInformationCopied();
-    }
-
-    private async void DeleteLogs_Click(object sender, RoutedEventArgs args)
+    private async void DiagnosticsPanel_DeleteLogsRequested(object? sender, EventArgs args)
     {
         if (_isDeleteLogsFlowActive)
         {
@@ -372,7 +359,7 @@ public sealed partial class SettingsWindow : Window
 
             if (await confirmation.ShowAsync() == ContentDialogResult.Primary)
             {
-                _viewModel.ClearLogs();
+                _viewModel.Diagnostics.ClearLogs();
             }
         }
         finally

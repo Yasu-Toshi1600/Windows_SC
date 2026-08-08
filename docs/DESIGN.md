@@ -1,7 +1,7 @@
 # Windows_SC 設計書
 
 更新日: 2026-08-09
-対象ソースバージョン: `0.8.1`
+対象ソースバージョン: `0.9.0`
 
 ## 1. 文書の位置付け
 
@@ -15,17 +15,16 @@
 | 日常確認、知人向け配布前の必須テスト | [簡易テストチェックリスト](TEST_CHECKLIST.md) |
 | 正式公開前、基盤変更、不具合調査の網羅試験 | [Phase 5～6 詳細テスト手順書](PHASE5_6_TEST_PROCEDURE.md) |
 | 直近の作業順と実装・配布前の判断事項 | [次に行う作業と判断が必要な内容](NEXT_STEPS_AND_DECISIONS.md) |
-| ShortcutKey、マクロ | [アクション／マクロ保守ガイド](ACTION_AND_MACRO_MAINTENANCE.md) |
-| アプリ別音量、Core Audio、出力先別状態 | [アプリ別音量保守ガイド](APPLICATION_VOLUME_MAINTENANCE.md) |
-| CPU／GPU／メモリ表示 | [システムモニター保守ガイド](SYSTEM_MONITOR_WIDGET_MAINTENANCE.md) |
+| ShortcutKey、マクロ、音声循環、アプリ別音量、システムモニター | [機能保守ガイド](FEATURE_MAINTENANCE.md) |
 | UI・MVVMの不具合修正、責務分割、実施順 | [UI・MVVMリファクタリング計画](UI_MVVM_REFACTORING_PLAN.md) |
+| Coreの自動テスト範囲とWindows／GUI確認との境界 | [Windows_SC.Core 自動テスト方針](CORE_TESTING.md) |
 | 配布形式、生成、確認方法 | [配布手順](DISTRIBUTION.md) |
 | 過去の設計、UI調整、実装計画、検証記録 | [アーカイブ文書索引](archive/README.md) |
 | バージョン番号と更新方法 | [バージョン管理](VERSIONING.md) |
 | 利用者影響のある変更 | [CHANGELOG](../CHANGELOG.md) |
 
 機能拡張のコード実装記録は日付付きで`archive`へ移動済みである。現行仕様と変更時の注意は
-上記3つのメンテナンス文書、未完了のGUI・実機確認は試験文書と`NEXT_STEPS_AND_DECISIONS.md`を正とする。
+機能保守ガイド、未完了のGUI・実機確認は試験文書と`NEXT_STEPS_AND_DECISIONS.md`を正とする。
 
 ## 2. 製品概要
 
@@ -250,18 +249,23 @@ ScanCode方式またはVirtualKey方式を選択し、入力配列を1回で一�
 | 起動と寿命 | `App.xaml.cs` | サービス生成、単一インスタンス、設定読込、トレイ、設定画面、終了 |
 | ランチャーUI | `MainWindow.xaml(.cs)` | 表示入口、配置、状態同期、モーション開始、light-dismiss |
 | ランチャー状態 | `MainWindowViewModel`、`LauncherItemViewModel` | 項目構築、実行、音声状態反映 |
-| 設定UI | `SettingsWindow.xaml(.cs)`、`SettingsViewModel`、`SettingsSaveValidator` | 編集用コピー、保存前検証、該当項目の再選択、明示保存、診断操作 |
+| 設定UI | `SettingsWindow.xaml(.cs)`、`SettingsViewModel`、`DiagnosticsSettingsViewModel`、`DiagnosticsPanel` | 編集用コピー、保存前検証、該当項目の再選択、明示保存、診断操作 |
 | スタート監視 | `HybridStartMenuMonitor`、`UiAutomationStartMenuInspector`、`StartMenuWindowInspector` | UIA／Win32検出、Snapshot、フォールバック |
 | モーション | `LauncherMotionCoordinator`、`CompositionLauncherMotionService` | 論理状態、Translation、Opacity、反転、完了通知 |
 | 配置 | `LauncherPlacementService` | モニター、DPI、作業領域、列数、ランチャー矩形 |
 | 入力 | `GlobalInputService`、`GlobalWindowsKeyMonitor`、`WindowInteropService` | Windowsキー、ホットキー、外側クリック、Escape |
 | アクション | `ActionExecutionService`、`ShortcutKeyExecutionService`、`MacroExecutionService` | Shell／cmd起動、キー送信、登録順実行 |
 | 音声 | `WindowsAudioOutputService`、`WindowsApplicationVolumeService` | 既定出力切り替え、マスター音量、MTA上のセッション監視とアプリ別音量 |
-| アプリ音量状態 | `ApplicationVolumeStateStore` | 出力先＋アプリ識別子の遅延作成、debounce、atomic保存 |
+| アプリ音量状態 | Coreの`ApplicationVolumeStateStore` | 出力先＋アプリ識別子の遅延作成、debounce、atomic保存 |
 | システム指標 | `WindowsSystemMetricsService` | CPU／GPU／メモリ取得、表示中だけの定期更新 |
-| 設定保存 | `JsonSettingsRepository`、`LauncherSettingsValidator`、`ApplicationDataPaths` | JSON、スキーマ検証、旧保存場所からの移行、破損バックアップ、保存先 |
-| 診断 | `DiagnosticLogger`、`LogPrivacySanitizer`、`ApplicationInformation`、`EnvironmentInformationService` | 通常／詳細ログ、匿名化、環境情報の取得・変更検出 |
+| 設定保存 | `JsonSettingsRepository`、Coreの`LauncherSettingsValidator`、`ApplicationDataPaths` | JSON、スキーマ検証、旧保存場所からの移行、破損バックアップ、保存先 |
+| 診断 | `DiagnosticLogger`、Coreの`LogPrivacySanitizer`、`ApplicationInformation`、`EnvironmentInformationService` | 通常／詳細ログ、匿名化、環境情報の取得・変更検出 |
 | OS統合 | `WindowsSystemTrayService`、`RegistryStartupService`、`SingleInstanceService` | トレイ、自動起動、二重起動防止 |
+
+製品コードは`Windows_SC.Core`と`Windows_SC`の2プロジェクトで構成する。Coreは`net8.0`を対象とし、
+WinUI、Windows App SDK、Windows APIを参照しない。WinUI本体とWindows固有サービスからCoreへの
+一方向参照とし、テストも製品ソースのリンクではなくCore成果物を参照する。
+Coreで確認する領域とWindows／GUI確認へ残す領域は`CORE_TESTING.md`を正とする。
 
 Win32、COM、WPF UI Automation等のOS依存処理はサービス境界へ置き、ViewModelから直接呼ばないことを基本とする。例外的な現行コードを追加するときは、将来の分離方針を残件へ記録する。
 
@@ -362,8 +366,8 @@ UI Automation要素名は取得・記録しない。詳細ログにはコマン�
 | Phase 0～3 | 完了 |
 | Phase 4 | 完了。v0.6のUI調整とファイル／フォルダー選択を実装・実画面確認済み |
 | Phase 4.5 | Composition再設計完了。環境別回帰を継続 |
-| Phase 5 | ログ、環境情報、簡易／詳細テスト文書を整備。公開済みタグは`v0.6.2-beta.1`。ソースは`0.8.1`へ更新済み |
-| Phase 6 | `0.8.1`の正式な簡易テスト、現在版ZIP、別PC、自動起動、長時間、アクセシビリティ、クリーン配布試験が未完了 |
+| Phase 5 | ログ、環境情報、簡易／詳細テスト文書を整備。公開済みタグは`v0.6.2-beta.1`。ソースは`0.9.0`へ更新済み |
+| Phase 6 | `0.9.0`の正式な簡易テスト、現在版ZIP、別PC、自動起動、長時間、アクセシビリティ、クリーン配布試験が未完了 |
 
 75Hz／180Hzデュアルディスプレイ環境では暫定確認済みである。別環境で確認した
 連続スタートクリック、別モニター表示、仮想デスクトップ表示は現行コードで

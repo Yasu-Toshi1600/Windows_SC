@@ -52,4 +52,11 @@ public sealed class ShortcutRecordingSessionTests
 
         Assert.AreEqual(second, session.ActiveTarget);
     }
+
+    [TestMethod]
+    public void Constructor_RejectsMissingSuppressionCallback()
+    {
+        Assert.ThrowsExactly<ArgumentNullException>(() =>
+            new ShortcutRecordingSession(null!));
+    }
 }

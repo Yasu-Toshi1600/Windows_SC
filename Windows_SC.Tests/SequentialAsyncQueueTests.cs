@@ -56,4 +56,33 @@ public sealed class SequentialAsyncQueueTests
         CollectionAssert.AreEqual(new[] { "first", "second" }, processed);
         CollectionAssert.AreEqual(new[] { "failed" }, errors);
     }
+
+    [TestMethod]
+    public async Task ErrorHandlerFailure_DoesNotDropFollowingItem()
+    {
+        List<string> processed = [];
+        SequentialAsyncQueue<string> queue = new(
+            item =>
+            {
+                processed.Add(item);
+                return item == "first"
+                    ? Task.FromException(new System.InvalidOperationException("failed"))
+                    : Task.CompletedTask;
+            },
+            _ => throw new System.InvalidOperationException("report failed"));
+
+        queue.Enqueue("first");
+        queue.Enqueue("second");
+        await queue.WaitForIdleAsync();
+
+        CollectionAssert.AreEqual(new[] { "first", "second" }, processed);
+    }
+
+    [TestMethod]
+    public async Task WaitForIdleBeforeFirstItem_CompletesImmediately()
+    {
+        SequentialAsyncQueue<string> queue = new(_ => Task.CompletedTask);
+
+        await queue.WaitForIdleAsync().WaitAsync(System.TimeSpan.FromSeconds(1));
+    }
 }
