@@ -8,6 +8,7 @@
     <Grid x:Name="RootGrid"
           Padding="24"
           Background="{ThemeResource SettingsPageBackgroundBrush}"
+          KeyDown="RootGrid_KeyDown"
           RowDefinitions="Auto,*,Auto"
           RowSpacing="16">
         <Border Padding="16"
@@ -147,36 +148,142 @@
                                   DisplayMemberPath="DisplayName"
                                   ItemsSource="{Binding ActionKinds}"
                                   SelectedItem="{Binding SelectedActionKind, Mode=TwoWay}" />
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                            <TextBox Header="{Binding SelectedItem.TargetHeader}"
-                                     PlaceholderText="{Binding SelectedItem.TargetPlaceholderText}"
-                                     Text="{Binding SelectedItem.Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <Button Grid.Column="1"
-                                    Width="40"
-                                    Height="32"
-                                    Padding="0"
-                                    VerticalAlignment="Bottom"
-                                    AutomationProperties.Name="起動対象を選択"
-                                    ToolTipService.ToolTip="起動対象を選択"
-                                    Visibility="{Binding SelectedItem.TargetFilePickerVisibility}">
-                                <FontIcon FontSize="16" Glyph="&#xE8B7;" />
-                                <Button.Flyout>
-                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
-                                        <MenuFlyoutItem Text="ファイルを選択"
-                                                        Click="SelectTargetFile_Click" />
-                                        <MenuFlyoutItem Text="フォルダーを選択"
-                                                        Click="SelectTargetFolder_Click" />
-                                    </MenuFlyout>
-                                </Button.Flyout>
-                            </Button>
-                        </Grid>
-                        <TextBox Header="引数"
-                                 Text="{Binding SelectedItem.Arguments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBox Header="作業フォルダー（通常は空欄）"
-                                 Text="{Binding SelectedItem.WorkingDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        <CheckBox Content="コマンド／batの画面を表示しない"
-                                  IsChecked="{Binding SelectedItem.HideCommandWindow, Mode=TwoWay}"
-                                  Visibility="{Binding SelectedItem.CommandButtonSettingsVisibility}" />
+                        <StackPanel Spacing="12"
+                                    Visibility="{Binding SelectedItem.StandardActionSettingsVisibility}">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBox Header="{Binding SelectedItem.TargetHeader}"
+                                         PlaceholderText="{Binding SelectedItem.TargetPlaceholderText}"
+                                         Text="{Binding SelectedItem.Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <Button Grid.Column="1"
+                                        Width="40"
+                                        Height="32"
+                                        Padding="0"
+                                        VerticalAlignment="Bottom"
+                                        AutomationProperties.Name="起動対象を選択"
+                                        ToolTipService.ToolTip="起動対象を選択"
+                                        Visibility="{Binding SelectedItem.TargetFilePickerVisibility}">
+                                    <FontIcon FontSize="16" Glyph="&#xE8B7;" />
+                                    <Button.Flyout>
+                                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                            <MenuFlyoutItem Text="ファイルを選択"
+                                                            Click="SelectTargetFile_Click" />
+                                            <MenuFlyoutItem Text="フォルダーを選択"
+                                                            Click="SelectTargetFolder_Click" />
+                                        </MenuFlyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </Grid>
+                            <TextBox Header="引数"
+                                     Text="{Binding SelectedItem.Arguments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBox Header="作業フォルダー（通常は空欄）"
+                                     Text="{Binding SelectedItem.WorkingDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <CheckBox Content="コマンド／batの画面を表示しない"
+                                      IsChecked="{Binding SelectedItem.HideCommandWindow, Mode=TwoWay}"
+                                      Visibility="{Binding SelectedItem.CommandButtonSettingsVisibility}" />
+                        </StackPanel>
+                        <StackPanel Spacing="8"
+                                    Visibility="{Binding SelectedItem.ShortcutKeySettingsVisibility}">
+                            <TextBlock FontWeight="SemiBold" Text="登録キー" />
+                            <TextBlock FontSize="18"
+                                       Text="{Binding SelectedItem.ShortcutKeyDisplayText}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Click="RecordShortcutKey_Click" Content="キーを記録" />
+                                <Button Click="ClearShortcutKey_Click" Content="解除" />
+                            </StackPanel>
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Text="{Binding ShortcutRecordingStatus}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Spacing="10"
+                                    Visibility="{Binding SelectedItem.MacroSettingsVisibility}">
+                            <TextBlock FontWeight="SemiBold" Text="マクロの実行順" />
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Text="最大50ステップを上から順番に実行します。"
+                                       TextWrapping="Wrap" />
+                            <Button HorizontalAlignment="Left"
+                                    Command="{Binding AddMacroStepCommand}"
+                                    Content="ステップを追加" />
+                            <ListView x:Name="MacroStepList"
+                                      Height="150"
+                                      ItemsSource="{Binding SelectedItem.MacroSteps}"
+                                      SelectedItem="{Binding SelectedMacroStep, Mode=TwoWay}">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding DisplayName}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock FontSize="11"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                           Text="{Binding Summary}" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1"
+                                                    Click="MacroStepMoveUp_Click"
+                                                    Content="↑"
+                                                    Padding="8,4"
+                                                    ToolTipService.ToolTip="上へ移動" />
+                                            <Button Grid.Column="2"
+                                                    Click="MacroStepMoveDown_Click"
+                                                    Content="↓"
+                                                    Padding="8,4"
+                                                    ToolTipService.ToolTip="下へ移動" />
+                                            <Button Grid.Column="3"
+                                                    Click="MacroStepRemove_Click"
+                                                    Content="×"
+                                                    Padding="8,4"
+                                                    ToolTipService.ToolTip="削除" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <TextBlock FontWeight="SemiBold" Text="選択中のステップ" />
+                            <TextBox Header="表示名"
+                                     Text="{Binding SelectedMacroStep.DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <ComboBox Header="ステップ種類"
+                                      DisplayMemberPath="DisplayName"
+                                      ItemsSource="{Binding MacroStepKinds}"
+                                      SelectedValue="{Binding SelectedMacroStep.Kind, Mode=TwoWay}"
+                                      SelectedValuePath="Value" />
+                            <NumberBox Header="待機時間（ms）"
+                                       Minimum="0"
+                                       Maximum="10000"
+                                       SpinButtonPlacementMode="Compact"
+                                       Value="{Binding SelectedMacroStep.DelayMilliseconds, Mode=TwoWay}"
+                                       Visibility="{Binding SelectedMacroStep.WaitSettingsVisibility}" />
+                            <StackPanel Spacing="10"
+                                        Visibility="{Binding SelectedMacroStep.ActionSettingsVisibility}">
+                                <ComboBox Header="実行種類"
+                                          DisplayMemberPath="DisplayName"
+                                          ItemsSource="{Binding MacroActionKinds}"
+                                          SelectedValue="{Binding SelectedMacroStep.ActionKind, Mode=TwoWay}"
+                                          SelectedValuePath="Value" />
+                                <StackPanel Spacing="10"
+                                            Visibility="{Binding SelectedMacroStep.StandardActionSettingsVisibility}">
+                                    <TextBox Header="実行対象"
+                                             Text="{Binding SelectedMacroStep.Target, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBox Header="引数"
+                                             Text="{Binding SelectedMacroStep.Arguments, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBox Header="作業フォルダー（通常は空欄）"
+                                             Text="{Binding SelectedMacroStep.WorkingDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <CheckBox Content="コマンド／batの画面を表示しない"
+                                              IsChecked="{Binding SelectedMacroStep.HideCommandWindow, Mode=TwoWay}"
+                                              Visibility="{Binding SelectedMacroStep.CommandSettingsVisibility}" />
+                                </StackPanel>
+                                <StackPanel Spacing="8"
+                                            Visibility="{Binding SelectedMacroStep.ShortcutKeySettingsVisibility}">
+                                    <TextBlock FontWeight="SemiBold" Text="登録キー" />
+                                    <TextBlock FontSize="18"
+                                               Text="{Binding SelectedMacroStep.ShortcutKeyDisplayText}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Click="RecordMacroShortcutKey_Click" Content="キーを記録" />
+                                        <Button Click="ClearMacroShortcutKey_Click" Content="解除" />
+                                    </StackPanel>
+                                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               Text="{Binding ShortcutRecordingStatus}"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
                     </StackPanel>
                     <StackPanel Spacing="12"
                                 Visibility="{Binding SelectedItem.CycleSettingsVisibility}">

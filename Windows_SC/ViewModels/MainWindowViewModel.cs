@@ -14,12 +14,15 @@ internal sealed class MainWindowViewModel : ObservableObject
 
     private LauncherSettings _settings = LauncherSettings.CreateDefault();
     private readonly IActionExecutionService _actionExecutionService;
+    private readonly IMacroExecutionService _macroExecutionService;
 
     public MainWindowViewModel(
         IActionExecutionService actionExecutionService,
+        IMacroExecutionService macroExecutionService,
         IAudioOutputService audioOutputService)
     {
         _actionExecutionService = actionExecutionService;
+        _macroExecutionService = macroExecutionService;
         AudioOutputService = audioOutputService;
         OpenSettingsCommand = new RelayCommand(
             () => SettingsRequested?.Invoke(this, EventArgs.Empty));
@@ -88,6 +91,7 @@ internal sealed class MainWindowViewModel : ObservableObject
             LauncherItemViewModel shortcut = new(
                 item,
                 _actionExecutionService,
+                _macroExecutionService,
                 AudioOutputService);
             shortcut.Executed += Shortcut_Executed;
             shortcut.ApplyLayoutMode(LayoutMode);

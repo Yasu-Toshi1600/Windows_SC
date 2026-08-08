@@ -236,6 +236,24 @@ internal static class LauncherSettingsValidator
         if (!Enum.IsDefined(action.Kind))
         {
             errors.Add($"{context}の実行種類が未対応です: {action.Kind} ({itemId})");
+            return;
+        }
+
+        if (action.Kind == LauncherActionKind.ShortcutKey)
+        {
+            string? shortcutError = ShortcutKeyValidator.Validate(action.ShortcutKey);
+            if (shortcutError is not null)
+            {
+                errors.Add($"{context}の{shortcutError} ({itemId})");
+            }
+
+            return;
+        }
+
+        if (action.Kind == LauncherActionKind.Macro)
+        {
+            ValidateMacro(itemId, action.Macro, errors);
+            return;
         }
 
         if (string.IsNullOrWhiteSpace(action.Target))
@@ -246,6 +264,80 @@ internal static class LauncherSettingsValidator
         if (action.Arguments is null || action.WorkingDirectory is null)
         {
             errors.Add($"{context}の引数または作業フォルダーが不正です: {itemId}");
+        }
+    }
+
+    private static void ValidateMacro(
+        Guid itemId,
+        MacroDefinition? macro,
+        List<string> errors)
+    {
+        if (macro?.Steps is null || macro.Steps.Count == 0)
+        {
+            errors.Add($"マクロにはステップが1つ以上必要です: {itemId}");
+            return;
+        }
+
+        if (macro.Steps.Count > 50)
+        {
+            errors.Add($"マクロのステップは50件以下にしてください: {itemId}");
+        }
+
+        HashSet<Guid> stepIds = [];
+        int totalDelay = 0;
+        foreach (MacroStepDefinition? step in macro.Steps)
+        {
+            if (step is null)
+            {
+                errors.Add($"マクロに空のステップがあります: {itemId}");
+                continue;
+            }
+
+            if (step.Id == Guid.Empty || !stepIds.Add(step.Id))
+            {
+                errors.Add($"マクロステップIDが空、または重複しています: {itemId}");
+            }
+
+            if (string.IsNullOrWhiteSpace(step.DisplayName))
+            {
+                errors.Add($"マクロステップの表示名が空です: {itemId}");
+            }
+
+            if (!Enum.IsDefined(step.Kind))
+            {
+                errors.Add($"未対応のマクロステップ種類です: {step.Kind} ({itemId})");
+                continue;
+            }
+
+            if (step.Kind == MacroStepKind.Wait)
+            {
+                if (step.DelayMilliseconds is < 0 or > 10_000)
+                {
+                    errors.Add($"マクロの待機時間は0～10000msにしてください: {itemId}");
+                }
+
+                totalDelay += Math.Max(0, step.DelayMilliseconds);
+                continue;
+            }
+
+            if (step.Action is null)
+            {
+                errors.Add($"マクロステップの実行内容がありません: {itemId}");
+                continue;
+            }
+
+            if (step.Action.Kind == LauncherActionKind.Macro)
+            {
+                errors.Add($"マクロを入れ子にはできません: {itemId}");
+                continue;
+            }
+
+            ValidateAction(itemId, step.Action, "マクロステップ", errors);
+        }
+
+        if (totalDelay > 60_000)
+        {
+            errors.Add($"マクロの合計待機時間は60秒以下にしてください: {itemId}");
         }
     }
 }

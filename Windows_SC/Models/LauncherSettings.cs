@@ -6,7 +6,7 @@ namespace Windows_SC.Models;
 
 internal sealed class LauncherSettings
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
@@ -118,6 +118,10 @@ internal sealed class LauncherActionDefinition
     public string WorkingDirectory { get; set; } = string.Empty;
 
     public bool HideCommandWindow { get; set; } = true;
+
+    public ShortcutKeyDefinition? ShortcutKey { get; set; }
+
+    public MacroDefinition? Macro { get; set; }
 }
 
 internal enum LauncherActionKind
@@ -126,7 +130,54 @@ internal enum LauncherActionKind
     File,
     Url,
     Command,
-    BatchFile
+    BatchFile,
+    ShortcutKey,
+    Macro
+}
+
+[Flags]
+internal enum ShortcutKeyModifiers
+{
+    None = 0,
+    Control = 1,
+    Alt = 2,
+    Shift = 4,
+    Windows = 8
+}
+
+internal sealed class ShortcutKeyDefinition
+{
+    public ShortcutKeyModifiers Modifiers { get; set; }
+
+    public uint VirtualKey { get; set; }
+
+    public uint ScanCode { get; set; }
+
+    public string DisplayText { get; set; } = string.Empty;
+}
+
+internal sealed class MacroDefinition
+{
+    public List<MacroStepDefinition> Steps { get; set; } = [];
+}
+
+internal sealed class MacroStepDefinition
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    public MacroStepKind Kind { get; set; }
+
+    public LauncherActionDefinition? Action { get; set; }
+
+    public int DelayMilliseconds { get; set; }
+}
+
+internal enum MacroStepKind
+{
+    Action,
+    Wait
 }
 
 internal sealed class AudioDeviceToggleDefinition

@@ -21,6 +21,8 @@ public partial class App : Application
     private IStartupService? _startupService;
     private IAudioOutputService? _audioOutputService;
     private ISystemTrayService? _systemTrayService;
+    private IGlobalInputService? _inputService;
+    private IMacroExecutionService? _macroExecutionService;
     private bool _isShuttingDown;
 
     public App()
@@ -74,9 +76,17 @@ public partial class App : Application
         }
 
         _settingsRepository = new JsonSettingsRepository(logger);
-        IActionExecutionService actionExecutionService = new ActionExecutionService(logger);
+        IShortcutKeyExecutionService shortcutKeyExecutionService =
+            new ShortcutKeyExecutionService(logger);
+        IActionExecutionService actionExecutionService = new ActionExecutionService(
+            logger,
+            shortcutKeyExecutionService);
+        _macroExecutionService = new MacroExecutionService(actionExecutionService, logger);
         _audioOutputService = new WindowsAudioOutputService(logger);
-        _viewModel = new MainWindowViewModel(actionExecutionService, _audioOutputService);
+        _viewModel = new MainWindowViewModel(
+            actionExecutionService,
+            _macroExecutionService,
+            _audioOutputService);
         LauncherSettings settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
         logger.ConfigureDetailedLogging(
             settings.DetailedLoggingExpiresAtUtc,
@@ -98,20 +108,20 @@ public partial class App : Application
         _startMenuMonitor = new HybridStartMenuMonitor(
             DispatcherQueue.GetForCurrentThread(),
             logger);
-        IGlobalInputService inputService = new GlobalInputService(logger);
+        _inputService = new GlobalInputService(logger);
         ILauncherPlacementService placementService = new LauncherPlacementService(logger);
         _systemTrayService = new WindowsSystemTrayService(logger);
         _systemTrayService.ShowLauncherRequested += SystemTrayService_ShowLauncherRequested;
         _systemTrayService.SettingsRequested += SystemTrayService_SettingsRequested;
         _systemTrayService.ExitRequested += SystemTrayService_ExitRequested;
         IWindowInteropService windowInteropService = new WindowInteropService(
-            inputService,
+            _inputService,
             _systemTrayService);
         _window = new MainWindow(
             _viewModel,
             logger,
             _startMenuMonitor,
-            inputService,
+            _inputService,
             placementService,
             windowInteropService,
             _environmentInformationService);
@@ -155,6 +165,8 @@ public partial class App : Application
             _singleInstanceService = null;
             _audioOutputService?.Dispose();
             _audioOutputService = null;
+            _macroExecutionService?.Dispose();
+            _macroExecutionService = null;
             UnhandledException -= App_UnhandledException;
             AppDomain.CurrentDomain.UnhandledException -= CurrentDomain_UnhandledException;
             System.Threading.Tasks.TaskScheduler.UnobservedTaskException -=
@@ -187,7 +199,8 @@ public partial class App : Application
         if (_startupService is null
             || _logger is null
             || _environmentInformationService is null
-            || _startMenuMonitor is null)
+            || _startMenuMonitor is null
+            || _inputService is null)
         {
             return;
         }
@@ -199,7 +212,8 @@ public partial class App : Application
             _viewModel.AudioOutputService,
             _logger,
             _environmentInformationService,
-            _startMenuMonitor);
+            _startMenuMonitor,
+            _inputService);
         _settingsViewModel.ExitApplicationRequested += SettingsViewModel_ExitApplicationRequested;
         _settingsWindow = new SettingsWindow(_settingsViewModel);
         _settingsWindow.Closed += SettingsWindow_Closed;

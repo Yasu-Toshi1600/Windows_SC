@@ -8,13 +8,28 @@ using Windows_SC.Models;
 
 namespace Windows_SC.Services;
 
-internal sealed class ActionExecutionService(DiagnosticLogger logger) : IActionExecutionService
+internal sealed class ActionExecutionService(
+    DiagnosticLogger logger,
+    IShortcutKeyExecutionService shortcutKeyExecutionService) : IActionExecutionService
 {
     public Task<ActionExecutionResult> ExecuteAsync(
         LauncherActionDefinition action,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (action.Kind == LauncherActionKind.ShortcutKey)
+        {
+            return shortcutKeyExecutionService.ExecuteAsync(
+                action.ShortcutKey ?? new ShortcutKeyDefinition(),
+                cancellationToken);
+        }
+
+        if (action.Kind == LauncherActionKind.Macro)
+        {
+            return Task.FromResult(ActionExecutionResult.Failure(
+                "入れ子のマクロは実行できません。"));
+        }
 
         try
         {

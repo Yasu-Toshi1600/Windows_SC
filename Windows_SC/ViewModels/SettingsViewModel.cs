@@ -21,6 +21,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private readonly DiagnosticLogger _logger;
     private readonly EnvironmentInformationService _environmentInformationService;
     private readonly IStartMenuMonitor _startMenuMonitor;
+    private readonly IGlobalInputService _globalInputService;
     private readonly Guid _pageId;
     private LauncherItemEditorViewModel? _selectedItem;
     private ActionKindOption? _selectedActionKind;
@@ -29,6 +30,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private AudioOutputDeviceOption? _audioDeviceToAdd;
     private RegisteredAudioDeviceEditorViewModel? _selectedRegisteredAudioDevice;
     private CommandCycleStepEditorViewModel? _selectedCommandStep;
+    private MacroStepEditorViewModel? _selectedMacroStep;
     private bool _assumePhonePanelVisible;
     private bool _startWithWindows;
     private LayoutModeOption? _selectedLayoutMode;
@@ -45,6 +47,10 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private DateTimeOffset? _detailedLoggingExpiresAt;
     private bool _isApplyingDiagnosticsSetting;
     private bool _isRefreshingAudioDevices;
+    private bool _isRecordingShortcutKey;
+    private Guid? _recordingShortcutItemId;
+    private Guid? _recordingMacroStepId;
+    private string _shortcutRecordingStatus = "［キーを記録］を押して登録します。";
 
     public SettingsViewModel(
         ISettingsRepository settingsRepository,
@@ -53,7 +59,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         IAudioOutputService audioOutputService,
         DiagnosticLogger logger,
         EnvironmentInformationService environmentInformationService,
-        IStartMenuMonitor startMenuMonitor)
+        IStartMenuMonitor startMenuMonitor,
+        IGlobalInputService globalInputService)
     {
         _settingsRepository = settingsRepository;
         _mainWindowViewModel = mainWindowViewModel;
@@ -62,6 +69,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         _logger = logger;
         _environmentInformationService = environmentInformationService;
         _startMenuMonitor = startMenuMonitor;
+        _globalInputService = globalInputService;
         _startMenuMonitor.ReadyChanged += StartMenuMonitor_ReadyChanged;
 
         foreach (AudioOutputDevice device in _audioOutputService.GetCachedDevices())
@@ -109,6 +117,14 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         AddCommandStepCommand = new RelayCommand(
             AddCommandStep,
             () => SelectedItem is { IsToggle: true, CycleKind: CycleActionKind.Commands });
+        AddMacroStepCommand = new RelayCommand(
+            AddMacroStep,
+            () => SelectedItem is
+            {
+                IsButton: true,
+                ActionKind: LauncherActionKind.Macro,
+                MacroSteps.Count: < 50
+            });
         RemoveAudioDeviceCommand = new RelayCommand(
             RemoveAudioDevice,
             () => SelectedItem?.IsToggle == true && SelectedRegisteredAudioDevice is not null);
@@ -133,12 +149,29 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     public IReadOnlyList<ActionKindOption> ActionKinds { get; } =
     [
-        new(
-            LauncherActionKind.Application,
-            "アプリ・ファイル・URLを開く"),
-        new(
-            LauncherActionKind.Command,
-            "コマンド／batを実行")
+        new(LauncherActionKind.Application, "Application（アプリ）"),
+        new(LauncherActionKind.File, "File（ファイル／フォルダー）"),
+        new(LauncherActionKind.Url, "URL"),
+        new(LauncherActionKind.Command, "Command（コマンド）"),
+        new(LauncherActionKind.BatchFile, "BatchFile（bat／cmd）"),
+        new(LauncherActionKind.ShortcutKey, "ShortcutKey（キー入力）"),
+        new(LauncherActionKind.Macro, "Macro（マクロ）")
+    ];
+
+    public IReadOnlyList<ActionKindOption> MacroActionKinds { get; } =
+    [
+        new(LauncherActionKind.Application, "Application（アプリ）"),
+        new(LauncherActionKind.File, "File（ファイル／フォルダー）"),
+        new(LauncherActionKind.Url, "URL"),
+        new(LauncherActionKind.Command, "Command（コマンド）"),
+        new(LauncherActionKind.BatchFile, "BatchFile（bat／cmd）"),
+        new(LauncherActionKind.ShortcutKey, "ShortcutKey（キー入力）")
+    ];
+
+    public IReadOnlyList<MacroStepKindOption> MacroStepKinds { get; } =
+    [
+        new(MacroStepKind.Action, "操作"),
+        new(MacroStepKind.Wait, "待機")
     ];
 
     public IReadOnlyList<CycleKindOption> CycleKinds { get; } =
@@ -178,6 +211,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                     : null;
                 SelectedRegisteredAudioDevice = null;
                 SelectedCommandStep = value?.CommandSteps.FirstOrDefault();
+                SelectedMacroStep = value?.MacroSteps.FirstOrDefault();
                 AudioDeviceToAdd = AvailableAudioOutputDevices.FirstOrDefault(device =>
                     value?.RegisteredAudioDevices.All(registered =>
                         !string.Equals(
@@ -187,6 +221,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 DeleteItemCommand.NotifyCanExecuteChanged();
                 NotifyAudioDeviceCommands();
                 AddCommandStepCommand.NotifyCanExecuteChanged();
+                AddMacroStepCommand.NotifyCanExecuteChanged();
             }
         }
     }
@@ -201,6 +236,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 && SelectedItem is { IsButton: true } selectedItem)
             {
                 selectedItem.ActionKind = value.Value;
+                SelectedMacroStep = selectedItem.MacroSteps.FirstOrDefault();
+                AddMacroStepCommand.NotifyCanExecuteChanged();
             }
         }
     }
@@ -371,6 +408,24 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
+    public MacroStepEditorViewModel? SelectedMacroStep
+    {
+        get => _selectedMacroStep;
+        set => SetProperty(ref _selectedMacroStep, value);
+    }
+
+    public bool IsRecordingShortcutKey
+    {
+        get => _isRecordingShortcutKey;
+        private set => SetProperty(ref _isRecordingShortcutKey, value);
+    }
+
+    public string ShortcutRecordingStatus
+    {
+        get => _shortcutRecordingStatus;
+        private set => SetProperty(ref _shortcutRecordingStatus, value);
+    }
+
     public bool IsDetailedDiagnosticsAlwaysEnabled
     {
         get => _isDetailedDiagnosticsAlwaysEnabled;
@@ -435,6 +490,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     public RelayCommand AddAudioDeviceCommand { get; }
     public RelayCommand RefreshAudioDevicesCommand { get; }
     public RelayCommand AddCommandStepCommand { get; }
+    public RelayCommand AddMacroStepCommand { get; }
     public RelayCommand RemoveAudioDeviceCommand { get; }
     public RelayCommand MoveAudioDeviceUpCommand { get; }
     public RelayCommand MoveAudioDeviceDownCommand { get; }
@@ -576,6 +632,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        CancelShortcutKeyRecording();
         _startMenuMonitor.ReadyChanged -= StartMenuMonitor_ReadyChanged;
         Items.CollectionChanged -= Items_CollectionChanged;
         foreach (LauncherItemEditorViewModel item in Items)
@@ -613,7 +670,13 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         item.PropertyChanged += EditableItem_PropertyChanged;
         item.RegisteredAudioDevices.CollectionChanged += EditableCollection_CollectionChanged;
         item.CommandSteps.CollectionChanged += CommandSteps_CollectionChanged;
+        item.MacroSteps.CollectionChanged += MacroSteps_CollectionChanged;
         foreach (CommandCycleStepEditorViewModel step in item.CommandSteps)
+        {
+            step.PropertyChanged += EditableItem_PropertyChanged;
+        }
+
+        foreach (MacroStepEditorViewModel step in item.MacroSteps)
         {
             step.PropertyChanged += EditableItem_PropertyChanged;
         }
@@ -624,7 +687,13 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         item.PropertyChanged -= EditableItem_PropertyChanged;
         item.RegisteredAudioDevices.CollectionChanged -= EditableCollection_CollectionChanged;
         item.CommandSteps.CollectionChanged -= CommandSteps_CollectionChanged;
+        item.MacroSteps.CollectionChanged -= MacroSteps_CollectionChanged;
         foreach (CommandCycleStepEditorViewModel step in item.CommandSteps)
+        {
+            step.PropertyChanged -= EditableItem_PropertyChanged;
+        }
+
+        foreach (MacroStepEditorViewModel step in item.MacroSteps)
         {
             step.PropertyChanged -= EditableItem_PropertyChanged;
         }
@@ -657,6 +726,30 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         object? sender,
         NotifyCollectionChangedEventArgs args) =>
         MarkDirty();
+
+    private void MacroSteps_CollectionChanged(
+        object? sender,
+        NotifyCollectionChangedEventArgs args)
+    {
+        if (args.OldItems is not null)
+        {
+            foreach (MacroStepEditorViewModel step in args.OldItems)
+            {
+                step.PropertyChanged -= EditableItem_PropertyChanged;
+            }
+        }
+
+        if (args.NewItems is not null)
+        {
+            foreach (MacroStepEditorViewModel step in args.NewItems)
+            {
+                step.PropertyChanged += EditableItem_PropertyChanged;
+            }
+        }
+
+        AddMacroStepCommand.NotifyCanExecuteChanged();
+        MarkDirty();
+    }
 
     private void EditableItem_PropertyChanged(object? sender, PropertyChangedEventArgs args) =>
         MarkDirty();
@@ -745,12 +838,137 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
-    private ActionKindOption GetVisibleActionKind(LauncherActionKind actionKind)
+    private ActionKindOption GetVisibleActionKind(LauncherActionKind actionKind) =>
+        ActionKinds.First(option => option.Value == actionKind);
+
+    internal void BeginShortcutKeyRecording()
     {
-        LauncherActionKind visibleKind = actionKind == LauncherActionKind.Command
-            ? LauncherActionKind.Command
-            : LauncherActionKind.Application;
-        return ActionKinds.First(option => option.Value == visibleKind);
+        if (SelectedItem is not { IsButton: true, ActionKind: LauncherActionKind.ShortcutKey } item)
+        {
+            return;
+        }
+
+        _recordingShortcutItemId = item.Id;
+        _recordingMacroStepId = null;
+        IsRecordingShortcutKey = true;
+        ShortcutRecordingStatus = "登録するキーの組み合わせを押してください。Escでキャンセルします。";
+        _globalInputService.SetSuppressed(true);
+    }
+
+    internal void CompleteShortcutKeyRecording(ShortcutKeyDefinition shortcutKey)
+    {
+        if (!IsRecordingShortcutKey)
+        {
+            return;
+        }
+
+        string? validationError = ShortcutKeyValidator.Validate(shortcutKey);
+        if (validationError is not null)
+        {
+            ShortcutRecordingStatus = validationError;
+            return;
+        }
+
+        shortcutKey.DisplayText = ShortcutKeyText.Format(shortcutKey);
+        if (_recordingMacroStepId is { } macroStepId)
+        {
+            MacroStepEditorViewModel? step = Items
+                .SelectMany(item => item.MacroSteps)
+                .FirstOrDefault(candidate => candidate.Id == macroStepId);
+            if (step is null)
+            {
+                ShortcutRecordingStatus = "記録対象が見つかりませんでした。";
+                return;
+            }
+
+            step.SetShortcutKey(shortcutKey);
+        }
+        else if (_recordingShortcutItemId is { } itemId)
+        {
+            LauncherItemEditorViewModel? item = Items.FirstOrDefault(
+                candidate => candidate.Id == itemId);
+            if (item is null)
+            {
+                ShortcutRecordingStatus = "記録対象が見つかりませんでした。";
+                return;
+            }
+
+            item.SetShortcutKey(shortcutKey);
+        }
+        else
+        {
+            ShortcutRecordingStatus = "記録対象が見つかりませんでした。";
+            return;
+        }
+
+        IsRecordingShortcutKey = false;
+        _recordingShortcutItemId = null;
+        _recordingMacroStepId = null;
+        _globalInputService.SetSuppressed(false);
+        ShortcutRecordingStatus = $"記録しました: {shortcutKey.DisplayText}";
+        MarkDirty();
+    }
+
+    internal void BeginMacroShortcutKeyRecording()
+    {
+        if (SelectedMacroStep is not
+            {
+                Kind: MacroStepKind.Action,
+                ActionKind: LauncherActionKind.ShortcutKey
+            } step)
+        {
+            return;
+        }
+
+        _recordingShortcutItemId = null;
+        _recordingMacroStepId = step.Id;
+        IsRecordingShortcutKey = true;
+        ShortcutRecordingStatus = "登録するキーの組み合わせを押してください。Escでキャンセルします。";
+        _globalInputService.SetSuppressed(true);
+    }
+
+    internal void CancelShortcutKeyRecording()
+    {
+        if (!IsRecordingShortcutKey)
+        {
+            return;
+        }
+
+        IsRecordingShortcutKey = false;
+        _recordingShortcutItemId = null;
+        _recordingMacroStepId = null;
+        _globalInputService.SetSuppressed(false);
+        ShortcutRecordingStatus = "キーの記録をキャンセルしました。";
+    }
+
+    internal void ClearShortcutKey()
+    {
+        CancelShortcutKeyRecording();
+        if (SelectedItem is not { IsButton: true, ActionKind: LauncherActionKind.ShortcutKey } item)
+        {
+            return;
+        }
+
+        item.SetShortcutKey(null);
+        ShortcutRecordingStatus = "ショートカットキーを解除しました。";
+        MarkDirty();
+    }
+
+    internal void ClearMacroShortcutKey()
+    {
+        CancelShortcutKeyRecording();
+        if (SelectedMacroStep is not
+            {
+                Kind: MacroStepKind.Action,
+                ActionKind: LauncherActionKind.ShortcutKey
+            } step)
+        {
+            return;
+        }
+
+        step.SetShortcutKey(null);
+        ShortcutRecordingStatus = "ショートカットキーを解除しました。";
+        MarkDirty();
     }
 
     private void AddItem(LauncherItemKind kind)
@@ -1017,6 +1235,65 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         MarkDirty();
     }
 
+    private void AddMacroStep()
+    {
+        if (SelectedItem is not
+            {
+                IsButton: true,
+                ActionKind: LauncherActionKind.Macro
+            } item
+            || item.MacroSteps.Count >= 50)
+        {
+            return;
+        }
+
+        MacroStepEditorViewModel step = new(
+            Guid.NewGuid(),
+            $"ステップ {item.MacroSteps.Count + 1}");
+        item.MacroSteps.Add(step);
+        SelectedMacroStep = step;
+        MarkDirty();
+    }
+
+    internal void MoveMacroStep(MacroStepEditorViewModel step, int offset)
+    {
+        if (SelectedItem is null)
+        {
+            return;
+        }
+
+        int currentIndex = SelectedItem.MacroSteps.IndexOf(step);
+        int targetIndex = currentIndex + offset;
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= SelectedItem.MacroSteps.Count)
+        {
+            return;
+        }
+
+        SelectedItem.MacroSteps.Move(currentIndex, targetIndex);
+        SelectedMacroStep = step;
+        MarkDirty();
+    }
+
+    internal void RemoveMacroStep(MacroStepEditorViewModel step)
+    {
+        if (SelectedItem is null)
+        {
+            return;
+        }
+
+        int index = SelectedItem.MacroSteps.IndexOf(step);
+        if (index < 0)
+        {
+            return;
+        }
+
+        SelectedItem.MacroSteps.RemoveAt(index);
+        SelectedMacroStep = SelectedItem.MacroSteps.Count == 0
+            ? null
+            : SelectedItem.MacroSteps[Math.Min(index, SelectedItem.MacroSteps.Count - 1)];
+        MarkDirty();
+    }
+
     internal void MoveItem(LauncherItemEditorViewModel item, int offset)
     {
         int currentIndex = Items.IndexOf(item);
@@ -1133,6 +1410,12 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 {
                     SelectedCommandStep = item.CommandSteps.FirstOrDefault(
                         step => step.Id == commandStepId);
+                }
+
+                if (validationResult.MacroStepId is { } macroStepId)
+                {
+                    SelectedMacroStep = item.MacroSteps.FirstOrDefault(
+                        step => step.Id == macroStepId);
                 }
             }
         }

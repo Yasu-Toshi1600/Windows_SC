@@ -16,6 +16,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     private string _arguments = string.Empty;
     private string _workingDirectory = string.Empty;
     private bool _hideCommandWindow = true;
+    private ShortcutKeyDefinition? _shortcutKey;
     private CycleActionKind _cycleKind = CycleActionKind.AudioOutput;
     private LauncherPostExecutionBehavior _postExecutionBehavior =
         LauncherPostExecutionBehavior.CloseOnSuccess;
@@ -32,6 +33,15 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         _arguments = action.Arguments;
         _workingDirectory = action.WorkingDirectory;
         _hideCommandWindow = action.HideCommandWindow;
+        _shortcutKey = action.ShortcutKey is null
+            ? null
+            : new ShortcutKeyDefinition
+            {
+                Modifiers = action.ShortcutKey.Modifiers,
+                VirtualKey = action.ShortcutKey.VirtualKey,
+                ScanCode = action.ShortcutKey.ScanCode,
+                DisplayText = action.ShortcutKey.DisplayText
+            };
         _postExecutionBehavior = definition.PostExecutionBehavior;
         _volumeSlider = definition.VolumeSlider;
 
@@ -55,6 +65,11 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         foreach (CommandCycleStepDefinition step in cycleAction?.CommandSteps ?? [])
         {
             CommandSteps.Add(new CommandCycleStepEditorViewModel(step));
+        }
+
+        foreach (MacroStepDefinition step in action.Macro?.Steps ?? [])
+        {
+            MacroSteps.Add(new MacroStepEditorViewModel(step));
         }
     }
 
@@ -88,6 +103,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
             : Visibility.Collapsed;
     public ObservableCollection<RegisteredAudioDeviceEditorViewModel> RegisteredAudioDevices { get; } = [];
     public ObservableCollection<CommandCycleStepEditorViewModel> CommandSteps { get; } = [];
+    public ObservableCollection<MacroStepEditorViewModel> MacroSteps { get; } = [];
     public string KindDisplayName => Kind switch
     {
         LauncherItemKind.Toggle => "循環切り替え",
@@ -102,19 +118,47 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     };
     public string KindSummary => $"種類：{KindDisplayName}";
     public Visibility CommandButtonSettingsVisibility => IsButton
-        && ActionKind == LauncherActionKind.Command
+        && ActionKind is LauncherActionKind.Command or LauncherActionKind.BatchFile
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    public Visibility StandardActionSettingsVisibility => IsButton
+        && ActionKind != LauncherActionKind.ShortcutKey
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    public Visibility ShortcutKeySettingsVisibility => IsButton
+        && ActionKind == LauncherActionKind.ShortcutKey
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    public Visibility MacroSettingsVisibility => IsButton
+        && ActionKind == LauncherActionKind.Macro
             ? Visibility.Visible
             : Visibility.Collapsed;
     public Visibility TargetFilePickerVisibility => IsButton
-        && ActionKind == LauncherActionKind.Application
+        && ActionKind is LauncherActionKind.Application
+            or LauncherActionKind.File
+            or LauncherActionKind.BatchFile
             ? Visibility.Visible
             : Visibility.Collapsed;
-    public string TargetHeader => ActionKind == LauncherActionKind.Command
-        ? "コマンド"
-        : "起動対象";
-    public string TargetPlaceholderText => ActionKind == LauncherActionKind.Command
-        ? "例：systeminfo"
-        : "例：notepad.exe";
+    public string TargetHeader => ActionKind switch
+    {
+        LauncherActionKind.Command => "コマンド",
+        LauncherActionKind.Url => "URL",
+        LauncherActionKind.File => "ファイルまたはフォルダー",
+        LauncherActionKind.BatchFile => "バッチファイル",
+        _ => "アプリケーション"
+    };
+    public string TargetPlaceholderText => ActionKind switch
+    {
+        LauncherActionKind.Command => "例：systeminfo",
+        LauncherActionKind.Url => "例：https://example.com",
+        LauncherActionKind.File => "例：C:\\Documents\\manual.pdf",
+        LauncherActionKind.BatchFile => "例：C:\\Scripts\\task.bat",
+        _ => "例：notepad.exe"
+    };
+    public ShortcutKeyDefinition? ShortcutKey => _shortcutKey;
+    public string ShortcutKeyDisplayText => _shortcutKey is null
+        ? "未設定"
+        : ShortcutKeyText.Format(_shortcutKey);
 
     public string Title
     {
@@ -130,6 +174,9 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
             if (SetProperty(ref _actionKind, value))
             {
                 OnPropertyChanged(nameof(CommandButtonSettingsVisibility));
+                OnPropertyChanged(nameof(StandardActionSettingsVisibility));
+                OnPropertyChanged(nameof(ShortcutKeySettingsVisibility));
+                OnPropertyChanged(nameof(MacroSettingsVisibility));
                 OnPropertyChanged(nameof(TargetFilePickerVisibility));
                 OnPropertyChanged(nameof(TargetHeader));
                 OnPropertyChanged(nameof(TargetPlaceholderText));
@@ -159,6 +206,13 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     {
         get => _hideCommandWindow;
         set => SetProperty(ref _hideCommandWindow, value);
+    }
+
+    public void SetShortcutKey(ShortcutKeyDefinition? shortcutKey)
+    {
+        _shortcutKey = shortcutKey;
+        OnPropertyChanged(nameof(ShortcutKey));
+        OnPropertyChanged(nameof(ShortcutKeyDisplayText));
     }
 
     public CycleActionKind CycleKind
@@ -195,7 +249,22 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
                 Target = Target,
                 Arguments = Arguments,
                 WorkingDirectory = WorkingDirectory,
-                HideCommandWindow = HideCommandWindow
+                HideCommandWindow = HideCommandWindow,
+                ShortcutKey = _shortcutKey is null
+                    ? null
+                    : new ShortcutKeyDefinition
+                    {
+                        Modifiers = _shortcutKey.Modifiers,
+                        VirtualKey = _shortcutKey.VirtualKey,
+                        ScanCode = _shortcutKey.ScanCode,
+                        DisplayText = ShortcutKeyText.Format(_shortcutKey)
+                    },
+                Macro = ActionKind == LauncherActionKind.Macro
+                    ? new MacroDefinition
+                    {
+                        Steps = MacroSteps.Select(step => step.ToDefinition()).ToList()
+                    }
+                    : null
             }
             : null,
         AudioDeviceToggle = null,

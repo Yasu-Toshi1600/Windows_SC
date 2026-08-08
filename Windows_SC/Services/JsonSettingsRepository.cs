@@ -48,7 +48,7 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
                 .ConfigureAwait(false);
             JsonNode root = JsonNode.Parse(json)
                 ?? throw new JsonException("設定ファイルのルートがありません。");
-            Migrate(root);
+            LauncherSettingsMigrator.Migrate(root);
             LauncherSettings settings = root.Deserialize<LauncherSettings>(SerializerOptions)
                 ?? throw new JsonException("設定ファイルを読み込めませんでした。");
             EnsureValid(settings);
@@ -113,22 +113,6 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
         finally
         {
             _saveLock.Release();
-        }
-    }
-
-    private static void Migrate(JsonNode root)
-    {
-        int schemaVersion = root["SchemaVersion"]?.GetValue<int>() ?? 0;
-
-        if (schemaVersion == 0)
-        {
-            root["SchemaVersion"] = LauncherSettings.CurrentSchemaVersion;
-            schemaVersion = LauncherSettings.CurrentSchemaVersion;
-        }
-
-        if (schemaVersion != LauncherSettings.CurrentSchemaVersion)
-        {
-            throw new InvalidDataException($"未対応の設定スキーマです: {schemaVersion}");
         }
     }
 

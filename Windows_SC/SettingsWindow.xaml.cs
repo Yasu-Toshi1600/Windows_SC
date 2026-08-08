@@ -2,6 +2,7 @@ using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -9,6 +10,8 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Storage.Pickers;
 using Windows_SC.ViewModels;
+using Windows_SC.Models;
+using Windows_SC.Services;
 using WinRT.Interop;
 
 namespace Windows_SC;
@@ -108,6 +111,108 @@ public sealed partial class SettingsWindow : Window
             _viewModel.RemoveCommandStep(step);
         }
     }
+
+    private void RecordShortcutKey_Click(object sender, RoutedEventArgs args)
+    {
+        _viewModel.BeginShortcutKeyRecording();
+        if (sender is Button button)
+        {
+            button.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private void MacroStepMoveUp_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { DataContext: MacroStepEditorViewModel step })
+        {
+            _viewModel.MoveMacroStep(step, -1);
+            KeepItemVisible(MacroStepList, step);
+        }
+    }
+
+    private void MacroStepMoveDown_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { DataContext: MacroStepEditorViewModel step })
+        {
+            _viewModel.MoveMacroStep(step, 1);
+            KeepItemVisible(MacroStepList, step);
+        }
+    }
+
+    private void MacroStepRemove_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { DataContext: MacroStepEditorViewModel step })
+        {
+            _viewModel.RemoveMacroStep(step);
+        }
+    }
+
+    private void ClearShortcutKey_Click(object sender, RoutedEventArgs args) =>
+        _viewModel.ClearShortcutKey();
+
+    private void RecordMacroShortcutKey_Click(object sender, RoutedEventArgs args)
+    {
+        _viewModel.BeginMacroShortcutKeyRecording();
+        if (sender is Button button)
+        {
+            button.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private void ClearMacroShortcutKey_Click(object sender, RoutedEventArgs args) =>
+        _viewModel.ClearMacroShortcutKey();
+
+    private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (!_viewModel.IsRecordingShortcutKey)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        uint virtualKey = (uint)args.Key;
+        if (virtualKey == 0x1B)
+        {
+            _viewModel.CancelShortcutKeyRecording();
+            return;
+        }
+
+        if (ShortcutKeyText.IsModifierKey(virtualKey))
+        {
+            return;
+        }
+
+        ShortcutKeyModifiers modifiers = ShortcutKeyModifiers.None;
+        if (IsKeyDown(0x11))
+        {
+            modifiers |= ShortcutKeyModifiers.Control;
+        }
+
+        if (IsKeyDown(0x12))
+        {
+            modifiers |= ShortcutKeyModifiers.Alt;
+        }
+
+        if (IsKeyDown(0x10))
+        {
+            modifiers |= ShortcutKeyModifiers.Shift;
+        }
+
+        if (IsKeyDown(0x5B) || IsKeyDown(0x5C))
+        {
+            modifiers |= ShortcutKeyModifiers.Windows;
+        }
+
+        _viewModel.CompleteShortcutKeyRecording(new ShortcutKeyDefinition
+        {
+            Modifiers = modifiers,
+            VirtualKey = virtualKey,
+            ScanCode = args.KeyStatus.ScanCode
+        });
+    }
+
+    private static bool IsKeyDown(int virtualKey) =>
+        (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 
     private async void SelectTargetFile_Click(object sender, RoutedEventArgs args)
     {
@@ -211,6 +316,9 @@ public sealed partial class SettingsWindow : Window
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(nint windowHandle);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
 
     private void OpenDataFolder_Click(object sender, RoutedEventArgs args) =>
         _viewModel.OpenDataFolder();

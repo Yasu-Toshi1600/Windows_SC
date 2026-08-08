@@ -10,6 +10,7 @@ namespace Windows_SC.ViewModels;
 internal sealed class LauncherItemViewModel : ObservableObject
 {
     private readonly IActionExecutionService _actionExecutionService;
+    private readonly IMacroExecutionService _macroExecutionService;
     private readonly IAudioOutputService _audioOutputService;
     private readonly LauncherActionDefinition? _action;
     private readonly CycleActionDefinition? _cycleAction;
@@ -31,6 +32,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     public LauncherItemViewModel(
         LauncherItemDefinition definition,
         IActionExecutionService actionExecutionService,
+        IMacroExecutionService macroExecutionService,
         IAudioOutputService audioOutputService)
     {
         Id = definition.Id;
@@ -41,6 +43,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
         _volumeSlider = definition.VolumeSlider;
         _postExecutionBehavior = definition.PostExecutionBehavior;
         _actionExecutionService = actionExecutionService;
+        _macroExecutionService = macroExecutionService;
         _audioOutputService = audioOutputService;
         ExecuteCommand = new RelayCommand(
             () => _ = ExecuteAsync(),
@@ -244,7 +247,11 @@ internal sealed class LauncherItemViewModel : ObservableObject
 
         try
         {
-            ActionExecutionResult result = await _actionExecutionService.ExecuteAsync(_action);
+            ActionExecutionResult result = _action.Kind == LauncherActionKind.Macro
+                ? await _macroExecutionService.ExecuteAsync(
+                    Id,
+                    _action.Macro ?? new MacroDefinition())
+                : await _actionExecutionService.ExecuteAsync(_action);
             RaiseExecuted(result);
         }
         finally

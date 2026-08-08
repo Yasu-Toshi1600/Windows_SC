@@ -8,6 +8,8 @@ internal interface IGlobalInputService : IDisposable
 
     event EventHandler? WindowsKeyReleasedAlone;
 
+    void SetSuppressed(bool suppressed);
+
     void Start(IntPtr windowHandle);
 
     bool TryHandleWindowMessage(uint message, IntPtr wParam);

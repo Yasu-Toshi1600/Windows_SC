@@ -27,3 +27,7 @@ internal sealed record PostExecutionBehaviorOption(
 internal sealed record LayoutModeOption(
     LauncherLayoutMode Value,
     string DisplayName);
+
+internal sealed record MacroStepKindOption(
+    MacroStepKind Value,
+    string DisplayName);

@@ -17,17 +17,26 @@ internal sealed class GlobalInputService : IGlobalInputService
     private IntPtr _windowHandle;
     private bool _isStarted;
     private bool _isDisposed;
+    private bool _isSuppressed;
 
     public GlobalInputService(DiagnosticLogger logger)
     {
         _windowsKeyMonitor = new GlobalWindowsKeyMonitor(
-            () => WindowsKeyReleasedAlone?.Invoke(this, EventArgs.Empty),
+            () =>
+            {
+                if (!_isSuppressed)
+                {
+                    WindowsKeyReleasedAlone?.Invoke(this, EventArgs.Empty);
+                }
+            },
             logger.WriteDetailed);
     }
 
     public event EventHandler? ManualToggleRequested;
 
     public event EventHandler? WindowsKeyReleasedAlone;
+
+    public void SetSuppressed(bool suppressed) => _isSuppressed = suppressed;
 
     public void Start(IntPtr windowHandle)
     {
@@ -67,6 +76,11 @@ internal sealed class GlobalInputService : IGlobalInputService
         if (message != WmHotKey || wParam.ToInt32() != HotKeyId)
         {
             return false;
+        }
+
+        if (_isSuppressed)
+        {
+            return true;
         }
 
         ManualToggleRequested?.Invoke(this, EventArgs.Empty);
