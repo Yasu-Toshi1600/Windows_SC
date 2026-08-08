@@ -297,6 +297,8 @@ public sealed partial class MainWindow : Window
             _appWindow.Show(true);
         }
 
+        ViewModel.SetSystemMetricsActive(true);
+
         if (activate)
         {
             BeginActivationVerification(reason);
@@ -343,6 +345,7 @@ public sealed partial class MainWindow : Window
         _activationRetryTimer.Stop();
         _appWindow.Hide();
         _isVisible = false;
+        ViewModel.SetSystemMetricsActive(false);
         _launcherIsActivated = false;
         _pendingActionFocusTransfer = false;
         _preserveVisibilityWhileInactive = false;
@@ -840,6 +843,7 @@ public sealed partial class MainWindow : Window
 
     private void Window_Closed(object sender, WindowEventArgs args)
     {
+        ViewModel.SetSystemMetricsActive(false);
         _motionService.Completed -= MotionService_Completed;
         _motionService.Dispose();
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))

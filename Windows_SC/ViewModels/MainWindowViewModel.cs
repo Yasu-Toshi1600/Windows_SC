@@ -17,19 +17,23 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly IActionExecutionService _actionExecutionService;
     private readonly IMacroExecutionService _macroExecutionService;
     private readonly IApplicationVolumeService _applicationVolumeService;
+    private readonly ISystemMetricsService _systemMetricsService;
     private readonly DispatcherQueue _dispatcherQueue;
 
     public MainWindowViewModel(
         IActionExecutionService actionExecutionService,
         IMacroExecutionService macroExecutionService,
         IAudioOutputService audioOutputService,
-        IApplicationVolumeService applicationVolumeService)
+        IApplicationVolumeService applicationVolumeService,
+        ISystemMetricsService systemMetricsService)
     {
         _actionExecutionService = actionExecutionService;
         _macroExecutionService = macroExecutionService;
         _applicationVolumeService = applicationVolumeService;
+        _systemMetricsService = systemMetricsService;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         _applicationVolumeService.StateChanged += ApplicationVolumeService_StateChanged;
+        _systemMetricsService.MetricsChanged += SystemMetricsService_MetricsChanged;
         AudioOutputService = audioOutputService;
         OpenSettingsCommand = new RelayCommand(
             () => SettingsRequested?.Invoke(this, EventArgs.Empty));
@@ -100,7 +104,8 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
                 _actionExecutionService,
                 _macroExecutionService,
                 AudioOutputService,
-                _applicationVolumeService);
+                _applicationVolumeService,
+                _systemMetricsService);
             shortcut.Executed += Shortcut_Executed;
             shortcut.ApplyLayoutMode(LayoutMode);
             Shortcuts.Add(shortcut);
@@ -134,9 +139,22 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
     private void ApplicationVolumeService_StateChanged(object? sender, EventArgs args) =>
         _dispatcherQueue.TryEnqueue(RefreshAudioOutputState);
 
+    private void SystemMetricsService_MetricsChanged(object? sender, EventArgs args) =>
+        _dispatcherQueue.TryEnqueue(() =>
+        {
+            foreach (LauncherItemViewModel shortcut in Shortcuts)
+            {
+                shortcut.RefreshSystemMetrics();
+            }
+        });
+
+    public void SetSystemMetricsActive(bool isActive) =>
+        _systemMetricsService.SetActive(isActive);
+
     public void Dispose()
     {
         _applicationVolumeService.StateChanged -= ApplicationVolumeService_StateChanged;
+        _systemMetricsService.MetricsChanged -= SystemMetricsService_MetricsChanged;
         foreach (LauncherItemViewModel shortcut in Shortcuts)
         {
             shortcut.Executed -= Shortcut_Executed;

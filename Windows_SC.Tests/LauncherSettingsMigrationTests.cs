@@ -102,4 +102,43 @@ public sealed class LauncherSettingsMigrationTests
         Assert.ThrowsExactly<InvalidDataException>(() =>
             LauncherSettingsMigrator.Migrate(root));
     }
+
+    [TestMethod]
+    public void Deserialize_LegacySlider_DefaultsToMasterVolume()
+    {
+        LauncherSettings settings = JsonSerializer.Deserialize<LauncherSettings>(
+            """
+            {
+              "SchemaVersion": 2,
+              "Pages": [{
+                "Name": "Main",
+                "Items": [{
+                  "Kind": 2,
+                  "Title": "Volume",
+                  "VolumeSlider": { "Minimum": 0, "Maximum": 100 }
+                }]
+              }]
+            }
+            """,
+            SerializerOptions)!;
+
+        Assert.AreEqual(
+            VolumeSliderKind.Master,
+            settings.Pages[0].Items[0].VolumeSlider!.Type);
+        Assert.AreEqual(0, LauncherSettingsValidator.Validate(settings).Count);
+    }
+
+    [TestMethod]
+    public void Validate_SystemMonitorWidget_IsAccepted()
+    {
+        LauncherSettings settings = LauncherSettings.CreateDefault();
+        settings.Pages[0].Items.Add(new LauncherItemDefinition
+        {
+            Kind = LauncherItemKind.Widget,
+            Title = "System",
+            Widget = new WidgetDefinition { Kind = WidgetKind.SystemMonitor }
+        });
+
+        Assert.AreEqual(0, LauncherSettingsValidator.Validate(settings).Count);
+    }
 }

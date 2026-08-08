@@ -114,6 +114,7 @@
                     <Button Command="{Binding AddButtonCommand}" Content="ボタン追加" />
                     <Button Command="{Binding AddToggleCommand}" Content="循環切り替え追加" />
                     <Button Command="{Binding AddSliderCommand}" Content="スライダー追加" />
+                    <Button Command="{Binding AddWidgetCommand}" Content="モニター追加" />
                 </StackPanel>
             </Grid>
             </Border>

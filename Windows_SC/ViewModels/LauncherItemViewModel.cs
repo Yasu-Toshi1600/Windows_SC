@@ -13,6 +13,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private readonly IMacroExecutionService _macroExecutionService;
     private readonly IAudioOutputService _audioOutputService;
     private readonly IApplicationVolumeService _applicationVolumeService;
+    private readonly ISystemMetricsService _systemMetricsService;
     private readonly LauncherActionDefinition? _action;
     private readonly CycleActionDefinition? _cycleAction;
     private readonly VolumeSliderDefinition? _volumeSlider;
@@ -31,13 +32,17 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private int _layoutColumnSpan = 2;
     private double _tileHeight = 160;
     private LauncherLayoutMode _layoutMode = LauncherLayoutMode.Standard;
+    private string _cpuUsageText = "CPU  —";
+    private string _gpuUsageText = "GPU  —";
+    private string _memoryUsageText = "メモリ  —";
 
     public LauncherItemViewModel(
         LauncherItemDefinition definition,
         IActionExecutionService actionExecutionService,
         IMacroExecutionService macroExecutionService,
         IAudioOutputService audioOutputService,
-        IApplicationVolumeService applicationVolumeService)
+        IApplicationVolumeService applicationVolumeService,
+        ISystemMetricsService systemMetricsService)
     {
         Id = definition.Id;
         Kind = definition.Kind;
@@ -50,6 +55,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
         _macroExecutionService = macroExecutionService;
         _audioOutputService = audioOutputService;
         _applicationVolumeService = applicationVolumeService;
+        _systemMetricsService = systemMetricsService;
         ExecuteCommand = new RelayCommand(
             () => _ = ExecuteAsync(),
             () => Kind == LauncherItemKind.Button && !_isExecuting);
@@ -57,6 +63,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
             () => _ = ExecuteCycleAsync(),
             () => Kind == LauncherItemKind.Toggle && _canExecuteCycle && !_isExecuting);
         RefreshAudioOutputState();
+        RefreshSystemMetrics();
     }
 
     public event EventHandler<LauncherItemExecutedEventArgs>? Executed;
@@ -82,6 +89,28 @@ internal sealed class LauncherItemViewModel : ObservableObject
     public Visibility SliderVisibility => Kind == LauncherItemKind.Slider
         ? Visibility.Visible
         : Visibility.Collapsed;
+
+    public Visibility WidgetVisibility => Kind == LauncherItemKind.Widget
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public string CpuUsageText
+    {
+        get => _cpuUsageText;
+        private set => SetProperty(ref _cpuUsageText, value);
+    }
+
+    public string GpuUsageText
+    {
+        get => _gpuUsageText;
+        private set => SetProperty(ref _gpuUsageText, value);
+    }
+
+    public string MemoryUsageText
+    {
+        get => _memoryUsageText;
+        private set => SetProperty(ref _memoryUsageText, value);
+    }
 
     public Visibility StandardToggleVisibility =>
         Kind == LauncherItemKind.Toggle && _layoutMode == LauncherLayoutMode.Standard
@@ -311,6 +340,32 @@ internal sealed class LauncherItemViewModel : ObservableObject
             RefreshAudioOutputState();
             ExecuteCycleCommand.NotifyCanExecuteChanged();
         }
+    }
+
+    public void RefreshSystemMetrics()
+    {
+        if (Kind != LauncherItemKind.Widget)
+        {
+            return;
+        }
+
+        SystemMetricsSnapshot snapshot = _systemMetricsService.GetCachedMetrics();
+        CpuUsageText = snapshot.CpuPercent is { } cpu
+            ? $"CPU  {cpu:F0}%"
+            : "CPU  —";
+        GpuUsageText = snapshot.GpuPercent is { } gpu
+            ? $"GPU  {gpu:F0}%"
+            : "GPU  —";
+        MemoryUsageText = snapshot.TotalMemoryBytes == 0
+            ? "メモリ  —"
+            : $"メモリ  {snapshot.MemoryPercent:F0}%  " +
+              $"{FormatBytes(snapshot.UsedMemoryBytes)} / {FormatBytes(snapshot.TotalMemoryBytes)}";
+    }
+
+    private static string FormatBytes(ulong bytes)
+    {
+        const double gibibyte = 1024d * 1024 * 1024;
+        return $"{bytes / gibibyte:F1}GB";
     }
 
     private async System.Threading.Tasks.Task CycleAudioOutputAsync()

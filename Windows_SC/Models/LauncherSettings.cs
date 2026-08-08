@@ -70,6 +70,8 @@ internal sealed class LauncherItemDefinition
 
     public VolumeSliderDefinition? VolumeSlider { get; set; }
 
+    public WidgetDefinition? Widget { get; set; }
+
     public static LauncherItemDefinition CreateButton(string title, string target) => new()
     {
         Kind = LauncherItemKind.Button,
@@ -104,7 +106,8 @@ internal enum LauncherItemKind
 {
     Button,
     Toggle,
-    Slider
+    Slider,
+    Widget
 }
 
 internal sealed class LauncherActionDefinition
@@ -281,4 +284,14 @@ internal enum ApplicationAudioIdentifierKind
 {
     ExecutablePath,
     PackageIdentity
+}
+
+internal sealed class WidgetDefinition
+{
+    public WidgetKind Kind { get; set; } = WidgetKind.SystemMonitor;
+}
+
+internal enum WidgetKind
+{
+    SystemMonitor
 }

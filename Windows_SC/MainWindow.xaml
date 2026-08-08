@@ -74,6 +74,36 @@
 
                                 <Border
                                     Margin="6"
+                                    Padding="10,6"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Visibility="{Binding WidgetVisibility, Mode=OneTime}">
+                                    <Grid RowDefinitions="16,12,12,12" RowSpacing="1">
+                                        <TextBlock
+                                            FontSize="13"
+                                            FontWeight="SemiBold"
+                                            MaxLines="1"
+                                            Text="{Binding Title, Mode=OneTime}"
+                                            TextTrimming="CharacterEllipsis"
+                                            ToolTipService.ToolTip="{Binding Title, Mode=OneTime}" />
+                                        <TextBlock Grid.Row="1"
+                                                   FontSize="11"
+                                                   Text="{Binding CpuUsageText, Mode=OneWay}" />
+                                        <TextBlock Grid.Row="2"
+                                                   FontSize="11"
+                                                   Text="{Binding GpuUsageText, Mode=OneWay}" />
+                                        <TextBlock Grid.Row="3"
+                                                   FontSize="11"
+                                                   Text="{Binding MemoryUsageText, Mode=OneWay}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTipService.ToolTip="{Binding MemoryUsageText, Mode=OneWay}" />
+                                    </Grid>
+                                </Border>
+
+                                <Border
+                                    Margin="6"
                                     Padding="16"
                                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"

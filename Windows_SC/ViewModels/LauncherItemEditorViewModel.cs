@@ -88,6 +88,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     public bool IsButton => Kind == LauncherItemKind.Button;
     public bool IsToggle => Kind == LauncherItemKind.Toggle;
     public bool IsSlider => Kind == LauncherItemKind.Slider;
+    public bool IsWidget => Kind == LauncherItemKind.Widget;
     public Visibility ButtonSettingsVisibility => IsButton
         ? Visibility.Visible
         : Visibility.Collapsed;
@@ -119,12 +120,14 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     {
         LauncherItemKind.Toggle => "循環切り替え",
         LauncherItemKind.Slider => "スライダー",
+        LauncherItemKind.Widget => "ウィジェット",
         _ => "ボタン"
     };
     public string KindBadgeName => Kind switch
     {
         LauncherItemKind.Toggle => "循環",
         LauncherItemKind.Slider => "スライダー",
+        LauncherItemKind.Widget => "モニター",
         _ => "ボタン"
     };
     public string KindSummary => $"種類：{KindDisplayName}";
@@ -339,6 +342,9 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
                     ? CloneTarget(_applicationAudioTarget)
                     : null
             }
+            : null,
+        Widget = Kind == LauncherItemKind.Widget
+            ? new WidgetDefinition { Kind = WidgetKind.SystemMonitor }
             : null
     };
 

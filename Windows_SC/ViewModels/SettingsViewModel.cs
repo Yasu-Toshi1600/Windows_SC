@@ -120,6 +120,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         AddButtonCommand = new RelayCommand(() => AddItem(LauncherItemKind.Button));
         AddToggleCommand = new RelayCommand(() => AddItem(LauncherItemKind.Toggle));
         AddSliderCommand = new RelayCommand(() => AddItem(LauncherItemKind.Slider));
+        AddWidgetCommand = new RelayCommand(() => AddItem(LauncherItemKind.Widget));
         DeleteItemCommand = new RelayCommand(DeleteSelectedItem, () => SelectedItem is not null);
         AddAudioDeviceCommand = new RelayCommand(AddAudioDevice, CanAddAudioDevice);
         RefreshAudioDevicesCommand = new RelayCommand(
@@ -543,6 +544,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     public RelayCommand AddButtonCommand { get; }
     public RelayCommand AddToggleCommand { get; }
     public RelayCommand AddSliderCommand { get; }
+    public RelayCommand AddWidgetCommand { get; }
     public RelayCommand DeleteItemCommand { get; }
     public RelayCommand AddAudioDeviceCommand { get; }
     public RelayCommand RefreshAudioDevicesCommand { get; }
@@ -1039,6 +1041,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         {
             LauncherItemKind.Toggle => "新しい循環切り替え",
             LauncherItemKind.Slider => "新しいスライダー",
+            LauncherItemKind.Widget => "システムモニター",
             _ => "新しいショートカット"
         };
         LauncherItemEditorViewModel item = new(Guid.NewGuid(), kind, title);

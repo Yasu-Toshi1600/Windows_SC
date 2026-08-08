@@ -103,6 +103,12 @@ internal static class LauncherSettingsValidator
                     case LauncherItemKind.Slider:
                         ValidateSlider(item, errors);
                         break;
+                    case LauncherItemKind.Widget:
+                        if (item.Widget is null || !Enum.IsDefined(item.Widget.Kind))
+                        {
+                            errors.Add($"ウィジェット設定が不正です: {item.Id}");
+                        }
+                        break;
                 }
             }
         }

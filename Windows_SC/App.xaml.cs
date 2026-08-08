@@ -22,6 +22,7 @@ public partial class App : Application
     private IAudioOutputService? _audioOutputService;
     private IApplicationVolumeStateStore? _applicationVolumeStateStore;
     private IApplicationVolumeService? _applicationVolumeService;
+    private ISystemMetricsService? _systemMetricsService;
     private ISystemTrayService? _systemTrayService;
     private IGlobalInputService? _inputService;
     private IMacroExecutionService? _macroExecutionService;
@@ -89,11 +90,13 @@ public partial class App : Application
         _applicationVolumeService = new WindowsApplicationVolumeService(
             logger,
             _applicationVolumeStateStore);
+        _systemMetricsService = new WindowsSystemMetricsService(logger);
         _viewModel = new MainWindowViewModel(
             actionExecutionService,
             _macroExecutionService,
             _audioOutputService,
-            _applicationVolumeService);
+            _applicationVolumeService,
+            _systemMetricsService);
         LauncherSettings settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
         logger.ConfigureDetailedLogging(
             settings.DetailedLoggingExpiresAtUtc,
@@ -177,6 +180,8 @@ public partial class App : Application
             _applicationVolumeService = null;
             _applicationVolumeStateStore?.Dispose();
             _applicationVolumeStateStore = null;
+            _systemMetricsService?.Dispose();
+            _systemMetricsService = null;
             _macroExecutionService?.Dispose();
             _macroExecutionService = null;
             UnhandledException -= App_UnhandledException;
