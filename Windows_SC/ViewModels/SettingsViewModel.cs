@@ -27,6 +27,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private readonly IGlobalInputService _globalInputService;
     private readonly SettingsEditRevisionTracker _editRevisionTracker = new();
     private readonly SettingsPersistenceCoordinator _persistenceCoordinator = new();
+    private readonly ShortcutRecordingSession _shortcutRecordingSession;
     private readonly Guid _pageId;
     private LauncherItemEditorViewModel? _selectedItem;
     private ActionKindOption? _selectedActionKind;
@@ -59,8 +60,6 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private bool _isRefreshingAudioDevices;
     private bool _isRefreshingApplications;
     private bool _isRecordingShortcutKey;
-    private Guid? _recordingShortcutItemId;
-    private Guid? _recordingMacroStepId;
     private string _shortcutRecordingStatus = "［キーを記録］を押して登録します。";
 
     public SettingsViewModel(
@@ -84,6 +83,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         _environmentInformationService = environmentInformationService;
         _startMenuMonitor = startMenuMonitor;
         _globalInputService = globalInputService;
+        _shortcutRecordingSession = new ShortcutRecordingSession(
+            _globalInputService.SetSuppressed);
         _globalInputService.ShortcutKeyCaptured += GlobalInputService_ShortcutKeyCaptured;
         _startMenuMonitor.ReadyChanged += StartMenuMonitor_ReadyChanged;
         _applicationVolumeService.StateChanged += ApplicationVolumeService_StateChanged;
@@ -227,6 +228,11 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         get => _selectedItem;
         set
         {
+            if (!ReferenceEquals(_selectedItem, value) && IsRecordingShortcutKey)
+            {
+                CancelShortcutKeyRecording();
+            }
+
             if (SetProperty(ref _selectedItem, value))
             {
                 SelectedActionKind = value is null
@@ -271,6 +277,11 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         get => _selectedActionKind;
         set
         {
+            if (!ReferenceEquals(_selectedActionKind, value) && IsRecordingShortcutKey)
+            {
+                CancelShortcutKeyRecording();
+            }
+
             if (SetProperty(ref _selectedActionKind, value)
                 && value is not null
                 && SelectedItem is { IsButton: true } selectedItem
@@ -482,6 +493,11 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         get => _selectedMacroStep;
         set
         {
+            if (!ReferenceEquals(_selectedMacroStep, value) && IsRecordingShortcutKey)
+            {
+                CancelShortcutKeyRecording();
+            }
+
             if (SetProperty(ref _selectedMacroStep, value))
             {
                 SelectedMacroStepKind = value is null
@@ -502,6 +518,11 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         get => _selectedMacroStepKind;
         set
         {
+            if (!ReferenceEquals(_selectedMacroStepKind, value) && IsRecordingShortcutKey)
+            {
+                CancelShortcutKeyRecording();
+            }
+
             if (SetProperty(ref _selectedMacroStepKind, value)
                 && value is not null
                 && SelectedMacroStep is { } selectedStep)
@@ -519,6 +540,11 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         get => _selectedMacroActionKind;
         set
         {
+            if (!ReferenceEquals(_selectedMacroActionKind, value) && IsRecordingShortcutKey)
+            {
+                CancelShortcutKeyRecording();
+            }
+
             if (SetProperty(ref _selectedMacroActionKind, value)
                 && value is not null
                 && SelectedMacroStep is { Kind: MacroStepKind.Action } selectedStep
@@ -817,6 +843,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             }
         }
 
+        CancelShortcutRecordingIfTargetMissing();
         MarkDirty();
     }
 
@@ -902,6 +929,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             }
         }
 
+        CancelShortcutRecordingIfTargetMissing();
         AddMacroStepCommand.NotifyCanExecuteChanged();
         MarkDirty();
     }
@@ -1062,12 +1090,12 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _recordingShortcutItemId = item.Id;
-        _recordingMacroStepId = null;
+        _shortcutRecordingSession.Begin(new ShortcutRecordingTarget(
+            ShortcutRecordingTargetKind.LauncherItem,
+            item.Id));
         IsRecordingShortcutKey = true;
         ShortcutRecordingStatus =
             "登録する単体キーまたはキーの組み合わせを押してください。Escでキャンセルします。";
-        _globalInputService.SetSuppressed(true);
     }
 
     internal void CompleteShortcutKeyRecording(ShortcutKeyDefinition shortcutKey)
@@ -1085,11 +1113,19 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         }
 
         shortcutKey.DisplayText = ShortcutKeyText.Format(shortcutKey);
-        if (_recordingMacroStepId is { } macroStepId)
+        ShortcutRecordingTarget? target = _shortcutRecordingSession.StopAndTakeTarget();
+        IsRecordingShortcutKey = false;
+        if (target is null)
+        {
+            ShortcutRecordingStatus = "記録対象が見つかりませんでした。";
+            return;
+        }
+
+        if (target.Value.Kind == ShortcutRecordingTargetKind.MacroStep)
         {
             MacroStepEditorViewModel? step = Items
                 .SelectMany(item => item.MacroSteps)
-                .FirstOrDefault(candidate => candidate.Id == macroStepId);
+                .FirstOrDefault(candidate => candidate.Id == target.Value.Id);
             if (step is null)
             {
                 ShortcutRecordingStatus = "記録対象が見つかりませんでした。";
@@ -1098,10 +1134,10 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
             step.SetShortcutKey(shortcutKey);
         }
-        else if (_recordingShortcutItemId is { } itemId)
+        else
         {
             LauncherItemEditorViewModel? item = Items.FirstOrDefault(
-                candidate => candidate.Id == itemId);
+                candidate => candidate.Id == target.Value.Id);
             if (item is null)
             {
                 ShortcutRecordingStatus = "記録対象が見つかりませんでした。";
@@ -1110,16 +1146,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
             item.SetShortcutKey(shortcutKey);
         }
-        else
-        {
-            ShortcutRecordingStatus = "記録対象が見つかりませんでした。";
-            return;
-        }
 
-        IsRecordingShortcutKey = false;
-        _recordingShortcutItemId = null;
-        _recordingMacroStepId = null;
-        _globalInputService.SetSuppressed(false);
         ShortcutRecordingStatus = $"記録しました: {shortcutKey.DisplayText}";
         MarkDirty();
     }
@@ -1135,26 +1162,48 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _recordingShortcutItemId = null;
-        _recordingMacroStepId = step.Id;
+        _shortcutRecordingSession.Begin(new ShortcutRecordingTarget(
+            ShortcutRecordingTargetKind.MacroStep,
+            step.Id));
         IsRecordingShortcutKey = true;
         ShortcutRecordingStatus =
             "登録する単体キーまたはキーの組み合わせを押してください。Escでキャンセルします。";
-        _globalInputService.SetSuppressed(true);
     }
 
     internal void CancelShortcutKeyRecording()
     {
-        if (!IsRecordingShortcutKey)
+        bool wasRecording = IsRecordingShortcutKey || _shortcutRecordingSession.IsActive;
+        _shortcutRecordingSession.Cancel();
+        IsRecordingShortcutKey = false;
+        if (!wasRecording)
         {
             return;
         }
 
-        IsRecordingShortcutKey = false;
-        _recordingShortcutItemId = null;
-        _recordingMacroStepId = null;
-        _globalInputService.SetSuppressed(false);
         ShortcutRecordingStatus = "キーの記録をキャンセルしました。";
+    }
+
+    private void CancelShortcutRecordingIfTargetMissing()
+    {
+        ShortcutRecordingTarget? target = _shortcutRecordingSession.ActiveTarget;
+        if (target is null)
+        {
+            return;
+        }
+
+        bool targetExists = target.Value.Kind switch
+        {
+            ShortcutRecordingTargetKind.LauncherItem =>
+                Items.Any(item => item.Id == target.Value.Id),
+            ShortcutRecordingTargetKind.MacroStep =>
+                Items.SelectMany(item => item.MacroSteps)
+                    .Any(step => step.Id == target.Value.Id),
+            _ => false
+        };
+        if (!targetExists)
+        {
+            CancelShortcutKeyRecording();
+        }
     }
 
     internal void ClearShortcutKey()
