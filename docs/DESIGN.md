@@ -1,6 +1,6 @@
 # Windows_SC 設計書
 
-更新日: 2026-08-07
+更新日: 2026-08-09
 対象ソースバージョン: `0.7.2`
 
 ## 1. 文書の位置付け
@@ -15,7 +15,10 @@
 | 日常確認、知人向け配布前の必須テスト | [簡易テストチェックリスト](TEST_CHECKLIST.md) |
 | 正式公開前、基盤変更、不具合調査の網羅試験 | [Phase 5～6 詳細テスト手順書](PHASE5_6_TEST_PROCEDURE.md) |
 | 直近の作業順と実装・配布前の判断事項 | [次に行う作業と判断が必要な内容](NEXT_STEPS_AND_DECISIONS.md) |
-| マクロ、ShortcutKey、アプリ別音量、システムモニターウィジェットの未実装計画 | [機能拡張実装計画](FEATURE_EXPANSION_IMPLEMENTATION_PLAN.md) |
+| ShortcutKey、マクロ | [アクション／マクロ保守ガイド](ACTION_AND_MACRO_MAINTENANCE.md) |
+| アプリ別音量、Core Audio、出力先別状態 | [アプリ別音量保守ガイド](APPLICATION_VOLUME_MAINTENANCE.md) |
+| CPU／GPU／メモリ表示 | [システムモニター保守ガイド](SYSTEM_MONITOR_WIDGET_MAINTENANCE.md) |
+| 新機能の実装進捗と未完了の手動確認 | [機能拡張実装計画](FEATURE_EXPANSION_IMPLEMENTATION_PLAN.md) |
 | 正式版前のコード整理、ログ書式、実施順 | [リファクタリング・ログ整理準備](REFACTORING_AND_LOG_CLEANUP_PLAN.md) |
 | 配布形式、生成、確認方法 | [配布手順](DISTRIBUTION.md) |
 | `0.5.9-dev`までの修正・検証履歴 | [修正課題・ドキュメント整理表（2026-07-23）](archive/REMAINING_WORK_AND_DOCUMENTATION_AUDIT_2026-07-23.md) |
@@ -24,11 +27,15 @@
 | バージョン番号と更新方法 | [バージョン管理](VERSIONING.md) |
 | 利用者影響のある変更 | [CHANGELOG](../CHANGELOG.md) |
 
-機能拡張実装計画は将来の未実装内容を管理する文書であり、現行仕様の根拠には使用しない。実装完了後は日付付きで`archive`へ移し、現行仕様を別のメンテナンス文書へ分離する。実装前の構想、Phase 0–1の技術検証、Phase 4.5の再設計手順は`archive`内の履歴資料であり、現行仕様の根拠には使用しない。
+機能拡張実装計画は、コード実装後に残るGUI・実機確認を管理する進捗文書である。
+現行仕様と変更時の注意は上記3つのメンテナンス文書を正とする。手動確認完了後は計画書を
+日付付きで`archive`へ移す。
 
 ## 2. 製品概要
 
-Windows 11のスタートメニューと同時に呼び出せる、常駐型の軽量ランチャーを提供する。アプリ、ファイル、フォルダー、URL、コマンド、音声出力先、マスター音量を、ボタン、循環切り替え、スライダーから操作できる。
+Windows 11のスタートメニューと同時に呼び出せる、常駐型の軽量ランチャーを提供する。
+アプリ、ファイル、フォルダー、URL、コマンド、キー入力、マクロ、音声出力先、
+マスター／アプリ別音量を操作し、システム使用率を表示できる。
 
 主な利用者は本人と知人を想定し、一般公開サービス、企業向け集中管理、設定のオンライン同期は対象外とする。
 
@@ -53,7 +60,7 @@ Windows 11のスタートメニューと同時に呼び出せる、常駐型の�
 - 上、左、右に配置したタスクバー
 - 1080p未満向けの表示保証と専用レイアウト。解像度自体は起動時の強制終了条件にしない
 - Microsoft Store公開、自動更新、クラウド同期
-- 複数ページUI、項目を階層化するフォルダー、プラグイン、ウィジェット
+- 複数ページUI、項目を階層化するフォルダー、プラグイン、Windowsウィジェットボード統合
 - コマンドの終了待機、終了コード、タイムアウト、標準出力取得
 
 起動時にOSビルド、OS／プロセスアーキテクチャ、タスクバー位置、接続中ディスプレイの解像度を検査する。Windows 11 25H2（ビルド26200）未満、x64以外、下端以外のタスクバー、またはタスクバー位置を確認できない環境では、理由と対応環境をエラーダイアログで表示してアプリを自動終了する。接続中のいずれかのディスプレイで縦横の短い方が1080ピクセル未満の場合は、未検証であることを警告し、利用者の確認後に起動を続ける。日本語環境と解像度は起動時の強制終了条件に含めない。
@@ -125,7 +132,8 @@ Windowsキーを含む別ショートカットは単体入力として扱わな�
 
 ### 共通
 
-各項目はID、種類、表示名、配置順を持つ。現行の種類はボタン、循環切り替え、音量スライダーである。
+各項目はID、種類、表示名、配置順を持つ。現行の種類はボタン、循環切り替え、
+音量スライダー、システムモニターである。
 
 ### ボタン
 
@@ -134,6 +142,12 @@ Windowsキーを含む別ショートカットは単体入力として扱わな�
 - アプリ、実行ファイル
 - ファイル、フォルダー、URL、Windows URI
 - コマンド、bat、cmd
+- ShortcutKeyによるキー入力
+- 複数操作と待機を登録順に実行するマクロ
+
+Application、File、URLはCommandとは別の実行種類として保持する。ShortcutKeyは
+グローバルホットキーではなく、ボタン操作時だけ`SendInput`で送信する。マクロは
+最大50ステップ、1待機最大10秒、全体最大60秒とし、失敗時はそのステップで停止する。
 
 設定可能な値:
 
@@ -171,10 +185,19 @@ Windowsキーを含む別ショートカットは単体入力として扱わな�
 
 ### 音量スライダー
 
-- 現在の既定出力デバイスのマスター音量を操作する。
-- アプリ別音量は対象外とする。
+- マスター音量は現在の既定出力デバイス全体を操作する。
+- アプリ別音量は既定Render／Multimedia出力上の同一アプリの全セッションを操作する。
+- アプリ別音量は出力デバイスIDと正規化したアプリ識別子の組み合わせで別ファイルへ保存する。
+- 保存値がある出力先へ戻った場合だけ自動復元し、未保存の出力先は現在値を上書きしない。
 - 既定デバイスが利用不能な場合は操作不能にする。
 - 実行後動作は設定しない。
+
+### システムモニター
+
+- 1カードへCPU、GPU、メモリを3行で表示する。
+- メモリは割合と使用量／総容量を表示する。
+- GPUを取得できない環境と初回サンプルは`—`を表示し、0%と断定しない。
+- ランチャー表示中だけ1秒間隔で取得し、非表示中は停止する。
 
 ## 7. 設定画面
 
@@ -230,8 +253,10 @@ Windowsキーを含む別ショートカットは単体入力として扱わな�
 | モーション | `LauncherMotionCoordinator`、`CompositionLauncherMotionService` | 論理状態、Translation、Opacity、反転、完了通知 |
 | 配置 | `LauncherPlacementService` | モニター、DPI、作業領域、列数、ランチャー矩形 |
 | 入力 | `GlobalInputService`、`GlobalWindowsKeyMonitor`、`WindowInteropService` | Windowsキー、ホットキー、外側クリック、Escape |
-| アクション | `ActionExecutionService` | Shell／cmdによる起動要求 |
-| 音声 | `WindowsAudioOutputService` | デバイスキャッシュ、既定出力切り替え、マスター音量 |
+| アクション | `ActionExecutionService`、`ShortcutKeyExecutionService`、`MacroExecutionService` | Shell／cmd起動、キー送信、登録順実行 |
+| 音声 | `WindowsAudioOutputService`、`WindowsApplicationVolumeService` | 既定出力切り替え、マスター音量、MTA上のセッション監視とアプリ別音量 |
+| アプリ音量状態 | `ApplicationVolumeStateStore` | 出力先＋アプリ識別子の遅延作成、debounce、atomic保存 |
+| システム指標 | `WindowsSystemMetricsService` | CPU／GPU／メモリ取得、表示中だけの定期更新 |
 | 設定保存 | `JsonSettingsRepository`、`LauncherSettingsValidator`、`ApplicationDataPaths` | JSON、スキーマ検証、旧保存場所からの移行、破損バックアップ、保存先 |
 | 診断 | `DiagnosticLogger`、`LogPrivacySanitizer`、`ApplicationInformation`、`EnvironmentInformationService` | 通常／詳細ログ、匿名化、環境情報の取得・変更検出 |
 | OS統合 | `WindowsSystemTrayService`、`RegistryStartupService`、`SingleInstanceService` | トレイ、自動起動、二重起動防止 |

@@ -1,8 +1,8 @@
 # Windows_SC
 
 Windows 11のスタートメニューと一緒に表示できる、常駐型の個人向けランチャーです。
-アプリ、ファイル、フォルダー、URL、コマンド、音声出力先、マスター音量を
-一つの画面から操作できます。
+アプリ、ファイル、フォルダー、URL、コマンド、キー入力、マクロ、音声出力先、
+マスター／アプリ別音量を一つの画面から操作し、CPU／GPU／メモリも確認できます。
 
 現在のソースバージョンは`0.7.2`です。GitHubで公開済みのタグ／配布版は
 `v0.6.2-beta.1`で、`0.7.2`はまだ配布物の作成、配布前確認、タグ付けを
@@ -37,12 +37,18 @@ Windows 10、Windows 11 24H2以前、x86／ARM64、下端以外のタスクバ�
 - ボタン
   - アプリ、ファイル、フォルダー、URLを開く
   - コマンド／batを実行する
+  - 登録したショートカットキーをWindowsへ送る
+  - 操作、キー入力、待機を登録順に実行するマクロ
 - 循環切り替え
   - 音声出力デバイスを登録順に切り替える
   - 複数のコマンドを登録順に実行する
   - ランチャー上には、現在値ではなく次に切り替わるデバイスまたは操作を表示する
 - 音量スライダー
   - 現在の既定音声出力のマスター音量を変更する
+  - 現在の既定出力上にある対象アプリの音量を変更する
+  - アプリ別音量は出力デバイスごとに保存し、既定出力を戻したときに復元する
+- システムモニター
+  - CPU、GPU、メモリ使用率とメモリ使用量を表示する
 
 起動対象欄のフォルダーアイコンから、ファイルまたはフォルダーを選択できます。
 PATHで解決できる`notepad.exe`等、URL、Windows URIは手入力も可能です。
@@ -68,6 +74,8 @@ PATHで解決できる`notepad.exe`等、URL、Windows URIは手入力も可能�
 ```text
 %LOCALAPPDATA%\Windows_SC\
 ├─ Settings\
+│  ├─ settings.json
+│  └─ application-volume-state.json
 └─ Logs\
 ```
 
@@ -104,11 +112,11 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
 パネルの正確な外周を安定して取得できない点と合わせ、既知の配置制約として
 管理しています。
 
-`0.7.2`ではスタート検出経路と所要時間の診断、長時間稼働時のスタートボタン検出
-フォールバック、詳細ログの常時有効モードを追加しています。Debug／Release x64の
-ビルドと簡易テストA-1～A-3は確認済みです。開発PCでは実ユーザーのRun登録と
-再起動後の自動起動も確認できています。簡易テストB、現在版ZIPの起動、別PC、
-1080p未満の警告表示は配布前の未完了確認です。
+`0.7.2`の未リリースソースには、スタート検出診断に加え、ShortcutKey、マクロ、
+出力先別のアプリ音量、システムモニターを実装しています。Debug／Release x64は
+警告・エラー0、単体テスト14件は成功しています。新機能のGUI操作、2台の音声出力での
+復元、長時間常駐、現在版ZIP、別PCは未確認であり、配布前に試験チェックリストを
+実施する必要があります。
 
 配布物の作成:
 
@@ -127,6 +135,9 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
 - [ログ・詳細診断・プライバシー仕様](docs/LOGGING_AND_PRIVACY.md)
 - [次に行う作業と判断事項](docs/NEXT_STEPS_AND_DECISIONS.md)
 - [機能拡張実装計画](docs/FEATURE_EXPANSION_IMPLEMENTATION_PLAN.md)
+- [アクション／マクロ保守ガイド](docs/ACTION_AND_MACRO_MAINTENANCE.md)
+- [アプリ別音量保守ガイド](docs/APPLICATION_VOLUME_MAINTENANCE.md)
+- [システムモニター保守ガイド](docs/SYSTEM_MONITOR_WIDGET_MAINTENANCE.md)
 - [リファクタリング・ログ整理準備](docs/REFACTORING_AND_LOG_CLEANUP_PLAN.md)
 - [簡易テスト](docs/TEST_CHECKLIST.md)
 - [変更履歴](CHANGELOG.md)
