@@ -253,7 +253,32 @@ internal sealed class CommandCycleStepDefinition
 
 internal sealed class VolumeSliderDefinition
 {
+    public VolumeSliderKind Type { get; set; } = VolumeSliderKind.Master;
+
+    public ApplicationAudioTargetDefinition? Application { get; set; }
+
     public double Minimum { get; set; }
 
     public double Maximum { get; set; } = 100;
+}
+
+internal enum VolumeSliderKind
+{
+    Master,
+    Application
+}
+
+internal sealed class ApplicationAudioTargetDefinition
+{
+    public ApplicationAudioIdentifierKind IdentifierType { get; set; }
+
+    public string Identifier { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+}
+
+internal enum ApplicationAudioIdentifierKind
+{
+    ExecutablePath,
+    PackageIdentity
 }

@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 using Windows_SC.Models;
 using Windows_SC.Services;
@@ -18,6 +19,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private readonly MainWindowViewModel _mainWindowViewModel;
     private readonly IStartupService _startupService;
     private readonly IAudioOutputService _audioOutputService;
+    private readonly IApplicationVolumeService _applicationVolumeService;
+    private readonly DispatcherQueue _dispatcherQueue;
     private readonly DiagnosticLogger _logger;
     private readonly EnvironmentInformationService _environmentInformationService;
     private readonly IStartMenuMonitor _startMenuMonitor;
@@ -31,6 +34,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private RegisteredAudioDeviceEditorViewModel? _selectedRegisteredAudioDevice;
     private CommandCycleStepEditorViewModel? _selectedCommandStep;
     private MacroStepEditorViewModel? _selectedMacroStep;
+    private VolumeSliderKindOption? _selectedVolumeSliderKind;
+    private ApplicationAudioTargetOption? _selectedApplicationAudioTarget;
     private bool _assumePhonePanelVisible;
     private bool _startWithWindows;
     private LayoutModeOption? _selectedLayoutMode;
@@ -47,6 +52,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private DateTimeOffset? _detailedLoggingExpiresAt;
     private bool _isApplyingDiagnosticsSetting;
     private bool _isRefreshingAudioDevices;
+    private bool _isRefreshingApplications;
     private bool _isRecordingShortcutKey;
     private Guid? _recordingShortcutItemId;
     private Guid? _recordingMacroStepId;
@@ -57,6 +63,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         MainWindowViewModel mainWindowViewModel,
         IStartupService startupService,
         IAudioOutputService audioOutputService,
+        IApplicationVolumeService applicationVolumeService,
         DiagnosticLogger logger,
         EnvironmentInformationService environmentInformationService,
         IStartMenuMonitor startMenuMonitor,
@@ -66,11 +73,14 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         _mainWindowViewModel = mainWindowViewModel;
         _startupService = startupService;
         _audioOutputService = audioOutputService;
+        _applicationVolumeService = applicationVolumeService;
+        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         _logger = logger;
         _environmentInformationService = environmentInformationService;
         _startMenuMonitor = startMenuMonitor;
         _globalInputService = globalInputService;
         _startMenuMonitor.ReadyChanged += StartMenuMonitor_ReadyChanged;
+        _applicationVolumeService.StateChanged += ApplicationVolumeService_StateChanged;
 
         foreach (AudioOutputDevice device in _audioOutputService.GetCachedDevices())
         {
@@ -79,6 +89,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 device.DisplayName,
                 device.IsAvailable));
         }
+
+        RefreshApplicationCandidatesFromCache();
 
         LauncherSettings settings = mainWindowViewModel.ExportSettings();
         _assumePhonePanelVisible = settings.AssumePhonePanelVisible;
@@ -114,6 +126,9 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             () => _ = RefreshAudioDevicesAsync(),
             () => !_isRefreshingAudioDevices
                 && SelectedItem is { IsToggle: true, CycleKind: CycleActionKind.AudioOutput });
+        RefreshApplicationsCommand = new RelayCommand(
+            () => _ = RefreshApplicationsAsync(),
+            () => !_isRefreshingApplications && SelectedItem is { IsSlider: true });
         AddCommandStepCommand = new RelayCommand(
             AddCommandStep,
             () => SelectedItem is { IsToggle: true, CycleKind: CycleActionKind.Commands });
@@ -146,6 +161,14 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     public ObservableCollection<LauncherItemEditorViewModel> Items { get; } = [];
 
     public ObservableCollection<AudioOutputDeviceOption> AvailableAudioOutputDevices { get; } = [];
+
+    public ObservableCollection<ApplicationAudioTargetOption> AvailableApplications { get; } = [];
+
+    public IReadOnlyList<VolumeSliderKindOption> VolumeSliderKinds { get; } =
+    [
+        new(VolumeSliderKind.Master, "マスター音量"),
+        new(VolumeSliderKind.Application, "アプリ別音量")
+    ];
 
     public IReadOnlyList<ActionKindOption> ActionKinds { get; } =
     [
@@ -212,6 +235,12 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 SelectedRegisteredAudioDevice = null;
                 SelectedCommandStep = value?.CommandSteps.FirstOrDefault();
                 SelectedMacroStep = value?.MacroSteps.FirstOrDefault();
+                SelectedVolumeSliderKind = value is { IsSlider: true }
+                    ? VolumeSliderKinds.First(option => option.Value == value.VolumeSliderKind)
+                    : null;
+                SelectedApplicationAudioTarget = value is { IsSlider: true }
+                    ? FindOrAddApplicationOption(value.ApplicationAudioTarget)
+                    : null;
                 AudioDeviceToAdd = AvailableAudioOutputDevices.FirstOrDefault(device =>
                     value?.RegisteredAudioDevices.All(registered =>
                         !string.Equals(
@@ -222,6 +251,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 NotifyAudioDeviceCommands();
                 AddCommandStepCommand.NotifyCanExecuteChanged();
                 AddMacroStepCommand.NotifyCanExecuteChanged();
+                RefreshApplicationsCommand.NotifyCanExecuteChanged();
             }
         }
     }
@@ -414,6 +444,33 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _selectedMacroStep, value);
     }
 
+    public VolumeSliderKindOption? SelectedVolumeSliderKind
+    {
+        get => _selectedVolumeSliderKind;
+        set
+        {
+            if (SetProperty(ref _selectedVolumeSliderKind, value)
+                && value is not null
+                && SelectedItem is { IsSlider: true } item)
+            {
+                item.VolumeSliderKind = value.Value;
+            }
+        }
+    }
+
+    public ApplicationAudioTargetOption? SelectedApplicationAudioTarget
+    {
+        get => _selectedApplicationAudioTarget;
+        set
+        {
+            if (SetProperty(ref _selectedApplicationAudioTarget, value)
+                && SelectedItem is { IsSlider: true } item)
+            {
+                item.SetApplicationAudioTarget(value);
+            }
+        }
+    }
+
     public bool IsRecordingShortcutKey
     {
         get => _isRecordingShortcutKey;
@@ -489,6 +546,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     public RelayCommand DeleteItemCommand { get; }
     public RelayCommand AddAudioDeviceCommand { get; }
     public RelayCommand RefreshAudioDevicesCommand { get; }
+    public RelayCommand RefreshApplicationsCommand { get; }
     public RelayCommand AddCommandStepCommand { get; }
     public RelayCommand AddMacroStepCommand { get; }
     public RelayCommand RemoveAudioDeviceCommand { get; }
@@ -633,6 +691,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         CancelShortcutKeyRecording();
+        _applicationVolumeService.StateChanged -= ApplicationVolumeService_StateChanged;
         _startMenuMonitor.ReadyChanged -= StartMenuMonitor_ReadyChanged;
         Items.CollectionChanged -= Items_CollectionChanged;
         foreach (LauncherItemEditorViewModel item in Items)
@@ -643,6 +702,9 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     private void StartMenuMonitor_ReadyChanged(object? sender, EventArgs args) =>
         OnPropertyChanged(nameof(StartMenuMonitoringStatus));
+
+    private void ApplicationVolumeService_StateChanged(object? sender, EventArgs args) =>
+        _dispatcherQueue.TryEnqueue(RefreshApplicationCandidatesFromCache);
 
     private void Items_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)
     {
@@ -1082,6 +1144,114 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         RemoveAudioDeviceCommand.NotifyCanExecuteChanged();
         MoveAudioDeviceUpCommand.NotifyCanExecuteChanged();
         MoveAudioDeviceDownCommand.NotifyCanExecuteChanged();
+    }
+
+    private async System.Threading.Tasks.Task RefreshApplicationsAsync()
+    {
+        if (_isRefreshingApplications)
+        {
+            return;
+        }
+
+        _isRefreshingApplications = true;
+        RefreshApplicationsCommand.NotifyCanExecuteChanged();
+        SetStatus("アプリ別音量の候補を更新しています…", InfoBarSeverity.Informational);
+        try
+        {
+            await _applicationVolumeService.RefreshAsync();
+            RefreshApplicationCandidatesFromCache();
+            SetStatus(
+                $"アプリ別音量の候補を更新しました（{AvailableApplications.Count}件）。",
+                InfoBarSeverity.Success);
+        }
+        catch (Exception exception)
+        {
+            _logger.Write(
+                $"[ApplicationVolume] action=manual-refresh result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            SetStatus(
+                $"アプリ別音量の候補を更新できませんでした: {exception.Message}",
+                InfoBarSeverity.Error);
+        }
+        finally
+        {
+            _isRefreshingApplications = false;
+            RefreshApplicationsCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private void RefreshApplicationCandidatesFromCache()
+    {
+        ApplicationAudioTargetDefinition? selectedDefinition =
+            SelectedItem?.ApplicationAudioTarget;
+        List<ApplicationAudioTargetOption> options = _applicationVolumeService
+            .GetCachedApplications()
+            .Select(info => new ApplicationAudioTargetOption(
+                info.Target.IdentifierKind,
+                info.Target.Identifier,
+                info.Target.DisplayName,
+                info.IsAvailable))
+            .ToList();
+
+        foreach (ApplicationAudioTargetDefinition saved in Items
+                     .Select(item => item.ApplicationAudioTarget)
+                     .Where(target => target is not null)
+                     .Cast<ApplicationAudioTargetDefinition>())
+        {
+            if (options.All(option =>
+                    option.IdentifierType != saved.IdentifierType
+                    || !string.Equals(
+                        option.Identifier,
+                        saved.Identifier,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                options.Add(new ApplicationAudioTargetOption(
+                    saved.IdentifierType,
+                    saved.Identifier,
+                    saved.DisplayName,
+                    false));
+            }
+        }
+
+        AvailableApplications.Clear();
+        foreach (ApplicationAudioTargetOption option in options
+                     .OrderBy(option => option.DisplayName, StringComparer.CurrentCultureIgnoreCase))
+        {
+            AvailableApplications.Add(option);
+        }
+
+        if (SelectedItem is { IsSlider: true })
+        {
+            SelectedApplicationAudioTarget = FindOrAddApplicationOption(selectedDefinition);
+        }
+    }
+
+    private ApplicationAudioTargetOption? FindOrAddApplicationOption(
+        ApplicationAudioTargetDefinition? target)
+    {
+        if (target is null)
+        {
+            return null;
+        }
+
+        ApplicationAudioTargetOption? option = AvailableApplications.FirstOrDefault(candidate =>
+            candidate.IdentifierType == target.IdentifierType
+            && string.Equals(
+                candidate.Identifier,
+                target.Identifier,
+                StringComparison.OrdinalIgnoreCase));
+        if (option is not null)
+        {
+            return option;
+        }
+
+        option = new ApplicationAudioTargetOption(
+            target.IdentifierType,
+            target.Identifier,
+            target.DisplayName,
+            false);
+        AvailableApplications.Add(option);
+        return option;
     }
 
     private async System.Threading.Tasks.Task RefreshAudioDevicesAsync()

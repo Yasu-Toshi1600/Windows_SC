@@ -60,6 +60,19 @@ internal static class SettingsSaveValidator
                 ShortcutKeyValidator.Validate(incompleteShortcut.ShortcutKey)!);
         }
 
+        LauncherItemEditorViewModel? incompleteApplicationSlider = items.FirstOrDefault(item =>
+            item.IsSlider
+            && item.VolumeSliderKind == VolumeSliderKind.Application
+            && (item.ApplicationAudioTarget is null
+                || string.IsNullOrWhiteSpace(item.ApplicationAudioTarget.Identifier)
+                || string.IsNullOrWhiteSpace(item.ApplicationAudioTarget.DisplayName)));
+        if (incompleteApplicationSlider is not null)
+        {
+            return SettingsSaveValidationResult.Invalid(
+                incompleteApplicationSlider.Id,
+                "アプリ別音量の対象アプリを選択してください。");
+        }
+
         foreach (LauncherItemEditorViewModel item in items.Where(item =>
                      item.IsButton && item.ActionKind == LauncherActionKind.Macro))
         {

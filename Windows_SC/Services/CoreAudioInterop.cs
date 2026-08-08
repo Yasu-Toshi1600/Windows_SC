@@ -93,10 +93,12 @@ internal interface IMMDeviceEnumerator
     int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string id, out IMMDevice device);
 
     [PreserveSig]
-    int RegisterEndpointNotificationCallback(IntPtr client);
+    int RegisterEndpointNotificationCallback(
+        [MarshalAs(UnmanagedType.Interface)] IMMNotificationClient client);
 
     [PreserveSig]
-    int UnregisterEndpointNotificationCallback(IntPtr client);
+    int UnregisterEndpointNotificationCallback(
+        [MarshalAs(UnmanagedType.Interface)] IMMNotificationClient client);
 }
 
 [ComImport]

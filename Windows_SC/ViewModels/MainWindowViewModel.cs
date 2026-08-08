@@ -1,12 +1,13 @@
 using System.Collections.ObjectModel;
 using System;
 using System.Linq;
+using Microsoft.UI.Dispatching;
 using Windows_SC.Models;
 using Windows_SC.Services;
 
 namespace Windows_SC.ViewModels;
 
-internal sealed class MainWindowViewModel : ObservableObject
+internal sealed class MainWindowViewModel : ObservableObject, IDisposable
 {
     private bool _assumePhonePanelVisible = true;
     private bool _startWithWindows;
@@ -15,14 +16,20 @@ internal sealed class MainWindowViewModel : ObservableObject
     private LauncherSettings _settings = LauncherSettings.CreateDefault();
     private readonly IActionExecutionService _actionExecutionService;
     private readonly IMacroExecutionService _macroExecutionService;
+    private readonly IApplicationVolumeService _applicationVolumeService;
+    private readonly DispatcherQueue _dispatcherQueue;
 
     public MainWindowViewModel(
         IActionExecutionService actionExecutionService,
         IMacroExecutionService macroExecutionService,
-        IAudioOutputService audioOutputService)
+        IAudioOutputService audioOutputService,
+        IApplicationVolumeService applicationVolumeService)
     {
         _actionExecutionService = actionExecutionService;
         _macroExecutionService = macroExecutionService;
+        _applicationVolumeService = applicationVolumeService;
+        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+        _applicationVolumeService.StateChanged += ApplicationVolumeService_StateChanged;
         AudioOutputService = audioOutputService;
         OpenSettingsCommand = new RelayCommand(
             () => SettingsRequested?.Invoke(this, EventArgs.Empty));
@@ -92,7 +99,8 @@ internal sealed class MainWindowViewModel : ObservableObject
                 item,
                 _actionExecutionService,
                 _macroExecutionService,
-                AudioOutputService);
+                AudioOutputService,
+                _applicationVolumeService);
             shortcut.Executed += Shortcut_Executed;
             shortcut.ApplyLayoutMode(LayoutMode);
             Shortcuts.Add(shortcut);
@@ -120,6 +128,18 @@ internal sealed class MainWindowViewModel : ObservableObject
         foreach (LauncherItemViewModel shortcut in Shortcuts)
         {
             shortcut.ApplyLayoutMode(LayoutMode);
+        }
+    }
+
+    private void ApplicationVolumeService_StateChanged(object? sender, EventArgs args) =>
+        _dispatcherQueue.TryEnqueue(RefreshAudioOutputState);
+
+    public void Dispose()
+    {
+        _applicationVolumeService.StateChanged -= ApplicationVolumeService_StateChanged;
+        foreach (LauncherItemViewModel shortcut in Shortcuts)
+        {
+            shortcut.Executed -= Shortcut_Executed;
         }
     }
 

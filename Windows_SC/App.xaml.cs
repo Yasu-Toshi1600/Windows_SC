@@ -20,6 +20,8 @@ public partial class App : Application
     private IStartMenuMonitor? _startMenuMonitor;
     private IStartupService? _startupService;
     private IAudioOutputService? _audioOutputService;
+    private IApplicationVolumeStateStore? _applicationVolumeStateStore;
+    private IApplicationVolumeService? _applicationVolumeService;
     private ISystemTrayService? _systemTrayService;
     private IGlobalInputService? _inputService;
     private IMacroExecutionService? _macroExecutionService;
@@ -83,10 +85,15 @@ public partial class App : Application
             shortcutKeyExecutionService);
         _macroExecutionService = new MacroExecutionService(actionExecutionService, logger);
         _audioOutputService = new WindowsAudioOutputService(logger);
+        _applicationVolumeStateStore = new ApplicationVolumeStateStore(logger);
+        _applicationVolumeService = new WindowsApplicationVolumeService(
+            logger,
+            _applicationVolumeStateStore);
         _viewModel = new MainWindowViewModel(
             actionExecutionService,
             _macroExecutionService,
-            _audioOutputService);
+            _audioOutputService,
+            _applicationVolumeService);
         LauncherSettings settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
         logger.ConfigureDetailedLogging(
             settings.DetailedLoggingExpiresAtUtc,
@@ -150,6 +157,7 @@ public partial class App : Application
             if (_viewModel is not null)
             {
                 _viewModel.SettingsRequested -= ViewModel_SettingsRequested;
+                _viewModel.Dispose();
             }
 
             if (_systemTrayService is not null)
@@ -165,6 +173,10 @@ public partial class App : Application
             _singleInstanceService = null;
             _audioOutputService?.Dispose();
             _audioOutputService = null;
+            _applicationVolumeService?.Dispose();
+            _applicationVolumeService = null;
+            _applicationVolumeStateStore?.Dispose();
+            _applicationVolumeStateStore = null;
             _macroExecutionService?.Dispose();
             _macroExecutionService = null;
             UnhandledException -= App_UnhandledException;
@@ -200,7 +212,8 @@ public partial class App : Application
             || _logger is null
             || _environmentInformationService is null
             || _startMenuMonitor is null
-            || _inputService is null)
+            || _inputService is null
+            || _applicationVolumeService is null)
         {
             return;
         }
@@ -210,6 +223,7 @@ public partial class App : Application
             _viewModel,
             _startupService,
             _viewModel.AudioOutputService,
+            _applicationVolumeService,
             _logger,
             _environmentInformationService,
             _startMenuMonitor,

@@ -26,6 +26,12 @@
              Link="Source\LauncherSettingsValidator.cs" />
     <Compile Include="..\Windows_SC\Services\IActionExecutionService.cs"
              Link="Source\IActionExecutionService.cs" />
+    <Compile Include="..\Windows_SC\Services\IAudioOutputService.cs"
+             Link="Source\IAudioOutputService.cs" />
+    <Compile Include="..\Windows_SC\Services\IApplicationVolumeService.cs"
+             Link="Source\IApplicationVolumeService.cs" />
+    <Compile Include="..\Windows_SC\Services\ApplicationVolumeStateStore.cs"
+             Link="Source\ApplicationVolumeStateStore.cs" />
     <Compile Include="..\Windows_SC\Services\IMacroExecutionService.cs"
              Link="Source\IMacroExecutionService.cs" />
     <Compile Include="..\Windows_SC\Services\MacroExecutionService.cs"

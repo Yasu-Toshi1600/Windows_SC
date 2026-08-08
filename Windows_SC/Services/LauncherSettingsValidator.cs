@@ -144,6 +144,22 @@ internal static class LauncherSettingsValidator
             errors.Add(
                 $"音量スライダーの範囲は0～100で、最小値を最大値未満にしてください: {item.Id}");
         }
+
+        if (!Enum.IsDefined(item.VolumeSlider.Type))
+        {
+            errors.Add($"未対応の音量スライダー種類です: {item.Id}");
+        }
+        else if (item.VolumeSlider.Type == VolumeSliderKind.Application)
+        {
+            ApplicationAudioTargetDefinition? target = item.VolumeSlider.Application;
+            if (target is null
+                || !Enum.IsDefined(target.IdentifierType)
+                || string.IsNullOrWhiteSpace(target.Identifier)
+                || string.IsNullOrWhiteSpace(target.DisplayName))
+            {
+                errors.Add($"アプリ別音量の対象が不正です: {item.Id}");
+            }
+        }
     }
 
     private static void ValidateCycleAction(

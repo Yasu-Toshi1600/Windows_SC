@@ -20,7 +20,8 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     private CycleActionKind _cycleKind = CycleActionKind.AudioOutput;
     private LauncherPostExecutionBehavior _postExecutionBehavior =
         LauncherPostExecutionBehavior.CloseOnSuccess;
-    private readonly VolumeSliderDefinition? _volumeSlider;
+    private VolumeSliderKind _volumeSliderKind = Windows_SC.Models.VolumeSliderKind.Master;
+    private ApplicationAudioTargetDefinition? _applicationAudioTarget;
 
     public LauncherItemEditorViewModel(
         LauncherItemDefinition definition,
@@ -43,7 +44,9 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
                 DisplayText = action.ShortcutKey.DisplayText
             };
         _postExecutionBehavior = definition.PostExecutionBehavior;
-        _volumeSlider = definition.VolumeSlider;
+        _volumeSliderKind = definition.VolumeSlider?.Type
+            ?? Windows_SC.Models.VolumeSliderKind.Master;
+        _applicationAudioTarget = CloneTarget(definition.VolumeSlider?.Application);
 
         CycleActionDefinition? cycleAction = definition.GetEffectiveCycleAction();
         _cycleKind = cycleAction?.Kind ?? CycleActionKind.AudioOutput;
@@ -84,12 +87,20 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     public LauncherItemKind Kind { get; }
     public bool IsButton => Kind == LauncherItemKind.Button;
     public bool IsToggle => Kind == LauncherItemKind.Toggle;
+    public bool IsSlider => Kind == LauncherItemKind.Slider;
     public Visibility ButtonSettingsVisibility => IsButton
         ? Visibility.Visible
         : Visibility.Collapsed;
     public Visibility CycleSettingsVisibility => IsToggle
         ? Visibility.Visible
         : Visibility.Collapsed;
+    public Visibility SliderSettingsVisibility => IsSlider
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility ApplicationVolumeSettingsVisibility => IsSlider
+        && VolumeSliderKind == Windows_SC.Models.VolumeSliderKind.Application
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     public Visibility PostExecutionSettingsVisibility => IsToggle
         ? Visibility.Visible
         : Visibility.Collapsed;
@@ -234,6 +245,50 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         set => SetProperty(ref _postExecutionBehavior, value);
     }
 
+    public VolumeSliderKind VolumeSliderKind
+    {
+        get => _volumeSliderKind;
+        set
+        {
+            if (SetProperty(ref _volumeSliderKind, value))
+            {
+                OnPropertyChanged(nameof(ApplicationVolumeSettingsVisibility));
+            }
+        }
+    }
+
+    public ApplicationAudioTargetDefinition? ApplicationAudioTarget =>
+        _applicationAudioTarget;
+
+    public void SetApplicationAudioTarget(ApplicationAudioTargetOption? option)
+    {
+        if ((_applicationAudioTarget is null && option is null)
+            || (_applicationAudioTarget is not null
+                && option is not null
+                && _applicationAudioTarget.IdentifierType == option.IdentifierType
+                && string.Equals(
+                    _applicationAudioTarget.Identifier,
+                    option.Identifier,
+                    StringComparison.OrdinalIgnoreCase)
+                && string.Equals(
+                    _applicationAudioTarget.DisplayName,
+                    option.DisplayName,
+                    StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        _applicationAudioTarget = option is null
+            ? null
+            : new ApplicationAudioTargetDefinition
+            {
+                IdentifierType = option.IdentifierType,
+                Identifier = option.Identifier,
+                DisplayName = option.DisplayName
+            };
+        OnPropertyChanged(nameof(ApplicationAudioTarget));
+    }
+
     public LauncherItemDefinition ToDefinition() => new()
     {
         Id = Id,
@@ -277,7 +332,24 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
             }
             : null,
         VolumeSlider = Kind == LauncherItemKind.Slider
-            ? _volumeSlider ?? new VolumeSliderDefinition()
+            ? new VolumeSliderDefinition
+            {
+                Type = VolumeSliderKind,
+                Application = VolumeSliderKind == Windows_SC.Models.VolumeSliderKind.Application
+                    ? CloneTarget(_applicationAudioTarget)
+                    : null
+            }
             : null
     };
+
+    private static ApplicationAudioTargetDefinition? CloneTarget(
+        ApplicationAudioTargetDefinition? source) =>
+        source is null
+            ? null
+            : new ApplicationAudioTargetDefinition
+            {
+                IdentifierType = source.IdentifierType,
+                Identifier = source.Identifier,
+                DisplayName = source.DisplayName
+            };
 }

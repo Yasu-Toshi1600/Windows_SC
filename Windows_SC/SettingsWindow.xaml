@@ -285,6 +285,26 @@
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
+                    <StackPanel Spacing="10"
+                                Visibility="{Binding SelectedItem.SliderSettingsVisibility}">
+                        <ComboBox Header="音量種類"
+                                  DisplayMemberPath="DisplayName"
+                                  ItemsSource="{Binding VolumeSliderKinds}"
+                                  SelectedItem="{Binding SelectedVolumeSliderKind, Mode=TwoWay}" />
+                        <StackPanel Spacing="8"
+                                    Visibility="{Binding SelectedItem.ApplicationVolumeSettingsVisibility}">
+                            <ComboBox Header="対象アプリ"
+                                      DisplayMemberPath="DisplayLabel"
+                                      ItemsSource="{Binding AvailableApplications}"
+                                      SelectedItem="{Binding SelectedApplicationAudioTarget, Mode=TwoWay}" />
+                            <Button HorizontalAlignment="Left"
+                                    Command="{Binding RefreshApplicationsCommand}"
+                                    Content="候補を更新" />
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Text="現在音声セッションを持つアプリから選択します。終了中の保存済みアプリは利用不能として残ります。"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
                     <StackPanel Spacing="12"
                                 Visibility="{Binding SelectedItem.CycleSettingsVisibility}">
                         <ComboBox Header="切り替え内容"

@@ -22,6 +22,9 @@ internal static class ApplicationDataPaths
     public static string SettingsFilePath { get; } =
         Path.Combine(SettingsDirectoryPath, "settings.json");
 
+    public static string ApplicationVolumeStateFilePath { get; } =
+        Path.Combine(SettingsDirectoryPath, "application-volume-state.json");
+
     public static string LogDirectoryPath { get; } =
         Path.Combine(RootDirectoryPath, "Logs");
 
