@@ -16,6 +16,7 @@ internal sealed class MacroStepEditorViewModel : ObservableObject
     private bool _hideCommandWindow;
     private int _delayMilliseconds;
     private ShortcutKeyDefinition? _shortcutKey;
+    private ShortcutKeyInputMode _shortcutKeyInputMode = ShortcutKeyInputMode.ScanCode;
 
     public MacroStepEditorViewModel(MacroStepDefinition definition)
     {
@@ -31,6 +32,8 @@ internal sealed class MacroStepEditorViewModel : ObservableObject
         _workingDirectory = action.WorkingDirectory;
         _hideCommandWindow = action.HideCommandWindow;
         _delayMilliseconds = definition.DelayMilliseconds;
+        _shortcutKeyInputMode = action.ShortcutKey?.InputMode
+            ?? ShortcutKeyInputMode.ScanCode;
         _shortcutKey = CloneShortcut(action.ShortcutKey);
     }
 
@@ -122,6 +125,18 @@ internal sealed class MacroStepEditorViewModel : ObservableObject
         ? "未設定"
         : ShortcutKeyText.Format(_shortcutKey);
 
+    public ShortcutKeyInputMode ShortcutKeyInputMode
+    {
+        get => _shortcutKeyInputMode;
+        set
+        {
+            if (SetProperty(ref _shortcutKeyInputMode, value) && _shortcutKey is not null)
+            {
+                _shortcutKey.InputMode = value;
+            }
+        }
+    }
+
     public string Summary => Kind == MacroStepKind.Wait
         ? $"待機 {DelayMilliseconds}ms"
         : ActionKind.ToString();
@@ -152,6 +167,10 @@ internal sealed class MacroStepEditorViewModel : ObservableObject
     public void SetShortcutKey(ShortcutKeyDefinition? shortcutKey)
     {
         _shortcutKey = CloneShortcut(shortcutKey);
+        if (_shortcutKey is not null)
+        {
+            _shortcutKey.InputMode = ShortcutKeyInputMode;
+        }
         OnPropertyChanged(nameof(ShortcutKey));
         OnPropertyChanged(nameof(ShortcutKeyDisplayText));
     }
@@ -192,6 +211,8 @@ internal sealed class MacroStepEditorViewModel : ObservableObject
                 Modifiers = source.Modifiers,
                 VirtualKey = source.VirtualKey,
                 ScanCode = source.ScanCode,
+                IsExtendedKey = source.IsExtendedKey,
+                InputMode = source.InputMode,
                 DisplayText = source.DisplayText
             };
 }

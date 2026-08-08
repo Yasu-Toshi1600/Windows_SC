@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Windows_SC.Models;
+using Windows_SC.Services;
 
 namespace Windows_SC;
 
@@ -17,20 +20,42 @@ internal sealed class GlobalWindowsKeyMonitor : IDisposable
     private const int VkControl = 0x11;
     private const int VkMenu = 0x12;
     private const uint LlkhfInjected = 0x10;
+    private const uint LlkhfExtended = 0x01;
 
     private readonly Action _windowsKeyReleasedAlone;
+    private readonly Action<ShortcutKeyDefinition> _shortcutKeyCaptured;
     private readonly Action<string> _diagnosticLog;
     private readonly LowLevelKeyboardProcedure _hookProcedure;
+    private readonly object _captureLock = new();
+    private readonly HashSet<uint> _capturePressedKeys = [];
     private IntPtr _hookHandle;
     private bool _leftWindowsDown;
     private bool _rightWindowsDown;
     private bool _chordDetected;
+    private bool _captureEnabled;
+    private bool _captureAwaitingResult;
+    private ShortcutKeyDefinition? _pendingShortcutKey;
 
-    public GlobalWindowsKeyMonitor(Action windowsKeyReleasedAlone, Action<string> diagnosticLog)
+    public GlobalWindowsKeyMonitor(
+        Action windowsKeyReleasedAlone,
+        Action<ShortcutKeyDefinition> shortcutKeyCaptured,
+        Action<string> diagnosticLog)
     {
         _windowsKeyReleasedAlone = windowsKeyReleasedAlone;
+        _shortcutKeyCaptured = shortcutKeyCaptured;
         _diagnosticLog = diagnosticLog;
         _hookProcedure = KeyboardHookCallback;
+    }
+
+    public void SetCaptureEnabled(bool enabled)
+    {
+        lock (_captureLock)
+        {
+            _captureEnabled = enabled;
+            _captureAwaitingResult = false;
+            _pendingShortcutKey = null;
+            _capturePressedKeys.Clear();
+        }
     }
 
     public void Start()
@@ -68,6 +93,11 @@ internal sealed class GlobalWindowsKeyMonitor : IDisposable
             if ((data.Flags & LlkhfInjected) == 0)
             {
                 uint message = unchecked((uint)wParam.ToInt64());
+                if (TryCaptureShortcutKey(data, message))
+                {
+                    return new IntPtr(1);
+                }
+
                 bool isKeyDown = message is WmKeyDown or WmSysKeyDown;
                 bool isKeyUp = message is WmKeyUp or WmSysKeyUp;
                 bool isWindowsKey = data.VirtualKey is VkLeftWindows or VkRightWindows;
@@ -88,6 +118,102 @@ internal sealed class GlobalWindowsKeyMonitor : IDisposable
         }
 
         return CallNextHookEx(_hookHandle, code, wParam, lParam);
+    }
+
+    private bool TryCaptureShortcutKey(KeyboardHookData data, uint message)
+    {
+        ShortcutKeyDefinition? capturedShortcutKey = null;
+        lock (_captureLock)
+        {
+            if (!_captureEnabled)
+            {
+                return false;
+            }
+
+            bool isKeyDown = message is WmKeyDown or WmSysKeyDown;
+            bool isKeyUp = message is WmKeyUp or WmSysKeyUp;
+            if (!isKeyDown && !isKeyUp)
+            {
+                return true;
+            }
+
+            if (_captureAwaitingResult)
+            {
+                return true;
+            }
+
+            if (isKeyDown)
+            {
+                _capturePressedKeys.Add(data.VirtualKey);
+                if (_pendingShortcutKey is null
+                    && !ShortcutKeyText.IsModifierKey(data.VirtualKey))
+                {
+                    _pendingShortcutKey = new ShortcutKeyDefinition
+                    {
+                        Modifiers = GetCapturedModifiers(),
+                        VirtualKey = data.VirtualKey,
+                        ScanCode = data.ScanCode,
+                        IsExtendedKey = (data.Flags & LlkhfExtended) != 0
+                    };
+                }
+            }
+            else
+            {
+                _capturePressedKeys.Remove(data.VirtualKey);
+                if (_pendingShortcutKey is not null && _capturePressedKeys.Count == 0)
+                {
+                    capturedShortcutKey = _pendingShortcutKey;
+                    _pendingShortcutKey = null;
+                    _captureAwaitingResult = true;
+                }
+            }
+        }
+
+        if (capturedShortcutKey is not null)
+        {
+            _shortcutKeyCaptured(capturedShortcutKey);
+        }
+
+        return true;
+    }
+
+    private ShortcutKeyModifiers GetCapturedModifiers()
+    {
+        ShortcutKeyModifiers modifiers = ShortcutKeyModifiers.None;
+        if (ContainsAny(0x11, 0xA2, 0xA3))
+        {
+            modifiers |= ShortcutKeyModifiers.Control;
+        }
+
+        if (ContainsAny(0x12, 0xA4, 0xA5))
+        {
+            modifiers |= ShortcutKeyModifiers.Alt;
+        }
+
+        if (ContainsAny(0x10, 0xA0, 0xA1))
+        {
+            modifiers |= ShortcutKeyModifiers.Shift;
+        }
+
+        if (ContainsAny(VkLeftWindows, VkRightWindows))
+        {
+            modifiers |= ShortcutKeyModifiers.Windows;
+        }
+
+        return modifiers;
+    }
+
+    private bool ContainsAny(params uint[] virtualKeys)
+    {
+        foreach (uint virtualKey in virtualKeys)
+        {
+            if (_capturePressedKeys.Contains(virtualKey))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void HandleWindowsKeyDown(uint virtualKey)

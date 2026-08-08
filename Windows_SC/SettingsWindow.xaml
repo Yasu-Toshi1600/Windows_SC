@@ -184,6 +184,14 @@
                         </StackPanel>
                         <StackPanel Spacing="8"
                                     Visibility="{Binding SelectedItem.ShortcutKeySettingsVisibility}">
+                            <ComboBox Header="送信方式"
+                                      DisplayMemberPath="DisplayName"
+                                      HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding ShortcutKeyInputModes}"
+                                      SelectedItem="{Binding SelectedShortcutKeyInputMode, Mode=TwoWay}" />
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Text="反応する方式は対象アプリによって異なります。"
+                                       TextWrapping="Wrap" />
                             <TextBlock FontWeight="SemiBold" Text="登録キー" />
                             <TextBlock FontSize="18"
                                        Text="{Binding SelectedItem.ShortcutKeyDisplayText}" />
@@ -242,9 +250,9 @@
                                      Text="{Binding SelectedMacroStep.DisplayName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                             <ComboBox Header="ステップ種類"
                                       DisplayMemberPath="DisplayName"
+                                      HorizontalAlignment="Stretch"
                                       ItemsSource="{Binding MacroStepKinds}"
-                                      SelectedValue="{Binding SelectedMacroStep.Kind, Mode=TwoWay}"
-                                      SelectedValuePath="Value" />
+                                      SelectedItem="{Binding SelectedMacroStepKind, Mode=TwoWay}" />
                             <NumberBox Header="待機時間（ms）"
                                        Minimum="0"
                                        Maximum="10000"
@@ -255,9 +263,9 @@
                                         Visibility="{Binding SelectedMacroStep.ActionSettingsVisibility}">
                                 <ComboBox Header="実行種類"
                                           DisplayMemberPath="DisplayName"
+                                          HorizontalAlignment="Stretch"
                                           ItemsSource="{Binding MacroActionKinds}"
-                                          SelectedValue="{Binding SelectedMacroStep.ActionKind, Mode=TwoWay}"
-                                          SelectedValuePath="Value" />
+                                          SelectedItem="{Binding SelectedMacroActionKind, Mode=TwoWay}" />
                                 <StackPanel Spacing="10"
                                             Visibility="{Binding SelectedMacroStep.StandardActionSettingsVisibility}">
                                     <TextBox Header="実行対象"
@@ -272,6 +280,14 @@
                                 </StackPanel>
                                 <StackPanel Spacing="8"
                                             Visibility="{Binding SelectedMacroStep.ShortcutKeySettingsVisibility}">
+                                    <ComboBox Header="送信方式"
+                                              DisplayMemberPath="DisplayName"
+                                              HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding ShortcutKeyInputModes}"
+                                              SelectedItem="{Binding SelectedMacroShortcutKeyInputMode, Mode=TwoWay}" />
+                                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               Text="反応する方式は対象アプリによって異なります。"
+                                               TextWrapping="Wrap" />
                                     <TextBlock FontWeight="SemiBold" Text="登録キー" />
                                     <TextBlock FontSize="18"
                                                Text="{Binding SelectedMacroStep.ShortcutKeyDisplayText}" />
@@ -305,6 +321,22 @@
                                        Text="現在音声セッションを持つアプリから選択します。終了中の保存済みアプリは利用不能として残ります。"
                                        TextWrapping="Wrap" />
                         </StackPanel>
+                    </StackPanel>
+                    <StackPanel Spacing="8"
+                                Visibility="{Binding SelectedItem.WidgetSettingsVisibility}">
+                        <TextBlock FontWeight="SemiBold" Text="システムモニターの表示項目" />
+                        <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="CPU・GPU・メモリから1つまたは2つ選択します。1項目では履歴グラフ、2項目では使用率のみ表示します。"
+                                   TextWrapping="Wrap" />
+                        <CheckBox Content="CPU"
+                                  IsChecked="{Binding SelectedItem.MonitorCpuSelected, Mode=TwoWay}"
+                                  IsEnabled="{Binding SelectedItem.CanSelectMonitorCpu}" />
+                        <CheckBox Content="GPU"
+                                  IsChecked="{Binding SelectedItem.MonitorGpuSelected, Mode=TwoWay}"
+                                  IsEnabled="{Binding SelectedItem.CanSelectMonitorGpu}" />
+                        <CheckBox Content="メモリ"
+                                  IsChecked="{Binding SelectedItem.MonitorMemorySelected, Mode=TwoWay}"
+                                  IsEnabled="{Binding SelectedItem.CanSelectMonitorMemory}" />
                     </StackPanel>
                     <StackPanel Spacing="12"
                                 Visibility="{Binding SelectedItem.CycleSettingsVisibility}">

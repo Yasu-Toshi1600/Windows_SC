@@ -79,8 +79,9 @@ public partial class App : Application
         }
 
         _settingsRepository = new JsonSettingsRepository(logger);
+        ShortcutKeyExecutionCoordinator shortcutKeyExecutionCoordinator = new();
         IShortcutKeyExecutionService shortcutKeyExecutionService =
-            new ShortcutKeyExecutionService(logger);
+            new ShortcutKeyExecutionService(logger, shortcutKeyExecutionCoordinator);
         IActionExecutionService actionExecutionService = new ActionExecutionService(
             logger,
             shortcutKeyExecutionService);
@@ -134,7 +135,8 @@ public partial class App : Application
             _inputService,
             placementService,
             windowInteropService,
-            _environmentInformationService);
+            _environmentInformationService,
+            shortcutKeyExecutionCoordinator);
         _window.Closed += Window_Closed;
         _window.InitializeBackgroundWindow();
     }
@@ -174,10 +176,10 @@ public partial class App : Application
 
             _singleInstanceService?.Dispose();
             _singleInstanceService = null;
-            _audioOutputService?.Dispose();
-            _audioOutputService = null;
             _applicationVolumeService?.Dispose();
             _applicationVolumeService = null;
+            _audioOutputService?.Dispose();
+            _audioOutputService = null;
             _applicationVolumeStateStore?.Dispose();
             _applicationVolumeStateStore = null;
             _systemMetricsService?.Dispose();

@@ -26,7 +26,12 @@
 2. 各セッションへ`IAudioSessionEvents`を登録し、コールバックは処理キューへ渡す。
 3. 既定出力変更時は各Session Events、Session Notificationの順に解除する。
 4. セッション、Manager、EndpointのCOM参照を解放してから新しい出力へバインドする。
-5. 終了時はキューを完了し、MTAスレッド上で同じ解放順を実行する。
+5. 終了時はアプリ別音量サービスのキューを完了し、MTAスレッド上で同じ解放順を実行してから、
+   音声出力サービスを破棄する。
+6. `MMDeviceEnumerator`は他の音声サービスとRCWを共有する可能性があるため、
+   `FinalReleaseComObject`で強制解放しない。各処理が取得した参照だけを`ReleaseComObject`で解放する。
+7. 通知解除済みまたは切断済みのCOM参照は`InvalidComObjectException`になり得る。
+   解除失敗を記録しても、残りのCOM解放と`CoUninitialize`は継続する。
 
 Windows_SC自身の変更は固有EventContextで識別する。外部ミキサー変更は、現在の組み合わせが
 保存済みの場合だけ状態ストアを更新する。

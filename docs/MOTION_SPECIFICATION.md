@@ -1,7 +1,7 @@
 # Windows_SC モーション仕様書
 
-更新日: 2026-08-07
-対象: Windows_SC `0.7.2` / Windows App SDK 1.8 / x64
+更新日: 2026-08-09
+対象: Windows_SC `0.8.0` / Windows App SDK 1.8 / x64
 
 ## 1. 目的と文書境界
 

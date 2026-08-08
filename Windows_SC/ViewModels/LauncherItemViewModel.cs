@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+using Windows.Foundation;
 using Windows_SC.Models;
 using Windows_SC.Services;
 
@@ -9,6 +11,9 @@ namespace Windows_SC.ViewModels;
 
 internal sealed class LauncherItemViewModel : ObservableObject
 {
+    private const double StandardTileHeight = 160;
+    private const double CompactTileHeight = 80;
+
     private readonly IActionExecutionService _actionExecutionService;
     private readonly IMacroExecutionService _macroExecutionService;
     private readonly IAudioOutputService _audioOutputService;
@@ -17,6 +22,8 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private readonly LauncherActionDefinition? _action;
     private readonly CycleActionDefinition? _cycleAction;
     private readonly VolumeSliderDefinition? _volumeSlider;
+    private readonly WidgetDefinition? _widget;
+    private readonly IReadOnlyList<SystemMonitorMetric> _selectedMonitorMetrics;
     private readonly LauncherPostExecutionBehavior _postExecutionBehavior;
     private bool _isOn;
     private double _sliderValue = 50;
@@ -35,6 +42,11 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private string _cpuUsageText = "CPU  —";
     private string _gpuUsageText = "GPU  —";
     private string _memoryUsageText = "メモリ  —";
+    private string _primaryMonitorText = "CPU  —";
+    private string _secondaryMonitorText = string.Empty;
+    private readonly PointCollection _standardMonitorGraphPoints = [];
+    private readonly PointCollection _compactMonitorGraphPoints = [];
+    private readonly Queue<double> _monitorHistory = new();
 
     public LauncherItemViewModel(
         LauncherItemDefinition definition,
@@ -50,6 +62,8 @@ internal sealed class LauncherItemViewModel : ObservableObject
         _action = definition.Action;
         _cycleAction = definition.GetEffectiveCycleAction();
         _volumeSlider = definition.VolumeSlider;
+        _widget = definition.Widget;
+        _selectedMonitorMetrics = NormalizeSystemMonitorMetrics(_widget?.Metrics);
         _postExecutionBehavior = definition.PostExecutionBehavior;
         _actionExecutionService = actionExecutionService;
         _macroExecutionService = macroExecutionService;
@@ -112,6 +126,36 @@ internal sealed class LauncherItemViewModel : ObservableObject
         private set => SetProperty(ref _memoryUsageText, value);
     }
 
+    public string PrimaryMonitorText
+    {
+        get => _primaryMonitorText;
+        private set => SetProperty(ref _primaryMonitorText, value);
+    }
+
+    public string SecondaryMonitorText
+    {
+        get => _secondaryMonitorText;
+        private set => SetProperty(ref _secondaryMonitorText, value);
+    }
+
+    public PointCollection StandardMonitorGraphPoints => _standardMonitorGraphPoints;
+
+    public PointCollection CompactMonitorGraphPoints => _compactMonitorGraphPoints;
+
+    public Visibility StandardSingleMonitorVisibility => ToVisibility(
+        _layoutMode == LauncherLayoutMode.Standard && _selectedMonitorMetrics.Count == 1);
+
+    public Visibility StandardTwoMonitorVisibility => ToVisibility(
+        _layoutMode == LauncherLayoutMode.Standard && _selectedMonitorMetrics.Count == 2);
+
+    public Visibility CompactSingleMonitorVisibility => ToVisibility(
+        _layoutMode == LauncherLayoutMode.Compact && _selectedMonitorMetrics.Count == 1);
+
+    public Visibility CompactTwoMonitorVisibility => ToVisibility(
+        _layoutMode == LauncherLayoutMode.Compact && _selectedMonitorMetrics.Count == 2);
+
+    public string PrimaryMonitorLabel => GetMonitorMetricLabel(_selectedMonitorMetrics[0]);
+
     public Visibility StandardToggleVisibility =>
         Kind == LauncherItemKind.Toggle && _layoutMode == LauncherLayoutMode.Standard
             ? Visibility.Visible
@@ -150,11 +194,17 @@ internal sealed class LauncherItemViewModel : ObservableObject
         bool compactButton = layoutMode == LauncherLayoutMode.Compact
             && Kind == LauncherItemKind.Button;
         LayoutColumnSpan = compactButton ? 1 : 2;
-        TileHeight = layoutMode == LauncherLayoutMode.Compact ? 80 : 160;
+        TileHeight = layoutMode == LauncherLayoutMode.Compact
+            ? CompactTileHeight
+            : StandardTileHeight;
         OnPropertyChanged(nameof(StandardToggleVisibility));
         OnPropertyChanged(nameof(CompactToggleVisibility));
         OnPropertyChanged(nameof(StandardSliderVisibility));
         OnPropertyChanged(nameof(CompactSliderVisibility));
+        OnPropertyChanged(nameof(StandardSingleMonitorVisibility));
+        OnPropertyChanged(nameof(StandardTwoMonitorVisibility));
+        OnPropertyChanged(nameof(CompactSingleMonitorVisibility));
+        OnPropertyChanged(nameof(CompactTwoMonitorVisibility));
     }
 
     public bool IsOn
@@ -360,6 +410,134 @@ internal sealed class LauncherItemViewModel : ObservableObject
             ? "メモリ  —"
             : $"メモリ  {snapshot.MemoryPercent:F0}%  " +
               $"{FormatBytes(snapshot.UsedMemoryBytes)} / {FormatBytes(snapshot.TotalMemoryBytes)}";
+
+        PrimaryMonitorText = FormatMonitorMetric(_selectedMonitorMetrics[0], snapshot);
+        SecondaryMonitorText = _selectedMonitorMetrics.Count == 2
+            ? FormatMonitorMetric(_selectedMonitorMetrics[1], snapshot)
+            : string.Empty;
+
+        if (_selectedMonitorMetrics.Count == 1)
+        {
+            double? value = GetMonitorMetricValue(_selectedMonitorMetrics[0], snapshot);
+            if (value is null)
+            {
+                _monitorHistory.Clear();
+            }
+            else
+            {
+                _monitorHistory.Enqueue(Math.Clamp(value.Value, 0, 100));
+                while (_monitorHistory.Count > 60)
+                {
+                    _monitorHistory.Dequeue();
+                }
+            }
+
+            UpdateMonitorGraphPoints();
+        }
+    }
+
+    public void ResetSystemMonitorHistory()
+    {
+        _monitorHistory.Clear();
+        _standardMonitorGraphPoints.Clear();
+        _compactMonitorGraphPoints.Clear();
+    }
+
+    private static IReadOnlyList<SystemMonitorMetric> NormalizeSystemMonitorMetrics(
+        SystemMonitorMetric? configuredMetrics)
+    {
+        SystemMonitorMetric metrics = configuredMetrics
+            ?? (SystemMonitorMetric.Cpu | SystemMonitorMetric.Memory);
+        List<SystemMonitorMetric> selected = [];
+        if (metrics.HasFlag(SystemMonitorMetric.Cpu))
+        {
+            selected.Add(SystemMonitorMetric.Cpu);
+        }
+
+        if (metrics.HasFlag(SystemMonitorMetric.Gpu))
+        {
+            selected.Add(SystemMonitorMetric.Gpu);
+        }
+
+        if (metrics.HasFlag(SystemMonitorMetric.Memory))
+        {
+            selected.Add(SystemMonitorMetric.Memory);
+        }
+
+        return selected.Count is >= 1 and <= 2
+            ? selected
+            : [SystemMonitorMetric.Cpu, SystemMonitorMetric.Memory];
+    }
+
+    private static Visibility ToVisibility(bool isVisible) =>
+        isVisible ? Visibility.Visible : Visibility.Collapsed;
+
+    private static string FormatMonitorMetric(
+        SystemMonitorMetric metric,
+        SystemMetricsSnapshot snapshot)
+    {
+        double? value = GetMonitorMetricValue(metric, snapshot);
+        string label = GetMonitorMetricLabel(metric);
+        return value is { } percent ? $"{label}  {percent:F0}%" : $"{label}  —";
+    }
+
+    private static string GetMonitorMetricLabel(SystemMonitorMetric metric) =>
+        metric switch
+        {
+            SystemMonitorMetric.Gpu => "GPU",
+            SystemMonitorMetric.Memory => "メモリ",
+            _ => "CPU"
+        };
+
+    private static double? GetMonitorMetricValue(
+        SystemMonitorMetric metric,
+        SystemMetricsSnapshot snapshot) =>
+        metric switch
+        {
+            SystemMonitorMetric.Gpu => snapshot.GpuPercent,
+            SystemMonitorMetric.Memory => snapshot.TotalMemoryBytes == 0
+                ? null
+                : snapshot.MemoryPercent,
+            _ => snapshot.CpuPercent
+        };
+
+    private void UpdateMonitorGraphPoints()
+    {
+        List<Point> points = BuildMonitorGraphPoints();
+        ReplacePoints(_standardMonitorGraphPoints, points);
+        ReplacePoints(_compactMonitorGraphPoints, points);
+    }
+
+    private List<Point> BuildMonitorGraphPoints()
+    {
+        List<Point> points = [];
+        if (_monitorHistory.Count == 0)
+        {
+            return points;
+        }
+
+        double xStep = _monitorHistory.Count == 1
+            ? 0
+            : 100d / (_monitorHistory.Count - 1);
+        int index = 0;
+        foreach (double value in _monitorHistory)
+        {
+            points.Add(new Point(index * xStep, 40d - (value * 0.4d)));
+            index++;
+        }
+
+        return points;
+    }
+
+    private static void ReplacePoints(
+        PointCollection target,
+        IReadOnlyList<Point> source)
+    {
+        target.Clear();
+        foreach (Point point in source)
+        {
+            target.Add(point);
+        }
     }
 
     private static string FormatBytes(ulong bytes)

@@ -140,5 +140,35 @@ public sealed class LauncherSettingsMigrationTests
         });
 
         Assert.AreEqual(0, LauncherSettingsValidator.Validate(settings).Count);
+        Assert.AreEqual(
+            SystemMonitorMetric.Cpu | SystemMonitorMetric.Memory,
+            settings.Pages[0].Items[^1].Widget!.Metrics);
+    }
+
+    [TestMethod]
+    public void Validate_SystemMonitorWidget_RejectsZeroOrThreeMetrics()
+    {
+        LauncherSettings settings = LauncherSettings.CreateDefault();
+        LauncherItemDefinition item = new()
+        {
+            Kind = LauncherItemKind.Widget,
+            Title = "System",
+            Widget = new WidgetDefinition
+            {
+                Kind = WidgetKind.SystemMonitor,
+                Metrics = SystemMonitorMetric.None
+            }
+        };
+        settings.Pages[0].Items.Add(item);
+
+        Assert.AreNotEqual(0, LauncherSettingsValidator.Validate(settings).Count);
+
+        item.Widget.Metrics = SystemMonitorMetric.Cpu;
+        Assert.AreEqual(0, LauncherSettingsValidator.Validate(settings).Count);
+
+        item.Widget.Metrics = SystemMonitorMetric.Cpu
+            | SystemMonitorMetric.Gpu
+            | SystemMonitorMetric.Memory;
+        Assert.AreNotEqual(0, LauncherSettingsValidator.Validate(settings).Count);
     }
 }

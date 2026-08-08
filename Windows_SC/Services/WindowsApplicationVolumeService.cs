@@ -109,18 +109,28 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
         }
         finally
         {
-            ReleaseEndpoint();
-            if (_deviceEnumerator is not null && _endpointNotification is not null)
+            try
             {
-                _deviceEnumerator.UnregisterEndpointNotificationCallback(_endpointNotification);
+                ReleaseEndpoint();
+            }
+            catch (Exception exception)
+            {
+                LogCleanupFailure("release-endpoint", exception);
             }
 
-            ReleaseComObject(_deviceEnumerator);
-            _deviceEnumerator = null;
-            _endpointNotification = null;
-            if (initializeResult >= 0)
+            try
             {
-                CoUninitialize();
+                UnregisterEndpointNotification();
+            }
+            finally
+            {
+                ReleaseComObject(_deviceEnumerator);
+                _deviceEnumerator = null;
+                _endpointNotification = null;
+                if (initializeResult >= 0)
+                {
+                    CoUninitialize();
+                }
             }
         }
     }
@@ -353,7 +363,7 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
             return;
         }
 
-        handle.Control2.UnregisterAudioSessionNotification(handle.Events);
+        UnregisterSessionEvents(handle);
         ReleaseSession(handle);
         PublishCache();
         _logger.Write("[ApplicationVolume] action=remove-session result=success");
@@ -403,14 +413,26 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
     {
         foreach (SessionHandle handle in _sessions.Values.ToList())
         {
-            handle.Control2.UnregisterAudioSessionNotification(handle.Events);
+            UnregisterSessionEvents(handle);
             ReleaseSession(handle);
         }
 
         _sessions.Clear();
         if (_sessionManager is not null && _sessionNotification is not null)
         {
-            _sessionManager.UnregisterSessionNotification(_sessionNotification);
+            try
+            {
+                int result = _sessionManager.UnregisterSessionNotification(_sessionNotification);
+                if (result < 0)
+                {
+                    LogUnregisterFailure("session-manager", result);
+                }
+            }
+            catch (Exception exception) when (exception is COMException
+                or InvalidComObjectException)
+            {
+                LogUnregisterFailure("session-manager", exception.HResult, exception);
+            }
         }
 
         ReleaseComObject(_sessionManager);
@@ -420,6 +442,72 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
         _endpoint = null;
         _endpointId = null;
         PublishCache();
+    }
+
+    private void UnregisterSessionEvents(SessionHandle handle)
+    {
+        try
+        {
+            int result = handle.Control2.UnregisterAudioSessionNotification(handle.Events);
+            if (result < 0)
+            {
+                LogUnregisterFailure("session", result);
+            }
+        }
+        catch (Exception exception) when (exception is COMException
+            or InvalidComObjectException)
+        {
+            LogUnregisterFailure("session", exception.HResult, exception);
+        }
+    }
+
+    private void UnregisterEndpointNotification()
+    {
+        if (_deviceEnumerator is null || _endpointNotification is null)
+        {
+            return;
+        }
+
+        try
+        {
+            int result = _deviceEnumerator.UnregisterEndpointNotificationCallback(
+                _endpointNotification);
+            if (result < 0)
+            {
+                LogUnregisterFailure("endpoint", result);
+            }
+        }
+        catch (Exception exception) when (exception is COMException
+            or InvalidComObjectException)
+        {
+            LogUnregisterFailure("endpoint", exception.HResult, exception);
+        }
+    }
+
+    private void LogUnregisterFailure(string scope, int hresult, Exception? exception = null)
+    {
+        string exceptionType = exception?.GetType().Name ?? "none";
+        _logger.Write(
+            $"[ApplicationVolume] action=unregister-notification result=failed " +
+            $"scope={scope} exception={exceptionType} hresult=0x{hresult:X8}");
+        if (exception is not null)
+        {
+            _logger.WriteDetailed(
+                $"[ApplicationVolume] action=unregister-notification result=failed " +
+                $"scope={scope} exception={exceptionType} hresult=0x{hresult:X8} " +
+                $"message=\"{LogValue.Normalize(exception.Message)}\"");
+        }
+    }
+
+    private void LogCleanupFailure(string action, Exception exception)
+    {
+        _logger.Write(
+            $"[ApplicationVolume] action={action} result=failed " +
+            $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+        _logger.WriteDetailed(
+            $"[ApplicationVolume] action={action} result=failed " +
+            $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+            $"message=\"{LogValue.Normalize(exception.Message)}\"");
     }
 
     private static void ReleaseSession(SessionHandle handle)
@@ -509,7 +597,8 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
 
         _isDisposed = true;
         _workQueue.CompleteAdding();
-        if (!_workerThread.Join(TimeSpan.FromSeconds(5)))
+        bool workerStopped = _workerThread.Join(TimeSpan.FromSeconds(5));
+        if (!workerStopped)
         {
             _logger.Write("[ApplicationVolume] action=dispose result=failed reason=worker-timeout");
         }
@@ -518,7 +607,10 @@ internal sealed class WindowsApplicationVolumeService : IApplicationVolumeServic
             _logger.Write("[ApplicationVolume] action=dispose result=success");
         }
 
-        _workQueue.Dispose();
+        if (workerStopped)
+        {
+            _workQueue.Dispose();
+        }
     }
 
     private static void ReleaseComObject(object? instance)

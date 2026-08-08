@@ -17,11 +17,14 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
     private string _workingDirectory = string.Empty;
     private bool _hideCommandWindow = true;
     private ShortcutKeyDefinition? _shortcutKey;
+    private ShortcutKeyInputMode _shortcutKeyInputMode = ShortcutKeyInputMode.ScanCode;
     private CycleActionKind _cycleKind = CycleActionKind.AudioOutput;
     private LauncherPostExecutionBehavior _postExecutionBehavior =
         LauncherPostExecutionBehavior.CloseOnSuccess;
     private VolumeSliderKind _volumeSliderKind = Windows_SC.Models.VolumeSliderKind.Master;
     private ApplicationAudioTargetDefinition? _applicationAudioTarget;
+    private SystemMonitorMetric _systemMonitorMetrics =
+        SystemMonitorMetric.Cpu | SystemMonitorMetric.Memory;
 
     public LauncherItemEditorViewModel(
         LauncherItemDefinition definition,
@@ -34,6 +37,8 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         _arguments = action.Arguments;
         _workingDirectory = action.WorkingDirectory;
         _hideCommandWindow = action.HideCommandWindow;
+        _shortcutKeyInputMode = action.ShortcutKey?.InputMode
+            ?? ShortcutKeyInputMode.ScanCode;
         _shortcutKey = action.ShortcutKey is null
             ? null
             : new ShortcutKeyDefinition
@@ -41,12 +46,15 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
                 Modifiers = action.ShortcutKey.Modifiers,
                 VirtualKey = action.ShortcutKey.VirtualKey,
                 ScanCode = action.ShortcutKey.ScanCode,
+                IsExtendedKey = action.ShortcutKey.IsExtendedKey,
+                InputMode = action.ShortcutKey.InputMode,
                 DisplayText = action.ShortcutKey.DisplayText
             };
         _postExecutionBehavior = definition.PostExecutionBehavior;
         _volumeSliderKind = definition.VolumeSlider?.Type
             ?? Windows_SC.Models.VolumeSliderKind.Master;
         _applicationAudioTarget = CloneTarget(definition.VolumeSlider?.Application);
+        _systemMonitorMetrics = NormalizeSystemMonitorMetrics(definition.Widget?.Metrics);
 
         CycleActionDefinition? cycleAction = definition.GetEffectiveCycleAction();
         _cycleKind = cycleAction?.Kind ?? CycleActionKind.AudioOutput;
@@ -135,8 +143,12 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         && ActionKind is LauncherActionKind.Command or LauncherActionKind.BatchFile
             ? Visibility.Visible
             : Visibility.Collapsed;
+    public Visibility WidgetSettingsVisibility => IsWidget
+        ? Visibility.Visible
+        : Visibility.Collapsed;
     public Visibility StandardActionSettingsVisibility => IsButton
-        && ActionKind != LauncherActionKind.ShortcutKey
+        && ActionKind is not LauncherActionKind.ShortcutKey
+        and not LauncherActionKind.Macro
             ? Visibility.Visible
             : Visibility.Collapsed;
     public Visibility ShortcutKeySettingsVisibility => IsButton
@@ -155,24 +167,31 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
             : Visibility.Collapsed;
     public string TargetHeader => ActionKind switch
     {
-        LauncherActionKind.Command => "コマンド",
-        LauncherActionKind.Url => "URL",
-        LauncherActionKind.File => "ファイルまたはフォルダー",
-        LauncherActionKind.BatchFile => "バッチファイル",
-        _ => "アプリケーション"
+        LauncherActionKind.Command or LauncherActionKind.BatchFile => "コマンド・bat",
+        _ => "アプリ・ファイル・URL"
     };
     public string TargetPlaceholderText => ActionKind switch
     {
-        LauncherActionKind.Command => "例：systeminfo",
-        LauncherActionKind.Url => "例：https://example.com",
-        LauncherActionKind.File => "例：C:\\Documents\\manual.pdf",
-        LauncherActionKind.BatchFile => "例：C:\\Scripts\\task.bat",
-        _ => "例：notepad.exe"
+        LauncherActionKind.Command or LauncherActionKind.BatchFile =>
+            "例：systeminfo または C:\\Scripts\\task.bat",
+        _ => "例：notepad.exe、C:\\Documents\\manual.pdf、https://example.com"
     };
     public ShortcutKeyDefinition? ShortcutKey => _shortcutKey;
     public string ShortcutKeyDisplayText => _shortcutKey is null
         ? "未設定"
         : ShortcutKeyText.Format(_shortcutKey);
+
+    public ShortcutKeyInputMode ShortcutKeyInputMode
+    {
+        get => _shortcutKeyInputMode;
+        set
+        {
+            if (SetProperty(ref _shortcutKeyInputMode, value) && _shortcutKey is not null)
+            {
+                _shortcutKey.InputMode = value;
+            }
+        }
+    }
 
     public string Title
     {
@@ -224,6 +243,11 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
 
     public void SetShortcutKey(ShortcutKeyDefinition? shortcutKey)
     {
+        if (shortcutKey is not null)
+        {
+            shortcutKey.InputMode = ShortcutKeyInputMode;
+        }
+
         _shortcutKey = shortcutKey;
         OnPropertyChanged(nameof(ShortcutKey));
         OnPropertyChanged(nameof(ShortcutKeyDisplayText));
@@ -262,6 +286,30 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
 
     public ApplicationAudioTargetDefinition? ApplicationAudioTarget =>
         _applicationAudioTarget;
+
+    public bool MonitorCpuSelected
+    {
+        get => _systemMonitorMetrics.HasFlag(SystemMonitorMetric.Cpu);
+        set => SetSystemMonitorMetric(SystemMonitorMetric.Cpu, value);
+    }
+
+    public bool MonitorGpuSelected
+    {
+        get => _systemMonitorMetrics.HasFlag(SystemMonitorMetric.Gpu);
+        set => SetSystemMonitorMetric(SystemMonitorMetric.Gpu, value);
+    }
+
+    public bool MonitorMemorySelected
+    {
+        get => _systemMonitorMetrics.HasFlag(SystemMonitorMetric.Memory);
+        set => SetSystemMonitorMetric(SystemMonitorMetric.Memory, value);
+    }
+
+    public bool CanSelectMonitorCpu => MonitorCpuSelected || CountSystemMonitorMetrics() < 2;
+
+    public bool CanSelectMonitorGpu => MonitorGpuSelected || CountSystemMonitorMetrics() < 2;
+
+    public bool CanSelectMonitorMemory => MonitorMemorySelected || CountSystemMonitorMetrics() < 2;
 
     public void SetApplicationAudioTarget(ApplicationAudioTargetOption? option)
     {
@@ -315,6 +363,8 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
                         Modifiers = _shortcutKey.Modifiers,
                         VirtualKey = _shortcutKey.VirtualKey,
                         ScanCode = _shortcutKey.ScanCode,
+                        IsExtendedKey = _shortcutKey.IsExtendedKey,
+                        InputMode = ShortcutKeyInputMode,
                         DisplayText = ShortcutKeyText.Format(_shortcutKey)
                     },
                 Macro = ActionKind == LauncherActionKind.Macro
@@ -344,9 +394,70 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
             }
             : null,
         Widget = Kind == LauncherItemKind.Widget
-            ? new WidgetDefinition { Kind = WidgetKind.SystemMonitor }
+            ? new WidgetDefinition
+            {
+                Kind = WidgetKind.SystemMonitor,
+                Metrics = _systemMonitorMetrics
+            }
             : null
     };
+
+    private void SetSystemMonitorMetric(SystemMonitorMetric metric, bool selected)
+    {
+        bool currentlySelected = _systemMonitorMetrics.HasFlag(metric);
+        if (currentlySelected == selected)
+        {
+            return;
+        }
+
+        int selectedCount = CountSystemMonitorMetrics();
+        if ((selected && selectedCount >= 2) || (!selected && selectedCount <= 1))
+        {
+            OnPropertyChanged(GetSystemMonitorSelectionProperty(metric));
+            return;
+        }
+
+        _systemMonitorMetrics = selected
+            ? _systemMonitorMetrics | metric
+            : _systemMonitorMetrics & ~metric;
+        OnPropertyChanged(GetSystemMonitorSelectionProperty(metric));
+        OnPropertyChanged(nameof(CanSelectMonitorCpu));
+        OnPropertyChanged(nameof(CanSelectMonitorGpu));
+        OnPropertyChanged(nameof(CanSelectMonitorMemory));
+    }
+
+    private int CountSystemMonitorMetrics()
+    {
+        int count = 0;
+        count += MonitorCpuSelected ? 1 : 0;
+        count += MonitorGpuSelected ? 1 : 0;
+        count += MonitorMemorySelected ? 1 : 0;
+        return count;
+    }
+
+    private static string GetSystemMonitorSelectionProperty(SystemMonitorMetric metric) =>
+        metric switch
+        {
+            SystemMonitorMetric.Cpu => nameof(MonitorCpuSelected),
+            SystemMonitorMetric.Gpu => nameof(MonitorGpuSelected),
+            _ => nameof(MonitorMemorySelected)
+        };
+
+    private static SystemMonitorMetric NormalizeSystemMonitorMetrics(
+        SystemMonitorMetric? metrics)
+    {
+        SystemMonitorMetric value = metrics
+            ?? (SystemMonitorMetric.Cpu | SystemMonitorMetric.Memory);
+        const SystemMonitorMetric supported =
+            SystemMonitorMetric.Cpu | SystemMonitorMetric.Gpu | SystemMonitorMetric.Memory;
+        int count = 0;
+        count += value.HasFlag(SystemMonitorMetric.Cpu) ? 1 : 0;
+        count += value.HasFlag(SystemMonitorMetric.Gpu) ? 1 : 0;
+        count += value.HasFlag(SystemMonitorMetric.Memory) ? 1 : 0;
+        return (value & ~supported) == 0 && count is >= 1 and <= 2
+            ? value
+            : SystemMonitorMetric.Cpu | SystemMonitorMetric.Memory;
+    }
 
     private static ApplicationAudioTargetDefinition? CloneTarget(
         ApplicationAudioTargetDefinition? source) =>

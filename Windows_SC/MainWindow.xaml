@@ -74,31 +74,129 @@
 
                                 <Border
                                     Margin="6"
-                                    Padding="10,6"
+                                    Padding="10,4"
                                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1"
                                     CornerRadius="8"
                                     Visibility="{Binding WidgetVisibility, Mode=OneTime}">
-                                    <Grid RowDefinitions="16,12,12,12" RowSpacing="1">
-                                        <TextBlock
-                                            FontSize="13"
-                                            FontWeight="SemiBold"
-                                            MaxLines="1"
-                                            Text="{Binding Title, Mode=OneTime}"
-                                            TextTrimming="CharacterEllipsis"
-                                            ToolTipService.ToolTip="{Binding Title, Mode=OneTime}" />
-                                        <TextBlock Grid.Row="1"
-                                                   FontSize="11"
-                                                   Text="{Binding CpuUsageText, Mode=OneWay}" />
-                                        <TextBlock Grid.Row="2"
-                                                   FontSize="11"
-                                                   Text="{Binding GpuUsageText, Mode=OneWay}" />
-                                        <TextBlock Grid.Row="3"
-                                                   FontSize="11"
-                                                   Text="{Binding MemoryUsageText, Mode=OneWay}"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   ToolTipService.ToolTip="{Binding MemoryUsageText, Mode=OneWay}" />
+                                    <Grid>
+                                        <Grid RowDefinitions="Auto,*"
+                                              RowSpacing="6"
+                                              Visibility="{Binding StandardSingleMonitorVisibility, Mode=OneWay}">
+                                            <TextBlock
+                                                FontSize="13"
+                                                FontWeight="SemiBold"
+                                                MaxLines="1"
+                                                Text="{Binding Title, Mode=OneTime}"
+                                                TextTrimming="CharacterEllipsis"
+                                                ToolTipService.ToolTip="{Binding Title, Mode=OneTime}" />
+                                            <Grid Grid.Row="1"
+                                                  RowDefinitions="Auto,*"
+                                                  RowSpacing="6">
+                                                <TextBlock FontSize="18"
+                                                           FontWeight="SemiBold"
+                                                           Text="{Binding PrimaryMonitorText, Mode=OneWay}" />
+                                                <Border Grid.Row="1"
+                                                        Background="{ThemeResource SystemMonitorGraphBackgroundBrush}"
+                                                        BorderBrush="{ThemeResource SystemMonitorGraphBorderBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="4"
+                                                        Padding="4">
+                                                    <Viewbox Stretch="Fill">
+                                                        <Canvas Width="100" Height="40">
+                                                            <Line X1="0" X2="100" Y1="20" Y2="20"
+                                                                  Stroke="{ThemeResource SystemMonitorGraphGridBrush}"
+                                                                  StrokeThickness="0.5" />
+                                                            <Polyline Points="{Binding StandardMonitorGraphPoints, Mode=OneTime}"
+                                                                      Stroke="{ThemeResource SystemMonitorGraphLineBrush}"
+                                                                      StrokeLineJoin="Round"
+                                                                      StrokeThickness="1" />
+                                                        </Canvas>
+                                                    </Viewbox>
+                                                </Border>
+                                            </Grid>
+                                        </Grid>
+
+                                        <Grid RowDefinitions="Auto,*"
+                                              RowSpacing="6"
+                                              Visibility="{Binding StandardTwoMonitorVisibility, Mode=OneWay}">
+                                            <TextBlock
+                                                FontSize="13"
+                                                FontWeight="SemiBold"
+                                                MaxLines="1"
+                                                Text="{Binding Title, Mode=OneTime}"
+                                                TextTrimming="CharacterEllipsis"
+                                                ToolTipService.ToolTip="{Binding Title, Mode=OneTime}" />
+                                            <StackPanel Grid.Row="1"
+                                                        VerticalAlignment="Center"
+                                                        Spacing="10">
+                                                <TextBlock FontSize="20"
+                                                           FontWeight="SemiBold"
+                                                           Text="{Binding PrimaryMonitorText, Mode=OneWay}" />
+                                                <TextBlock FontSize="20"
+                                                           FontWeight="SemiBold"
+                                                           Text="{Binding SecondaryMonitorText, Mode=OneWay}" />
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <Grid RowDefinitions="20,*"
+                                              RowSpacing="2"
+                                              Visibility="{Binding CompactSingleMonitorVisibility, Mode=OneWay}">
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                <TextBlock FontSize="13"
+                                                           FontWeight="SemiBold"
+                                                           MaxLines="1"
+                                                           Text="{Binding Title, Mode=OneTime}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="1"
+                                                           FontSize="13"
+                                                           FontWeight="SemiBold"
+                                                           Text="{Binding PrimaryMonitorLabel, Mode=OneTime}"
+                                                           VerticalAlignment="Center" />
+                                            </Grid>
+                                            <Border Grid.Row="1"
+                                                    Background="{ThemeResource SystemMonitorGraphBackgroundBrush}"
+                                                    BorderBrush="{ThemeResource SystemMonitorGraphBorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="2"
+                                                    Padding="2">
+                                                <Viewbox Stretch="Fill">
+                                                    <Canvas Width="100" Height="40">
+                                                        <Line X1="0" X2="100" Y1="20" Y2="20"
+                                                              Stroke="{ThemeResource SystemMonitorGraphGridBrush}"
+                                                              StrokeThickness="0.5" />
+                                                        <Polyline Points="{Binding CompactMonitorGraphPoints, Mode=OneTime}"
+                                                                  Stroke="{ThemeResource SystemMonitorGraphLineBrush}"
+                                                                  StrokeLineJoin="Round"
+                                                                  StrokeThickness="1" />
+                                                    </Canvas>
+                                                </Viewbox>
+                                            </Border>
+                                        </Grid>
+
+                                        <Grid RowDefinitions="20,*"
+                                              RowSpacing="2"
+                                              Visibility="{Binding CompactTwoMonitorVisibility, Mode=OneWay}">
+                                            <TextBlock FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       MaxLines="1"
+                                                       Text="{Binding Title, Mode=OneTime}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center" />
+                                            <Grid Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="8">
+                                                <TextBlock VerticalAlignment="Center"
+                                                           FontSize="15"
+                                                           FontWeight="SemiBold"
+                                                           Text="{Binding PrimaryMonitorText, Mode=OneWay}" />
+                                                <TextBlock Grid.Column="1"
+                                                           VerticalAlignment="Center"
+                                                           FontSize="15"
+                                                           FontWeight="SemiBold"
+                                                           Text="{Binding SecondaryMonitorText, Mode=OneWay}" />
+                                            </Grid>
+                                        </Grid>
                                     </Grid>
                                 </Border>
 

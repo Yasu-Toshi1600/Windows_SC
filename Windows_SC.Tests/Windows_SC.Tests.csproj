@@ -38,6 +38,8 @@
              Link="Source\MacroExecutionService.cs" />
     <Compile Include="..\Windows_SC\Services\ShortcutKeyText.cs"
              Link="Source\ShortcutKeyText.cs" />
+    <Compile Include="..\Windows_SC\Services\ShortcutKeyInputSequence.cs"
+             Link="Source\ShortcutKeyInputSequence.cs" />
     <Compile Include="..\Windows_SC\Services\ShortcutKeyValidator.cs"
              Link="Source\ShortcutKeyValidator.cs" />
     <Compile Include="..\Windows_SC\Services\ApplicationDataPaths.cs"

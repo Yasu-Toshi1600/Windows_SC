@@ -148,6 +148,12 @@ internal enum ShortcutKeyModifiers
     Windows = 8
 }
 
+internal enum ShortcutKeyInputMode
+{
+    ScanCode,
+    VirtualKey
+}
+
 internal sealed class ShortcutKeyDefinition
 {
     public ShortcutKeyModifiers Modifiers { get; set; }
@@ -155,6 +161,10 @@ internal sealed class ShortcutKeyDefinition
     public uint VirtualKey { get; set; }
 
     public uint ScanCode { get; set; }
+
+    public bool IsExtendedKey { get; set; }
+
+    public ShortcutKeyInputMode InputMode { get; set; } = ShortcutKeyInputMode.ScanCode;
 
     public string DisplayText { get; set; } = string.Empty;
 }
@@ -289,9 +299,21 @@ internal enum ApplicationAudioIdentifierKind
 internal sealed class WidgetDefinition
 {
     public WidgetKind Kind { get; set; } = WidgetKind.SystemMonitor;
+
+    public SystemMonitorMetric Metrics { get; set; } =
+        SystemMonitorMetric.Cpu | SystemMonitorMetric.Memory;
 }
 
 internal enum WidgetKind
 {
     SystemMonitor
+}
+
+[Flags]
+internal enum SystemMonitorMetric
+{
+    None = 0,
+    Cpu = 1,
+    Gpu = 2,
+    Memory = 4
 }

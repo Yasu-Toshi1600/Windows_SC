@@ -18,6 +18,10 @@
                     <SolidColorBrush x:Key="SettingsListItemBackgroundBrush" Color="#FFFFFFFF" />
                     <SolidColorBrush x:Key="SettingsKindBadgeBackgroundBrush" Color="#FFF0F0F0" />
                     <SolidColorBrush x:Key="SettingsKindBadgeBorderBrush" Color="#FFDADADA" />
+                    <SolidColorBrush x:Key="SystemMonitorGraphBackgroundBrush" Color="#FF9AD7E5" />
+                    <SolidColorBrush x:Key="SystemMonitorGraphBorderBrush" Color="#FF397C96" />
+                    <SolidColorBrush x:Key="SystemMonitorGraphGridBrush" Color="#FF6EAFC2" />
+                    <SolidColorBrush x:Key="SystemMonitorGraphLineBrush" Color="#FF102A36" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Default">
                     <SolidColorBrush x:Key="SettingsPageBackgroundBrush" Color="#FF202020" />
@@ -26,6 +30,10 @@
                     <SolidColorBrush x:Key="SettingsListItemBackgroundBrush" Color="#FF323232" />
                     <SolidColorBrush x:Key="SettingsKindBadgeBackgroundBrush" Color="#FF383838" />
                     <SolidColorBrush x:Key="SettingsKindBadgeBorderBrush" Color="#FF4A4A4A" />
+                    <SolidColorBrush x:Key="SystemMonitorGraphBackgroundBrush" Color="#FF182735" />
+                    <SolidColorBrush x:Key="SystemMonitorGraphBorderBrush" Color="#FF4C82AA" />
+                    <SolidColorBrush x:Key="SystemMonitorGraphGridBrush" Color="#FF35566F" />
+                    <SolidColorBrush x:Key="SystemMonitorGraphLineBrush" Color="#FF8FD6E8" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

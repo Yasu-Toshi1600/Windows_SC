@@ -29,6 +29,9 @@ internal sealed class GlobalInputService : IGlobalInputService
                     WindowsKeyReleasedAlone?.Invoke(this, EventArgs.Empty);
                 }
             },
+            shortcutKey => ShortcutKeyCaptured?.Invoke(
+                this,
+                new ShortcutKeyCapturedEventArgs(shortcutKey)),
             logger.WriteDetailed);
     }
 
@@ -36,7 +39,13 @@ internal sealed class GlobalInputService : IGlobalInputService
 
     public event EventHandler? WindowsKeyReleasedAlone;
 
-    public void SetSuppressed(bool suppressed) => _isSuppressed = suppressed;
+    public event EventHandler<ShortcutKeyCapturedEventArgs>? ShortcutKeyCaptured;
+
+    public void SetSuppressed(bool suppressed)
+    {
+        _isSuppressed = suppressed;
+        _windowsKeyMonitor.SetCaptureEnabled(suppressed);
+    }
 
     public void Start(IntPtr windowHandle)
     {

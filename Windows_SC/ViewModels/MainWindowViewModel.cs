@@ -148,8 +148,18 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
             }
         });
 
-    public void SetSystemMetricsActive(bool isActive) =>
+    public void SetSystemMetricsActive(bool isActive)
+    {
+        if (isActive)
+        {
+            foreach (LauncherItemViewModel shortcut in Shortcuts)
+            {
+                shortcut.ResetSystemMonitorHistory();
+            }
+        }
+
         _systemMetricsService.SetActive(isActive);
+    }
 
     public void Dispose()
     {

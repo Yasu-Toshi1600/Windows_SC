@@ -38,6 +38,16 @@ internal static class ShortcutKeyValidator
             return "Ctrl+Alt+SpaceはWindows_SCの固定ホットキーのため登録できません。";
         }
 
+        if (!System.Enum.IsDefined(definition.InputMode))
+        {
+            return "未対応のショートカットキー送信方式です。";
+        }
+
+        if (definition.ScanCode == 0 || definition.ScanCode > ushort.MaxValue)
+        {
+            return "ショートカットキーのスキャンコードがありません。キーを再記録してください。";
+        }
+
         return null;
     }
 }

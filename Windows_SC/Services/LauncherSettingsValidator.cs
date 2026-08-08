@@ -108,12 +108,32 @@ internal static class LauncherSettingsValidator
                         {
                             errors.Add($"ウィジェット設定が不正です: {item.Id}");
                         }
+                        else if (!HasValidSystemMonitorMetrics(item.Widget.Metrics))
+                        {
+                            errors.Add($"システムモニターの表示項目は1つまたは2つ選択してください: {item.Id}");
+                        }
                         break;
                 }
             }
         }
 
         return errors;
+    }
+
+    private static bool HasValidSystemMonitorMetrics(SystemMonitorMetric metrics)
+    {
+        const SystemMonitorMetric supported =
+            SystemMonitorMetric.Cpu | SystemMonitorMetric.Gpu | SystemMonitorMetric.Memory;
+        if ((metrics & ~supported) != 0)
+        {
+            return false;
+        }
+
+        int count = 0;
+        count += metrics.HasFlag(SystemMonitorMetric.Cpu) ? 1 : 0;
+        count += metrics.HasFlag(SystemMonitorMetric.Gpu) ? 1 : 0;
+        count += metrics.HasFlag(SystemMonitorMetric.Memory) ? 1 : 0;
+        return count is >= 1 and <= 2;
     }
 
     private static void ValidateButton(

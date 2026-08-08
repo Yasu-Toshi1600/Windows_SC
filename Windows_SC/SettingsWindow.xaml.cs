@@ -207,7 +207,8 @@ public sealed partial class SettingsWindow : Window
         {
             Modifiers = modifiers,
             VirtualKey = virtualKey,
-            ScanCode = args.KeyStatus.ScanCode
+            ScanCode = args.KeyStatus.ScanCode,
+            IsExtendedKey = args.KeyStatus.IsExtendedKey
         });
     }
 

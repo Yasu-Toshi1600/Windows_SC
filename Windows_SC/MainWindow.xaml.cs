@@ -7,6 +7,8 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 using Windows_SC.Services;
 using Windows_SC.ViewModels;
 using Windows.System;
@@ -33,6 +35,7 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherQueueTimer _actionFocusTransferTimer;
     private readonly ILauncherMotionService _motionService;
     private readonly LauncherMotionCoordinator _motionCoordinator;
+    private readonly ShortcutKeyExecutionCoordinator _shortcutKeyExecutionCoordinator;
     private readonly UISettings _uiSettings;
     private bool _isVisible;
     private bool _isInitialized;
@@ -52,6 +55,7 @@ public sealed partial class MainWindow : Window
     private string _activationReason = "manual";
     private bool _pendingActionFocusTransfer;
     private bool _preserveVisibilityWhileInactive;
+    private TaskCompletionSource? _shortcutTargetPreparationCompletion;
     private readonly Dictionary<Slider, int> _sliderWheelDeltas = [];
 
     internal MainWindowViewModel ViewModel { get; }
@@ -63,7 +67,8 @@ public sealed partial class MainWindow : Window
         IGlobalInputService inputService,
         ILauncherPlacementService placementService,
         IWindowInteropService windowInteropService,
-        EnvironmentInformationService environmentInformationService)
+        EnvironmentInformationService environmentInformationService,
+        ShortcutKeyExecutionCoordinator shortcutKeyExecutionCoordinator)
     {
         ViewModel = viewModel;
         InitializeComponent();
@@ -83,6 +88,8 @@ public sealed partial class MainWindow : Window
         _placementService = placementService;
         _windowInteropService = windowInteropService;
         _environmentInformationService = environmentInformationService;
+        _shortcutKeyExecutionCoordinator = shortcutKeyExecutionCoordinator;
+        _shortcutKeyExecutionCoordinator.Attach(PrepareShortcutKeyTargetAsync);
         _environmentCheckTimer = DispatcherQueue.CreateTimer();
         _environmentCheckTimer.Interval = TimeSpan.FromMilliseconds(750);
         _environmentCheckTimer.IsRepeating = false;
@@ -354,6 +361,7 @@ public sealed partial class MainWindow : Window
         _motionCoordinator.CompleteExit(reason);
         _logger.Write($"[Launcher] action=hide result=success reason={reason}");
         _startMenuMonitor.SetLauncherVisible(false);
+        _shortcutTargetPreparationCompletion?.TrySetResult();
 
         StartMenuSnapshot latestSnapshot = _startMenuMonitor.Snapshot;
         if (_startLinkedVisibilityRequested
@@ -710,6 +718,46 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async Task PrepareShortcutKeyTargetAsync(CancellationToken cancellationToken)
+    {
+        if (!_isVisible)
+        {
+            return;
+        }
+
+        TaskCompletionSource completion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _shortcutTargetPreparationCompletion = completion;
+        _startLinkedVisibilityRequested = false;
+        RequestExit("shortcut-key-target");
+
+        if (!_isVisible)
+        {
+            completion.TrySetResult();
+        }
+
+        try
+        {
+            await completion.Task.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(75), cancellationToken);
+            _logger.WriteDetailed(
+                "[ShortcutKey] action=prepare-target result=success launcher-hidden=true");
+        }
+        catch (TimeoutException)
+        {
+            _logger.Write(
+                "[ShortcutKey] action=prepare-target result=failed reason=hide-timeout");
+            throw;
+        }
+        finally
+        {
+            if (_shortcutTargetPreparationCompletion == completion)
+            {
+                _shortcutTargetPreparationCompletion = null;
+            }
+        }
+    }
+
     private void RootBorder_KeyDown(object sender, KeyRoutedEventArgs args)
     {
         if (args.Key == VirtualKey.Escape)
@@ -843,6 +891,9 @@ public sealed partial class MainWindow : Window
 
     private void Window_Closed(object sender, WindowEventArgs args)
     {
+        _shortcutKeyExecutionCoordinator.Detach(PrepareShortcutKeyTargetAsync);
+        _shortcutTargetPreparationCompletion?.TrySetCanceled();
+        _shortcutTargetPreparationCompletion = null;
         ViewModel.SetSystemMetricsActive(false);
         _motionService.Completed -= MotionService_Completed;
         _motionService.Dispose();

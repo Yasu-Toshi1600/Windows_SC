@@ -30,6 +30,10 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private ActionKindOption? _selectedActionKind;
     private CycleKindOption? _selectedCycleKind;
     private PostExecutionBehaviorOption? _selectedPostExecutionBehavior;
+    private ShortcutKeyInputModeOption? _selectedShortcutKeyInputMode;
+    private ShortcutKeyInputModeOption? _selectedMacroShortcutKeyInputMode;
+    private MacroStepKindOption? _selectedMacroStepKind;
+    private ActionKindOption? _selectedMacroActionKind;
     private AudioOutputDeviceOption? _audioDeviceToAdd;
     private RegisteredAudioDeviceEditorViewModel? _selectedRegisteredAudioDevice;
     private CommandCycleStepEditorViewModel? _selectedCommandStep;
@@ -79,6 +83,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         _environmentInformationService = environmentInformationService;
         _startMenuMonitor = startMenuMonitor;
         _globalInputService = globalInputService;
+        _globalInputService.ShortcutKeyCaptured += GlobalInputService_ShortcutKeyCaptured;
         _startMenuMonitor.ReadyChanged += StartMenuMonitor_ReadyChanged;
         _applicationVolumeService.StateChanged += ApplicationVolumeService_StateChanged;
 
@@ -173,29 +178,29 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     public IReadOnlyList<ActionKindOption> ActionKinds { get; } =
     [
-        new(LauncherActionKind.Application, "Application（アプリ）"),
-        new(LauncherActionKind.File, "File（ファイル／フォルダー）"),
-        new(LauncherActionKind.Url, "URL"),
-        new(LauncherActionKind.Command, "Command（コマンド）"),
-        new(LauncherActionKind.BatchFile, "BatchFile（bat／cmd）"),
-        new(LauncherActionKind.ShortcutKey, "ShortcutKey（キー入力）"),
-        new(LauncherActionKind.Macro, "Macro（マクロ）")
+        new(LauncherActionKind.Application, "アプリ・ファイル・URLを開く"),
+        new(LauncherActionKind.Command, "コマンド・batを実行"),
+        new(LauncherActionKind.ShortcutKey, "キー入力"),
+        new(LauncherActionKind.Macro, "マクロ")
     ];
 
     public IReadOnlyList<ActionKindOption> MacroActionKinds { get; } =
     [
-        new(LauncherActionKind.Application, "Application（アプリ）"),
-        new(LauncherActionKind.File, "File（ファイル／フォルダー）"),
-        new(LauncherActionKind.Url, "URL"),
-        new(LauncherActionKind.Command, "Command（コマンド）"),
-        new(LauncherActionKind.BatchFile, "BatchFile（bat／cmd）"),
-        new(LauncherActionKind.ShortcutKey, "ShortcutKey（キー入力）")
+        new(LauncherActionKind.Application, "アプリ・ファイル・URLを開く"),
+        new(LauncherActionKind.Command, "コマンド・batを実行"),
+        new(LauncherActionKind.ShortcutKey, "キー入力")
     ];
 
     public IReadOnlyList<MacroStepKindOption> MacroStepKinds { get; } =
     [
         new(MacroStepKind.Action, "操作"),
         new(MacroStepKind.Wait, "待機")
+    ];
+
+    public IReadOnlyList<ShortcutKeyInputModeOption> ShortcutKeyInputModes { get; } =
+    [
+        new(ShortcutKeyInputMode.ScanCode, "ScanCode方式"),
+        new(ShortcutKeyInputMode.VirtualKey, "VirtualKey方式")
     ];
 
     public IReadOnlyList<CycleKindOption> CycleKinds { get; } =
@@ -239,6 +244,9 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 SelectedVolumeSliderKind = value is { IsSlider: true }
                     ? VolumeSliderKinds.First(option => option.Value == value.VolumeSliderKind)
                     : null;
+                SelectedShortcutKeyInputMode = value is null
+                    ? null
+                    : GetShortcutKeyInputMode(value.ShortcutKeyInputMode);
                 SelectedApplicationAudioTarget = value is { IsSlider: true }
                     ? FindOrAddApplicationOption(value.ApplicationAudioTarget)
                     : null;
@@ -264,7 +272,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _selectedActionKind, value)
                 && value is not null
-                && SelectedItem is { IsButton: true } selectedItem)
+                && SelectedItem is { IsButton: true } selectedItem
+                && GetVisibleActionKind(selectedItem.ActionKind).Value != value.Value)
             {
                 selectedItem.ActionKind = value.Value;
                 SelectedMacroStep = selectedItem.MacroSteps.FirstOrDefault();
@@ -439,10 +448,84 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
+    public ShortcutKeyInputModeOption? SelectedShortcutKeyInputMode
+    {
+        get => _selectedShortcutKeyInputMode;
+        set
+        {
+            if (SetProperty(ref _selectedShortcutKeyInputMode, value)
+                && value is not null
+                && SelectedItem is { IsButton: true } selectedItem)
+            {
+                selectedItem.ShortcutKeyInputMode = value.Value;
+            }
+        }
+    }
+
+    public ShortcutKeyInputModeOption? SelectedMacroShortcutKeyInputMode
+    {
+        get => _selectedMacroShortcutKeyInputMode;
+        set
+        {
+            if (SetProperty(ref _selectedMacroShortcutKeyInputMode, value)
+                && value is not null
+                && SelectedMacroStep is not null)
+            {
+                SelectedMacroStep.ShortcutKeyInputMode = value.Value;
+            }
+        }
+    }
+
     public MacroStepEditorViewModel? SelectedMacroStep
     {
         get => _selectedMacroStep;
-        set => SetProperty(ref _selectedMacroStep, value);
+        set
+        {
+            if (SetProperty(ref _selectedMacroStep, value))
+            {
+                SelectedMacroStepKind = value is null
+                    ? null
+                    : MacroStepKinds.First(option => option.Value == value.Kind);
+                SelectedMacroActionKind = value is { Kind: MacroStepKind.Action }
+                    ? GetVisibleMacroActionKind(value.ActionKind)
+                    : null;
+                SelectedMacroShortcutKeyInputMode = value is null
+                    ? null
+                    : GetShortcutKeyInputMode(value.ShortcutKeyInputMode);
+            }
+        }
+    }
+
+    public MacroStepKindOption? SelectedMacroStepKind
+    {
+        get => _selectedMacroStepKind;
+        set
+        {
+            if (SetProperty(ref _selectedMacroStepKind, value)
+                && value is not null
+                && SelectedMacroStep is { } selectedStep)
+            {
+                selectedStep.Kind = value.Value;
+                SelectedMacroActionKind = value.Value == MacroStepKind.Action
+                    ? GetVisibleMacroActionKind(selectedStep.ActionKind)
+                    : null;
+            }
+        }
+    }
+
+    public ActionKindOption? SelectedMacroActionKind
+    {
+        get => _selectedMacroActionKind;
+        set
+        {
+            if (SetProperty(ref _selectedMacroActionKind, value)
+                && value is not null
+                && SelectedMacroStep is { Kind: MacroStepKind.Action } selectedStep
+                && GetVisibleMacroActionKind(selectedStep.ActionKind).Value != value.Value)
+            {
+                selectedStep.ActionKind = value.Value;
+            }
+        }
     }
 
     public VolumeSliderKindOption? SelectedVolumeSliderKind
@@ -693,6 +776,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         CancelShortcutKeyRecording();
+        _globalInputService.ShortcutKeyCaptured -= GlobalInputService_ShortcutKeyCaptured;
         _applicationVolumeService.StateChanged -= ApplicationVolumeService_StateChanged;
         _startMenuMonitor.ReadyChanged -= StartMenuMonitor_ReadyChanged;
         Items.CollectionChanged -= Items_CollectionChanged;
@@ -815,6 +899,31 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         MarkDirty();
     }
 
+    private void GlobalInputService_ShortcutKeyCaptured(
+        object? sender,
+        ShortcutKeyCapturedEventArgs args)
+    {
+        _dispatcherQueue.TryEnqueue(() =>
+        {
+            if (!IsRecordingShortcutKey)
+            {
+                return;
+            }
+
+            if (args.ShortcutKey.VirtualKey == 0x1B)
+            {
+                CancelShortcutKeyRecording();
+                return;
+            }
+
+            CompleteShortcutKeyRecording(args.ShortcutKey);
+            if (IsRecordingShortcutKey)
+            {
+                _globalInputService.SetSuppressed(true);
+            }
+        });
+    }
+
     private void EditableItem_PropertyChanged(object? sender, PropertyChangedEventArgs args) =>
         MarkDirty();
 
@@ -902,8 +1011,40 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
-    private ActionKindOption GetVisibleActionKind(LauncherActionKind actionKind) =>
-        ActionKinds.First(option => option.Value == actionKind);
+    private ActionKindOption GetVisibleActionKind(LauncherActionKind actionKind)
+    {
+        LauncherActionKind visibleKind = actionKind switch
+        {
+            LauncherActionKind.Application or
+                LauncherActionKind.File or
+                LauncherActionKind.Url => LauncherActionKind.Application,
+            LauncherActionKind.Command or
+                LauncherActionKind.BatchFile => LauncherActionKind.Command,
+            LauncherActionKind.ShortcutKey => LauncherActionKind.ShortcutKey,
+            LauncherActionKind.Macro => LauncherActionKind.Macro,
+            _ => LauncherActionKind.Application
+        };
+        return ActionKinds.First(option => option.Value == visibleKind);
+    }
+
+    private ActionKindOption GetVisibleMacroActionKind(LauncherActionKind actionKind)
+    {
+        LauncherActionKind visibleKind = actionKind switch
+        {
+            LauncherActionKind.Application or
+                LauncherActionKind.File or
+                LauncherActionKind.Url => LauncherActionKind.Application,
+            LauncherActionKind.Command or
+                LauncherActionKind.BatchFile => LauncherActionKind.Command,
+            LauncherActionKind.ShortcutKey => LauncherActionKind.ShortcutKey,
+            _ => LauncherActionKind.Application
+        };
+        return MacroActionKinds.First(option => option.Value == visibleKind);
+    }
+
+    private ShortcutKeyInputModeOption GetShortcutKeyInputMode(
+        ShortcutKeyInputMode inputMode) =>
+        ShortcutKeyInputModes.First(option => option.Value == inputMode);
 
     internal void BeginShortcutKeyRecording()
     {
@@ -915,7 +1056,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         _recordingShortcutItemId = item.Id;
         _recordingMacroStepId = null;
         IsRecordingShortcutKey = true;
-        ShortcutRecordingStatus = "登録するキーの組み合わせを押してください。Escでキャンセルします。";
+        ShortcutRecordingStatus =
+            "登録する単体キーまたはキーの組み合わせを押してください。Escでキャンセルします。";
         _globalInputService.SetSuppressed(true);
     }
 
@@ -987,7 +1129,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         _recordingShortcutItemId = null;
         _recordingMacroStepId = step.Id;
         IsRecordingShortcutKey = true;
-        ShortcutRecordingStatus = "登録するキーの組み合わせを押してください。Escでキャンセルします。";
+        ShortcutRecordingStatus =
+            "登録する単体キーまたはキーの組み合わせを押してください。Escでキャンセルします。";
         _globalInputService.SetSuppressed(true);
     }
 

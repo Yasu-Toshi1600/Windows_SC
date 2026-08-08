@@ -472,7 +472,16 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
     {
         if (value is not null && Marshal.IsComObject(value))
         {
-            Marshal.FinalReleaseComObject(value);
+            try
+            {
+                // MMDeviceEnumerator can share an RCW with the application-volume
+                // service. FinalReleaseComObject would invalidate that service's
+                // still-live reference, so release only this caller's ownership.
+                Marshal.ReleaseComObject(value);
+            }
+            catch (InvalidComObjectException)
+            {
+            }
         }
     }
 

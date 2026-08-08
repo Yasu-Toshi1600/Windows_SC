@@ -24,6 +24,10 @@ internal sealed record PostExecutionBehaviorOption(
     LauncherPostExecutionBehavior Value,
     string DisplayName);
 
+internal sealed record ShortcutKeyInputModeOption(
+    ShortcutKeyInputMode Value,
+    string DisplayName);
+
 internal sealed record LayoutModeOption(
     LauncherLayoutMode Value,
     string DisplayName);

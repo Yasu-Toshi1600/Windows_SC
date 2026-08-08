@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,13 +9,16 @@ using Windows_SC.Models;
 
 namespace Windows_SC.Services;
 
-internal sealed class ShortcutKeyExecutionService(DiagnosticLogger logger)
-    : IShortcutKeyExecutionService
+internal sealed class ShortcutKeyExecutionService(
+    DiagnosticLogger logger,
+    ShortcutKeyExecutionCoordinator executionCoordinator) : IShortcutKeyExecutionService
 {
     private const uint InputKeyboard = 1;
+    private const uint KeyEventExtendedKey = 0x0001;
     private const uint KeyEventKeyUp = 0x0002;
+    private const uint KeyEventScanCode = 0x0008;
 
-    public Task<ActionExecutionResult> ExecuteAsync(
+    public async Task<ActionExecutionResult> ExecuteAsync(
         ShortcutKeyDefinition shortcutKey,
         CancellationToken cancellationToken = default)
     {
@@ -23,113 +27,102 @@ internal sealed class ShortcutKeyExecutionService(DiagnosticLogger logger)
         if (validationError is not null)
         {
             logger.Write("[ShortcutKey] action=send result=failed reason=invalid-definition");
-            return Task.FromResult(ActionExecutionResult.Failure(validationError));
+            return ActionExecutionResult.Failure(validationError);
         }
 
-        List<ushort> pressedKeys = [];
         try
         {
-            foreach (ushort modifier in GetModifierKeys(shortcutKey.Modifiers))
-            {
-                SendKey(modifier, keyUp: false);
-                pressedKeys.Add(modifier);
-            }
+            await executionCoordinator.PrepareTargetAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            ushort bodyKey = checked((ushort)shortcutKey.VirtualKey);
-            SendKey(bodyKey, keyUp: false);
-            pressedKeys.Add(bodyKey);
-            SendKey(bodyKey, keyUp: true);
-            pressedKeys.RemoveAt(pressedKeys.Count - 1);
-
-            for (int index = pressedKeys.Count - 1; index >= 0; index--)
-            {
-                SendKey(pressedKeys[index], keyUp: true);
-            }
-
-            pressedKeys.Clear();
-            logger.Write("[ShortcutKey] action=send result=success");
+            IReadOnlyList<ShortcutKeyInputStroke> strokes =
+                ShortcutKeyInputSequence.Build(shortcutKey);
+            SendStrokes(strokes, shortcutKey.InputMode);
+            string inputMode = FormatInputMode(shortcutKey.InputMode);
+            logger.Write(
+                $"[ShortcutKey] action=send result=success mode={inputMode}");
             logger.WriteDetailed(
                 $"[ShortcutKey] action=send result=success " +
+                $"mode={inputMode} batched=true inputs={strokes.Count} " +
                 $"keys=\"{LogValue.Normalize(ShortcutKeyText.Format(shortcutKey))}\"");
-            return Task.FromResult(ActionExecutionResult.Success);
+            return ActionExecutionResult.Success;
         }
         catch (Exception exception) when (exception is Win32Exception
             or OverflowException
+            or TimeoutException
             or OperationCanceledException)
         {
-            for (int index = pressedKeys.Count - 1; index >= 0; index--)
-            {
-                TryReleaseKey(pressedKeys[index]);
-            }
+            TryReleaseKeys(shortcutKey);
 
             logger.Write(
                 $"[ShortcutKey] action=send result=failed " +
+                $"mode={FormatInputMode(shortcutKey.InputMode)} " +
                 $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
             logger.WriteDetailed(
                 $"[ShortcutKey] action=send result=failed " +
+                $"mode={FormatInputMode(shortcutKey.InputMode)} batched=true " +
                 $"keys=\"{LogValue.Normalize(ShortcutKeyText.Format(shortcutKey))}\" " +
                 $"message=\"{LogValue.Normalize(exception.Message)}\"");
-            return Task.FromResult(ActionExecutionResult.Failure(
-                $"ショートカットキーを送信できませんでした。\n{exception.Message}"));
+            return ActionExecutionResult.Failure(
+                $"ショートカットキーを送信できませんでした。\n{exception.Message}");
         }
     }
 
-    private static IReadOnlyList<ushort> GetModifierKeys(ShortcutKeyModifiers modifiers)
+    private static void SendStrokes(
+        IReadOnlyList<ShortcutKeyInputStroke> strokes,
+        ShortcutKeyInputMode inputMode)
     {
-        List<ushort> keys = [];
-        if (modifiers.HasFlag(ShortcutKeyModifiers.Control))
-        {
-            keys.Add(0x11);
-        }
-
-        if (modifiers.HasFlag(ShortcutKeyModifiers.Alt))
-        {
-            keys.Add(0x12);
-        }
-
-        if (modifiers.HasFlag(ShortcutKeyModifiers.Shift))
-        {
-            keys.Add(0x10);
-        }
-
-        if (modifiers.HasFlag(ShortcutKeyModifiers.Windows))
-        {
-            keys.Add(0x5B);
-        }
-
-        return keys;
-    }
-
-    private static void SendKey(ushort virtualKey, bool keyUp)
-    {
-        Input input = new()
-        {
-            Type = InputKeyboard,
-            Data = new InputUnion
-            {
-                Keyboard = new KeyboardInput
-                {
-                    VirtualKey = virtualKey,
-                    Flags = keyUp ? KeyEventKeyUp : 0
-                }
-            }
-        };
-        if (SendInput(1, [input], Marshal.SizeOf<Input>()) != 1)
+        Input[] inputs = strokes.Select(stroke => CreateInput(stroke, inputMode)).ToArray();
+        uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>());
+        if (sent != inputs.Length)
         {
             throw new Win32Exception(Marshal.GetLastWin32Error());
         }
     }
 
-    private static void TryReleaseKey(ushort virtualKey)
+    private static Input CreateInput(
+        ShortcutKeyInputStroke stroke,
+        ShortcutKeyInputMode inputMode) => new()
+    {
+        Type = InputKeyboard,
+        Data = new InputUnion
+        {
+            Keyboard = new KeyboardInput
+            {
+                VirtualKey = inputMode == ShortcutKeyInputMode.VirtualKey
+                    ? stroke.VirtualKey
+                    : (ushort)0,
+                ScanCode = inputMode == ShortcutKeyInputMode.ScanCode
+                    ? stroke.ScanCode
+                    : (ushort)0,
+                Flags = (inputMode == ShortcutKeyInputMode.ScanCode
+                        ? KeyEventScanCode
+                            | (stroke.IsExtended ? KeyEventExtendedKey : 0)
+                        : 0)
+                    | (stroke.IsKeyUp ? KeyEventKeyUp : 0)
+            }
+        }
+    };
+
+    private static void TryReleaseKeys(ShortcutKeyDefinition shortcutKey)
     {
         try
         {
-            SendKey(virtualKey, keyUp: true);
+            IReadOnlyList<ShortcutKeyInputStroke> releases =
+                ShortcutKeyInputSequence.Build(shortcutKey)
+                    .Where(stroke => !stroke.IsKeyUp)
+                    .Reverse()
+                    .Select(stroke => stroke with { IsKeyUp = true })
+                    .ToArray();
+            SendStrokes(releases, shortcutKey.InputMode);
         }
-        catch (Win32Exception)
+        catch (Exception exception) when (exception is Win32Exception or OverflowException)
         {
         }
     }
+
+    private static string FormatInputMode(ShortcutKeyInputMode inputMode) =>
+        inputMode == ShortcutKeyInputMode.VirtualKey ? "virtual-key" : "scancode";
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Input
