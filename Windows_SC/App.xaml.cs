@@ -143,58 +143,43 @@ public partial class App : Application
 
     private void Window_Closed(object sender, WindowEventArgs args)
     {
-        try
+        // Settings are committed only by explicit settings operations. Saving the
+        // cached launcher state here could overwrite a newer in-flight save.
+        if (_viewModel is not null)
         {
-            if (_settingsRepository is not null && _viewModel is not null)
-            {
-                _settingsRepository.SaveAsync(_viewModel.ExportSettings()).GetAwaiter().GetResult();
-            }
+            _viewModel.SettingsRequested -= ViewModel_SettingsRequested;
+            _viewModel.Dispose();
         }
-        catch (Exception exception)
-        {
-            _logger?.Write(
-                $"[Application] action=shutdown-save result=failed " +
-                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
-            System.Diagnostics.Debug.WriteLine($"設定の終了保存に失敗しました: {exception}");
-        }
-        finally
-        {
-            if (_viewModel is not null)
-            {
-                _viewModel.SettingsRequested -= ViewModel_SettingsRequested;
-                _viewModel.Dispose();
-            }
 
-            if (_systemTrayService is not null)
-            {
-                _systemTrayService.ShowLauncherRequested -= SystemTrayService_ShowLauncherRequested;
-                _systemTrayService.SettingsRequested -= SystemTrayService_SettingsRequested;
-                _systemTrayService.ExitRequested -= SystemTrayService_ExitRequested;
-                _systemTrayService.Dispose();
-                _systemTrayService = null;
-            }
-
-            _singleInstanceService?.Dispose();
-            _singleInstanceService = null;
-            _applicationVolumeService?.Dispose();
-            _applicationVolumeService = null;
-            _audioOutputService?.Dispose();
-            _audioOutputService = null;
-            _applicationVolumeStateStore?.Dispose();
-            _applicationVolumeStateStore = null;
-            _systemMetricsService?.Dispose();
-            _systemMetricsService = null;
-            _macroExecutionService?.Dispose();
-            _macroExecutionService = null;
-            UnhandledException -= App_UnhandledException;
-            AppDomain.CurrentDomain.UnhandledException -= CurrentDomain_UnhandledException;
-            System.Threading.Tasks.TaskScheduler.UnobservedTaskException -=
-                TaskScheduler_UnobservedTaskException;
-            _logger?.Dispose();
-            _logger = null;
-            _environmentInformationService = null;
-            Exit();
+        if (_systemTrayService is not null)
+        {
+            _systemTrayService.ShowLauncherRequested -= SystemTrayService_ShowLauncherRequested;
+            _systemTrayService.SettingsRequested -= SystemTrayService_SettingsRequested;
+            _systemTrayService.ExitRequested -= SystemTrayService_ExitRequested;
+            _systemTrayService.Dispose();
+            _systemTrayService = null;
         }
+
+        _singleInstanceService?.Dispose();
+        _singleInstanceService = null;
+        _applicationVolumeService?.Dispose();
+        _applicationVolumeService = null;
+        _audioOutputService?.Dispose();
+        _audioOutputService = null;
+        _applicationVolumeStateStore?.Dispose();
+        _applicationVolumeStateStore = null;
+        _systemMetricsService?.Dispose();
+        _systemMetricsService = null;
+        _macroExecutionService?.Dispose();
+        _macroExecutionService = null;
+        UnhandledException -= App_UnhandledException;
+        AppDomain.CurrentDomain.UnhandledException -= CurrentDomain_UnhandledException;
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException -=
+            TaskScheduler_UnobservedTaskException;
+        _logger?.Dispose();
+        _logger = null;
+        _environmentInformationService = null;
+        Exit();
     }
 
     private void ViewModel_SettingsRequested(object? sender, EventArgs args)

@@ -25,6 +25,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private readonly EnvironmentInformationService _environmentInformationService;
     private readonly IStartMenuMonitor _startMenuMonitor;
     private readonly IGlobalInputService _globalInputService;
+    private readonly SettingsEditRevisionTracker _editRevisionTracker = new();
+    private readonly SettingsPersistenceCoordinator _persistenceCoordinator = new();
     private readonly Guid _pageId;
     private LauncherItemEditorViewModel? _selectedItem;
     private ActionKindOption? _selectedActionKind;
@@ -48,7 +50,6 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private string _troubleshootingStatusMessage = string.Empty;
     private InfoBarSeverity _troubleshootingStatusSeverity =
         InfoBarSeverity.Informational;
-    private bool _isDirty;
     private bool _suppressDirtyTracking = true;
     private bool _isSaving;
     private bool _isDetailedDiagnosticsEnabled;
@@ -399,7 +400,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     public bool IsStatusMessageOpen => !string.IsNullOrWhiteSpace(StatusMessage);
 
-    public bool IsDirty => _isDirty;
+    public bool IsDirty => _editRevisionTracker.IsDirty;
 
     public string TroubleshootingStatusMessage
     {
@@ -700,9 +701,6 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         }
 
         _isApplyingDiagnosticsSetting = true;
-        LauncherSettings settings = _mainWindowViewModel.ExportSettings();
-        DateTimeOffset? previousExpiration = settings.DetailedLoggingExpiresAtUtc;
-        bool previousAlwaysEnabled = settings.DetailedLoggingAlwaysEnabled;
         bool newAlwaysEnabled = IsDetailedDiagnosticsEnabled
             && IsDetailedDiagnosticsAlwaysEnabled;
         DateTimeOffset? newExpiration = IsDetailedDiagnosticsEnabled
@@ -712,35 +710,44 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
         try
         {
-            settings.DetailedLoggingExpiresAtUtc = newExpiration;
-            settings.DetailedLoggingAlwaysEnabled = newAlwaysEnabled;
-            await _settingsRepository.SaveAsync(settings);
-            _detailedLoggingExpiresAt = newExpiration;
-            _logger.ConfigureDetailedLogging(newExpiration, newAlwaysEnabled);
-            _environmentInformationService.LogIfChanged("diagnostics-setting");
-            OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
-            SetTroubleshootingStatus(
-                newAlwaysEnabled
-                    ? "詳細診断ログを常時有効にしました。"
-                    : IsDetailedDiagnosticsEnabled
-                        ? "詳細診断ログを24時間有効にしました。"
-                        : "詳細診断ログを無効にしました。",
-                InfoBarSeverity.Success);
-        }
-        catch (Exception exception)
-        {
-            settings.DetailedLoggingExpiresAtUtc = previousExpiration;
-            settings.DetailedLoggingAlwaysEnabled = previousAlwaysEnabled;
-            _logger.Write(
-                $"[Diagnostics] action=configure-detailed-logging result=failed " +
-                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
-            _logger.WriteDetailed(
-                $"[Diagnostics] action=configure-detailed-logging result=failed " +
-                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
-                $"message=\"{LogValue.Normalize(exception.Message)}\"");
-            SetTroubleshootingStatus(
-                $"詳細診断ログの設定を保存できませんでした: {exception.Message}",
-                InfoBarSeverity.Error);
+            await _persistenceCoordinator.RunAsync(async () =>
+            {
+                LauncherSettings settings = _mainWindowViewModel.ExportSettings();
+                DateTimeOffset? previousExpiration = settings.DetailedLoggingExpiresAtUtc;
+                bool previousAlwaysEnabled = settings.DetailedLoggingAlwaysEnabled;
+                try
+                {
+                    settings.DetailedLoggingExpiresAtUtc = newExpiration;
+                    settings.DetailedLoggingAlwaysEnabled = newAlwaysEnabled;
+                    await _settingsRepository.SaveAsync(settings);
+                    _detailedLoggingExpiresAt = newExpiration;
+                    _logger.ConfigureDetailedLogging(newExpiration, newAlwaysEnabled);
+                    _environmentInformationService.LogIfChanged("diagnostics-setting");
+                    OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
+                    SetTroubleshootingStatus(
+                        newAlwaysEnabled
+                            ? "詳細診断ログを常時有効にしました。"
+                            : IsDetailedDiagnosticsEnabled
+                                ? "詳細診断ログを24時間有効にしました。"
+                                : "詳細診断ログを無効にしました。",
+                        InfoBarSeverity.Success);
+                }
+                catch (Exception exception)
+                {
+                    settings.DetailedLoggingExpiresAtUtc = previousExpiration;
+                    settings.DetailedLoggingAlwaysEnabled = previousAlwaysEnabled;
+                    _logger.Write(
+                        $"[Diagnostics] action=configure-detailed-logging result=failed " +
+                        $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+                    _logger.WriteDetailed(
+                        $"[Diagnostics] action=configure-detailed-logging result=failed " +
+                        $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                        $"message=\"{LogValue.Normalize(exception.Message)}\"");
+                    SetTroubleshootingStatus(
+                        $"詳細診断ログの設定を保存できませんでした: {exception.Message}",
+                        InfoBarSeverity.Error);
+                }
+            });
         }
         finally
         {
@@ -934,9 +941,10 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (!_isDirty)
+        bool wasDirty = IsDirty;
+        _editRevisionTracker.MarkChanged();
+        if (!wasDirty)
         {
-            _isDirty = true;
             OnPropertyChanged(nameof(IsDirty));
         }
 
@@ -946,14 +954,15 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             includeUnsavedReminder: false);
     }
 
-    private void MarkSaved()
+    private void MarkSaved(long revision)
     {
-        if (!_isDirty)
+        bool wasDirty = IsDirty;
+        _editRevisionTracker.MarkSaved(revision);
+        if (wasDirty == IsDirty)
         {
             return;
         }
 
-        _isDirty = false;
         OnPropertyChanged(nameof(IsDirty));
     }
 
@@ -962,7 +971,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         InfoBarSeverity severity,
         bool includeUnsavedReminder = true)
     {
-        if (_isDirty && includeUnsavedReminder)
+        if (IsDirty && includeUnsavedReminder)
         {
             const string unsavedReminder = "変更内容はまだ保存されていません。";
             if (!message.Contains(unsavedReminder, StringComparison.Ordinal))
@@ -1659,41 +1668,50 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         SaveCommand.NotifyCanExecuteChanged();
         SetStatus("保存しています…", InfoBarSeverity.Informational);
 
-        LauncherSettings previousSettings = _mainWindowViewModel.ExportSettings();
         try
         {
-            LauncherSettings settings = CreateSettingsForSave(previousSettings);
-            await _settingsRepository.SaveAsync(settings);
-
-            try
+            LauncherSettings settings = CreateSettingsForSave(
+                _mainWindowViewModel.ExportSettings());
+            long savedRevision = _editRevisionTracker.CurrentRevision;
+            await _persistenceCoordinator.RunAsync(async () =>
             {
-                _startupService.SetEnabled(settings.StartWithWindows);
-            }
-            catch (Exception startupException)
-            {
-                bool startupRollbackSucceeded = TryRestoreStartupSetting(
-                    previousSettings.StartWithWindows);
-                bool settingsRollbackSucceeded = await TryRestoreSettingsAsync(previousSettings);
-                string actualStartupState = GetActualStartupStateText();
-                _logger.Write(
-                    $"[Settings] action=apply-startup result=failed " +
-                    $"exception={startupException.GetType().Name} " +
-                    $"hresult=0x{startupException.HResult:X8} " +
-                    $"settings-rollback={settingsRollbackSucceeded.ToString().ToLowerInvariant()} " +
-                    $"startup-rollback={startupRollbackSucceeded.ToString().ToLowerInvariant()} " +
-                    $"actual-startup={actualStartupState}");
-                SetStatus(
-                    settingsRollbackSucceeded
-                        ? $"自動起動を変更できなかったため、設定を保存前の状態へ戻しました。現在の自動起動: {actualStartupState}"
-                        : $"自動起動を変更できず、設定ファイルも元に戻せませんでした。現在の自動起動: {actualStartupState}。アプリを再起動して状態を確認してください。",
-                    InfoBarSeverity.Error);
-                return;
-            }
+                LauncherSettings previousSettings = _mainWindowViewModel.ExportSettings();
+                settings.DetailedLoggingExpiresAtUtc =
+                    previousSettings.DetailedLoggingExpiresAtUtc;
+                settings.DetailedLoggingAlwaysEnabled =
+                    previousSettings.DetailedLoggingAlwaysEnabled;
+                await _settingsRepository.SaveAsync(settings);
 
-            _environmentInformationService.LogIfChanged("settings-save");
-            _mainWindowViewModel.ApplySettings(settings);
-            MarkSaved();
-            SetStatus("保存しました。", InfoBarSeverity.Success);
+                try
+                {
+                    _startupService.SetEnabled(settings.StartWithWindows);
+                }
+                catch (Exception startupException)
+                {
+                    bool startupRollbackSucceeded = TryRestoreStartupSetting(
+                        previousSettings.StartWithWindows);
+                    bool settingsRollbackSucceeded = await TryRestoreSettingsAsync(previousSettings);
+                    string actualStartupState = GetActualStartupStateText();
+                    _logger.Write(
+                        $"[Settings] action=apply-startup result=failed " +
+                        $"exception={startupException.GetType().Name} " +
+                        $"hresult=0x{startupException.HResult:X8} " +
+                        $"settings-rollback={settingsRollbackSucceeded.ToString().ToLowerInvariant()} " +
+                        $"startup-rollback={startupRollbackSucceeded.ToString().ToLowerInvariant()} " +
+                        $"actual-startup={actualStartupState}");
+                    SetStatus(
+                        settingsRollbackSucceeded
+                            ? $"自動起動を変更できなかったため、設定を保存前の状態へ戻しました。現在の自動起動: {actualStartupState}"
+                            : $"自動起動を変更できず、設定ファイルも元に戻せませんでした。現在の自動起動: {actualStartupState}。アプリを再起動して状態を確認してください。",
+                        InfoBarSeverity.Error);
+                    return;
+                }
+
+                _environmentInformationService.LogIfChanged("settings-save");
+                _mainWindowViewModel.ApplySettings(settings);
+                MarkSaved(savedRevision);
+                SetStatus("保存しました。", InfoBarSeverity.Success);
+            });
         }
         catch (Exception exception)
         {

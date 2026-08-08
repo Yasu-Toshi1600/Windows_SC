@@ -24,6 +24,10 @@
              Link="Source\LauncherSettingsMigrator.cs" />
     <Compile Include="..\Windows_SC\Services\LauncherSettingsValidator.cs"
              Link="Source\LauncherSettingsValidator.cs" />
+    <Compile Include="..\Windows_SC\Services\SettingsEditRevisionTracker.cs"
+             Link="Source\SettingsEditRevisionTracker.cs" />
+    <Compile Include="..\Windows_SC\Services\SettingsPersistenceCoordinator.cs"
+             Link="Source\SettingsPersistenceCoordinator.cs" />
     <Compile Include="..\Windows_SC\Services\IActionExecutionService.cs"
              Link="Source\IActionExecutionService.cs" />
     <Compile Include="..\Windows_SC\Services\IAudioOutputService.cs"
