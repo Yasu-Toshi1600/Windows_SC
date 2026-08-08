@@ -19,5 +19,6 @@
 | `MOTION_REDESIGN_PROCEDURE.md` | Phase 4.5の再設計手順と実装履歴 |
 | `REMAINING_WORK_AND_DOCUMENTATION_AUDIT_2026-07-23.md` | `0.5.9-dev`までの修正、検証、文書整理履歴 |
 | `UI_ADJUSTMENT_V0.6_2026-07-24.md` | `0.6.0-dev`のUI調整に使用した決定・実装・確認記録 |
+| `REFACTORING_AND_LOG_CLEANUP_PLAN_2026-08-09.md` | 設定保存分離、Core Audio宣言分離、ログ整理の計画と完了記録 |
 
 履歴資料の記述が現行資料と食い違う場合は、現行資料を優先する。

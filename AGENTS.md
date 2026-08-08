@@ -41,7 +41,9 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
 
 - 依存関係またはプロジェクト設定を変更した場合は、必要に応じて先にrestoreする。`NU1301`はNuGetへの接続失敗か確認し、直ちにコード不具合と判断しない。
 - 小さな変更では関連する構成だけ、配布・バージョン・プロジェクト設定の変更ではDebugとReleaseの両方を確認する。
-- このリポジトリには自動テストプロジェクトがないため、ビルド成功だけで動作確認済みとはしない。
+- `Windows_SC.Tests`にはUI非依存領域の自動テストがある。関連するコードを変更した場合は
+  `dotnet test Windows_SC.Tests\Windows_SC.Tests.csproj -c Debug -p:Platform=x64 --no-restore`を実行する。
+  WinUI／GUIの自動テストはないため、自動テストとビルドの成功だけで動作確認済みとはしない。
 - GUIを実際に操作していない場合は「未確認」と明記する。特にWindowsキー、スタートボタン、仮想デスクトップ、複数モニター、自動起動、設定保存、音声デバイス切替は環境依存の手動確認である。
 - 変更箇所に応じた手動確認は`docs/TEST_CHECKLIST.md`を参照する。
 - 結果報告では、コード変更、ビルド、GUI手動確認、ZIP確認、別PC確認、公開済みRelease確認を分けて記載する。

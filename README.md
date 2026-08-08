@@ -139,7 +139,7 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
 - [アクション／マクロ保守ガイド](docs/ACTION_AND_MACRO_MAINTENANCE.md)
 - [アプリ別音量保守ガイド](docs/APPLICATION_VOLUME_MAINTENANCE.md)
 - [システムモニター保守ガイド](docs/SYSTEM_MONITOR_WIDGET_MAINTENANCE.md)
-- [リファクタリング・ログ整理準備](docs/REFACTORING_AND_LOG_CLEANUP_PLAN.md)
+- [UI・MVVMリファクタリング計画](docs/UI_MVVM_REFACTORING_PLAN.md)
 - [簡易テスト](docs/TEST_CHECKLIST.md)
 - [変更履歴](CHANGELOG.md)
 - [バージョン管理](docs/VERSIONING.md)

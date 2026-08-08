@@ -19,7 +19,7 @@
 | アプリ別音量、Core Audio、出力先別状態 | [アプリ別音量保守ガイド](APPLICATION_VOLUME_MAINTENANCE.md) |
 | CPU／GPU／メモリ表示 | [システムモニター保守ガイド](SYSTEM_MONITOR_WIDGET_MAINTENANCE.md) |
 | 新機能の実装進捗と未完了の手動確認 | [機能拡張実装計画](FEATURE_EXPANSION_IMPLEMENTATION_PLAN.md) |
-| 正式版前のコード整理、ログ書式、実施順 | [リファクタリング・ログ整理準備](REFACTORING_AND_LOG_CLEANUP_PLAN.md) |
+| UI・MVVMの不具合修正、責務分割、実施順 | [UI・MVVMリファクタリング計画](UI_MVVM_REFACTORING_PLAN.md) |
 | 配布形式、生成、確認方法 | [配布手順](DISTRIBUTION.md) |
 | `0.5.9-dev`までの修正・検証履歴 | [修正課題・ドキュメント整理表（2026-07-23）](archive/REMAINING_WORK_AND_DOCUMENTATION_AUDIT_2026-07-23.md) |
 | `0.6.0-dev`のUI調整履歴 | [v0.6 UI調整仕様（2026-07-24）](archive/UI_ADJUSTMENT_V0.6_2026-07-24.md) |
