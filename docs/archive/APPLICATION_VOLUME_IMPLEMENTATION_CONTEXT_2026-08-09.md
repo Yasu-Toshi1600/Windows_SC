@@ -1,10 +1,17 @@
-# CODEX_CONTEXT.md
+# アプリ別音量 実装引継ぎコンテキスト（履歴）
+
+作成元: `docs/CODEX_CONTEXT.md`
+アーカイブ日: 2026-08-09
+
+> 本書はPhase 3実装時の検討と引継ぎの記録である。現行仕様は
+> `../APPLICATION_VOLUME_MAINTENANCE.md`と`../DESIGN.md`を正とし、
+> 実装計画の履歴は`FEATURE_EXPANSION_IMPLEMENTATION_PLAN_2026-08-09.md`を参照する。
 
 ## 対象
 
 Windows_SC の機能拡張計画における **Phase 3: アプリごとの音量** に関する、ChatGPTとの検討内容のみを引き継ぐためのコンテキスト。
 
-この文書は実装指示の補助資料であり、正式な仕様の正本は既存の `docs/FEATURE_EXPANSION_IMPLEMENTATION_PLAN.md` とする。
+この文書は実装時の補助資料であり、現行仕様の正本ではない。
 
 ---
 

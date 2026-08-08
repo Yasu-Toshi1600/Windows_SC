@@ -135,7 +135,6 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
 - [モーション仕様](docs/MOTION_SPECIFICATION.md)
 - [ログ・詳細診断・プライバシー仕様](docs/LOGGING_AND_PRIVACY.md)
 - [次に行う作業と判断事項](docs/NEXT_STEPS_AND_DECISIONS.md)
-- [機能拡張実装計画](docs/FEATURE_EXPANSION_IMPLEMENTATION_PLAN.md)
 - [アクション／マクロ保守ガイド](docs/ACTION_AND_MACRO_MAINTENANCE.md)
 - [アプリ別音量保守ガイド](docs/APPLICATION_VOLUME_MAINTENANCE.md)
 - [システムモニター保守ガイド](docs/SYSTEM_MONITOR_WIDGET_MAINTENANCE.md)
@@ -144,5 +143,6 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
 - [変更履歴](CHANGELOG.md)
 - [バージョン管理](docs/VERSIONING.md)
 - [配布手順](docs/DISTRIBUTION.md)
+- [過去の設計・実装・検証記録](docs/archive/README.md)
 
 `docs/archive`は過去の設計、検証、修正履歴です。現行仕様の判断には使用しません。

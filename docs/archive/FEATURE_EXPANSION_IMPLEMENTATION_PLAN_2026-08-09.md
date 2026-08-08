@@ -1,9 +1,15 @@
-# Windows_SC 機能拡張実装計画
+# Windows_SC 機能拡張実装計画（コード実装記録）
 
 作成日: 2026-08-07
 更新日: 2026-08-09
+アーカイブ日: 2026-08-09
 対象: Windows_SC `0.8.0`以降
-状態: Phase 0～4コード実装済み・GUI／実機確認待ち
+状態: Phase 0～4コード実装完了・手動確認は現行試験文書へ移管
+
+> 本書は、ShortcutKey、マクロ、アプリ別音量、システムモニターを実装した際の判断と進捗の履歴である。
+> 現行仕様は`../ACTION_AND_MACRO_MAINTENANCE.md`、`../APPLICATION_VOLUME_MAINTENANCE.md`、
+> `../SYSTEM_MONITOR_WIDGET_MAINTENANCE.md`を正とする。未完了のGUI／実機確認は
+> `../NEXT_STEPS_AND_DECISIONS.md`、`../TEST_CHECKLIST.md`、`../PHASE5_6_TEST_PROCEDURE.md`で管理する。
 
 ## 1. 文書の目的
 
@@ -15,19 +21,19 @@
 4. ランチャー内のシステムモニターウィジェット
 
 本書は実装順、設計判断、未決事項、確認項目を管理する計画書であり、現在動作している
-仕様の正本ではない。未実装の内容を[現行設計](DESIGN.md)やREADMEの利用可能機能として
+仕様の正本ではない。未実装の内容を[現行設計](../DESIGN.md)やREADMEの利用可能機能として
 記載しない。
 
 ## 2. 文書のライフサイクル
 
-### 実装中
+### 実装中（当時の運用）
 
 - 本書を`docs/FEATURE_EXPANSION_IMPLEMENTATION_PLAN.md`として維持する。
 - 各Phaseの開始、完了、保留、仕様変更、確認結果を本書へ追記する。
 - 一部の機能だけ実装済みでも、計画対象が残っている間は本書をアーカイブしない。
 - 実装済み機能の現行仕様は、実装と同じ変更でDESIGN、README、試験文書にも反映する。
 
-### 全対象の実装完了後
+### 全対象のコード実装後
 
 1. 本書へ最終結果、採用版、主要コミット、未採用事項を記録する。
 2. 本書を完了日の`docs/archive/FEATURE_EXPANSION_IMPLEMENTATION_PLAN_YYYY-MM-DD.md`へ移動する。
@@ -215,7 +221,7 @@ PDFでは、EarTrumpetを参考にしつつ、Windows標準のCore Audio公開�
 
 参考:
 
-- [Phase 3引継ぎコンテキスト](CODEX_CONTEXT.md)
+- [Phase 3引継ぎコンテキスト](APPLICATION_VOLUME_IMPLEMENTATION_CONTEXT_2026-08-09.md)
 - https://chatgpt.com/share/6a74d80f-dcc8-83ee-944b-bdaf5a76f744
 - https://learn.microsoft.com/windows/win32/api/audiopolicy/nn-audiopolicy-iaudiosessionmanager2
 - https://learn.microsoft.com/windows/win32/api/audiopolicy/nf-audiopolicy-iaudiosessionmanager2-registersessionnotification
@@ -342,7 +348,7 @@ PDFでは、EarTrumpetを参考にしつつ、Windows標準のCore Audio公開�
 - Phase 1、2の変更とPhase 3を同じ未確定変更へ混在させず、開始時の基準コミットを記録する。
 - Debug／Release x64が警告0・エラー0でビルドでき、既存マスター音量と音声出力循環の
   基本動作に既知の未解決回帰がない。
-- `CODEX_CONTEXT.md`は実装時の補助資料として参照するが、判断変更と進捗は本節へ反映し、
+- `APPLICATION_VOLUME_IMPLEMENTATION_CONTEXT_2026-08-09.md`は実装時の補助資料として参照するが、判断変更と進捗は本節へ反映し、
   正式な計画と補助資料を乖離させない。
 
 ### Phase 3A: Core Audioセッション列挙
@@ -516,7 +522,8 @@ GPU使用率はタスクマネージャーと集計方法が完全一致しな�
   2出力の30%／70%復元、外部ミキサー追従、システムモニター表示、長時間常駐は未確認である。
 - 終了時に共有RCWが先に強制解放される問題を修正した。修正後の通常終了で
   `InvalidComObjectException`と`worker-timeout`が出ないことは実機再確認待ちである。
-- GUI／実機確認とPhase 5統合確認が完了するまで本書を現行`docs`に残し、アーカイブしない。
+- GUI／実機確認とPhase 5統合確認は未完了であり、残件を現行の試験文書と
+  `NEXT_STEPS_AND_DECISIONS.md`へ移管したうえで本書をアーカイブした。
 
 ## 12. Phase 5: 統合確認
 

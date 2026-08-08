@@ -19,6 +19,9 @@
 | `MOTION_REDESIGN_PROCEDURE.md` | Phase 4.5の再設計手順と実装履歴 |
 | `REMAINING_WORK_AND_DOCUMENTATION_AUDIT_2026-07-23.md` | `0.5.9-dev`までの修正、検証、文書整理履歴 |
 | `UI_ADJUSTMENT_V0.6_2026-07-24.md` | `0.6.0-dev`のUI調整に使用した決定・実装・確認記録 |
+| `PHONE_PANEL_DETECTION_EXPERIMENT_2026-07-25.md` | スマートフォン連携パネル検出の試行と不採用理由 |
 | `REFACTORING_AND_LOG_CLEANUP_PLAN_2026-08-09.md` | 設定保存分離、Core Audio宣言分離、ログ整理の計画と完了記録 |
+| `FEATURE_EXPANSION_IMPLEMENTATION_PLAN_2026-08-09.md` | ShortcutKey、マクロ、アプリ別音量、システムモニターの段階的な実装計画とコード実装記録 |
+| `APPLICATION_VOLUME_IMPLEMENTATION_CONTEXT_2026-08-09.md` | Phase 3のCore Audio設計検討と実装引継ぎ記録 |
 
 履歴資料の記述が現行資料と食い違う場合は、現行資料を優先する。

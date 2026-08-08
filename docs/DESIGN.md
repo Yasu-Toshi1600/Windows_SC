@@ -18,18 +18,14 @@
 | ShortcutKey、マクロ | [アクション／マクロ保守ガイド](ACTION_AND_MACRO_MAINTENANCE.md) |
 | アプリ別音量、Core Audio、出力先別状態 | [アプリ別音量保守ガイド](APPLICATION_VOLUME_MAINTENANCE.md) |
 | CPU／GPU／メモリ表示 | [システムモニター保守ガイド](SYSTEM_MONITOR_WIDGET_MAINTENANCE.md) |
-| 新機能の実装進捗と未完了の手動確認 | [機能拡張実装計画](FEATURE_EXPANSION_IMPLEMENTATION_PLAN.md) |
 | UI・MVVMの不具合修正、責務分割、実施順 | [UI・MVVMリファクタリング計画](UI_MVVM_REFACTORING_PLAN.md) |
 | 配布形式、生成、確認方法 | [配布手順](DISTRIBUTION.md) |
-| `0.5.9-dev`までの修正・検証履歴 | [修正課題・ドキュメント整理表（2026-07-23）](archive/REMAINING_WORK_AND_DOCUMENTATION_AUDIT_2026-07-23.md) |
-| `0.6.0-dev`のUI調整履歴 | [v0.6 UI調整仕様（2026-07-24）](archive/UI_ADJUSTMENT_V0.6_2026-07-24.md) |
-| スマートフォン連携パネル検出の試行と不採用理由 | [スマートフォン連携パネル検出 実験記録（2026-07-25）](archive/PHONE_PANEL_DETECTION_EXPERIMENT_2026-07-25.md) |
+| 過去の設計、UI調整、実装計画、検証記録 | [アーカイブ文書索引](archive/README.md) |
 | バージョン番号と更新方法 | [バージョン管理](VERSIONING.md) |
 | 利用者影響のある変更 | [CHANGELOG](../CHANGELOG.md) |
 
-機能拡張実装計画は、コード実装後に残るGUI・実機確認を管理する進捗文書である。
-現行仕様と変更時の注意は上記3つのメンテナンス文書を正とする。手動確認完了後は計画書を
-日付付きで`archive`へ移す。
+機能拡張のコード実装記録は日付付きで`archive`へ移動済みである。現行仕様と変更時の注意は
+上記3つのメンテナンス文書、未完了のGUI・実機確認は試験文書と`NEXT_STEPS_AND_DECISIONS.md`を正とする。
 
 ## 2. 製品概要
 
@@ -385,8 +381,7 @@ UI Automation要素名は取得・記録しない。詳細ログにはコマン�
 自動検出の試験実装は採用していない。
 
 具体的な優先順位は`NEXT_STEPS_AND_DECISIONS.md`を参照する。本書へ進捗の細かなチェックリストを重複記載しない。
-v0.6のUI調整に使用した検討内容と決定記録は
-`archive/UI_ADJUSTMENT_V0.6_2026-07-24.md`に保存している。
+過去のUI調整や実装時の検討記録は`archive/README.md`から参照する。
 
 ## 15. 設計変更時のルール
 
