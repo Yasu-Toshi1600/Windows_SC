@@ -32,6 +32,8 @@
              Link="Source\LatestValueUpdateCoordinator.cs" />
     <Compile Include="..\Windows_SC\Services\ShortcutRecordingSession.cs"
              Link="Source\ShortcutRecordingSession.cs" />
+    <Compile Include="..\Windows_SC\Services\SequentialAsyncQueue.cs"
+             Link="Source\SequentialAsyncQueue.cs" />
     <Compile Include="..\Windows_SC\Services\IActionExecutionService.cs"
              Link="Source\IActionExecutionService.cs" />
     <Compile Include="..\Windows_SC\Services\IAudioOutputService.cs"

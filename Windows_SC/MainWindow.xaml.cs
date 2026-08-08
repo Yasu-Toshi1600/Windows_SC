@@ -4,9 +4,9 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows_SC.Services;
@@ -36,13 +36,13 @@ public sealed partial class MainWindow : Window
     private readonly ILauncherMotionService _motionService;
     private readonly LauncherMotionCoordinator _motionCoordinator;
     private readonly ShortcutKeyExecutionCoordinator _shortcutKeyExecutionCoordinator;
+    private readonly SequentialAsyncQueue<string> _actionErrorQueue;
     private readonly UISettings _uiSettings;
     private bool _isVisible;
     private bool _isInitialized;
     private bool _launcherIsActivated;
     private bool? _lastLoggedLauncherFocus;
     private bool? _lastLoggedStartMenuVisibility;
-    private bool _isActionErrorDialogOpen;
     private StartMenuSnapshot? _lastPlacementStartSnapshot;
     private Windows.Graphics.RectInt32 _targetWindowRect;
     private Windows.Graphics.PointInt32 _placementDpiPoint;
@@ -56,7 +56,7 @@ public sealed partial class MainWindow : Window
     private bool _pendingActionFocusTransfer;
     private bool _preserveVisibilityWhileInactive;
     private TaskCompletionSource? _shortcutTargetPreparationCompletion;
-    private readonly Dictionary<Slider, int> _sliderWheelDeltas = [];
+    private readonly ConditionalWeakTable<Slider, SliderWheelState> _sliderWheelStates = new();
 
     internal MainWindowViewModel ViewModel { get; }
 
@@ -80,6 +80,9 @@ public sealed partial class MainWindow : Window
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(_windowHandle);
         _appWindow = AppWindow.GetFromWindowId(windowId);
         _logger = logger;
+        _actionErrorQueue = new SequentialAsyncQueue<string>(
+            ShowActionErrorAsync,
+            LogActionErrorDialogFailure);
         _logger.WriteDetailed(
             $"[Launcher] action=initialize-bindings result=success " +
             $"items={LauncherItemsControl.Items.Count}");
@@ -432,9 +435,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        int accumulatedDelta = _sliderWheelDeltas.GetValueOrDefault(slider) + delta;
+        SliderWheelState wheelState = _sliderWheelStates.GetValue(
+            slider,
+            static _ => new SliderWheelState());
+        int accumulatedDelta = wheelState.Delta + delta;
         int notchCount = accumulatedDelta / 120;
-        _sliderWheelDeltas[slider] = accumulatedDelta - (notchCount * 120);
+        wheelState.Delta = accumulatedDelta - (notchCount * 120);
         args.Handled = true;
 
         if (notchCount == 0)
@@ -672,7 +678,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void ViewModel_LauncherItemExecuted(
+    private void ViewModel_LauncherItemExecuted(
         object? sender,
         LauncherItemExecutedEventArgs args)
     {
@@ -695,27 +701,37 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (_isActionErrorDialogOpen || RootBorder.XamlRoot is null)
+        _actionErrorQueue.Enqueue(args.Result.ErrorMessage);
+    }
+
+    private async Task ShowActionErrorAsync(string errorMessage)
+    {
+        if (RootBorder.XamlRoot is null)
         {
+            _logger.Write(
+                "[Launcher] action=show-action-error result=skipped reason=no-xaml-root");
             return;
         }
 
-        _isActionErrorDialogOpen = true;
-        try
+        ContentDialog dialog = new()
         {
-            ContentDialog dialog = new()
-            {
-                Title = "操作を実行できませんでした",
-                Content = args.Result.ErrorMessage,
-                CloseButtonText = "閉じる",
-                XamlRoot = RootBorder.XamlRoot
-            };
-            await dialog.ShowAsync();
-        }
-        finally
-        {
-            _isActionErrorDialogOpen = false;
-        }
+            Title = "操作を実行できませんでした",
+            Content = errorMessage,
+            CloseButtonText = "閉じる",
+            XamlRoot = RootBorder.XamlRoot
+        };
+        await dialog.ShowAsync();
+    }
+
+    private void LogActionErrorDialogFailure(Exception exception)
+    {
+        _logger.Write(
+            $"[Launcher] action=show-action-error result=failed " +
+            $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+        _logger.WriteDetailed(
+            $"[Launcher] action=show-action-error result=failed " +
+            $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+            $"message=\"{LogValue.Normalize(exception.Message)}\"");
     }
 
     private async Task PrepareShortcutKeyTargetAsync(CancellationToken cancellationToken)
@@ -924,5 +940,10 @@ public sealed partial class MainWindow : Window
         _inputService.Dispose();
         _logger.Write("[InputMonitor] action=stop result=success");
         _logger.Write("[Application] action=window-close result=success");
+    }
+
+    private sealed class SliderWheelState
+    {
+        public int Delta { get; set; }
     }
 }
