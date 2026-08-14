@@ -13,12 +13,17 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
 {
     private readonly DiagnosticLogger _logger;
     private readonly object _cacheLock = new();
+    private readonly object _notificationLock = new();
     private readonly DeviceWatcher _deviceWatcher = DeviceInformation.CreateWatcher(
         MediaDevice.GetAudioRenderSelector());
     private IReadOnlyList<AudioOutputDevice> _cachedDevices = [];
     private AudioOutputDevice? _cachedDefaultDevice;
     private AudioMasterVolumeResult _cachedMasterVolume =
         AudioMasterVolumeResult.Failure("音量情報を準備しています。");
+    private IAudioEndpointVolume? _notificationEndpointVolume;
+    private AudioEndpointVolumeCallback? _endpointVolumeCallback;
+    private string? _notificationDeviceId;
+    private int _notificationGeneration;
     private int _refreshPending;
     private bool _isDisposed;
 
@@ -115,12 +120,14 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
     {
         try
         {
-            float scalar = UseDefaultEndpointVolume(volume =>
+            return UseDefaultEndpointVolume(volume =>
             {
-                Marshal.ThrowExceptionForHR(volume.GetMasterVolumeLevelScalar(out float value));
-                return value;
+                Marshal.ThrowExceptionForHR(volume.GetMasterVolumeLevelScalar(out float scalar));
+                Marshal.ThrowExceptionForHR(volume.GetMute(out bool isMuted));
+                return AudioMasterVolumeResult.Success(
+                    Math.Clamp(scalar * 100, 0, 100),
+                    isMuted);
             });
-            return AudioMasterVolumeResult.Success(Math.Clamp(scalar * 100, 0, 100));
         }
         catch (Exception exception) when (exception is COMException
             or InvalidCastException
@@ -161,22 +168,26 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
     {
         try
         {
-            UseDefaultEndpointVolume(volume =>
+            bool isMuted = UseDefaultEndpointVolume(volume =>
             {
                 Guid eventContext = Guid.Empty;
                 Marshal.ThrowExceptionForHR(volume.SetMasterVolumeLevelScalar(
                     (float)(clampedPercent / 100),
                     ref eventContext));
-                return true;
+                Marshal.ThrowExceptionForHR(volume.GetMute(out bool currentMute));
+                return currentMute;
             });
+            AudioMasterVolumeResult result = AudioMasterVolumeResult.Success(
+                clampedPercent,
+                isMuted);
             lock (_cacheLock)
             {
-                _cachedMasterVolume = AudioMasterVolumeResult.Success(clampedPercent);
+                _cachedMasterVolume = result;
             }
 
             StateChanged?.Invoke(this, EventArgs.Empty);
             _logger.Write($"[AudioVolume] action=set result=success value={clampedPercent:F0}");
-            return AudioMasterVolumeResult.Success(clampedPercent);
+            return result;
         }
         catch (Exception exception) when (exception is COMException
             or InvalidCastException
@@ -287,6 +298,8 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
         {
             _deviceWatcher.Stop();
         }
+
+        UnbindMasterVolumeNotifications();
     }
 
     private void RefreshCacheCore()
@@ -300,6 +313,122 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
             _cachedDevices = devices;
             _cachedDefaultDevice = defaultDevice;
             _cachedMasterVolume = masterVolume;
+        }
+
+        BindMasterVolumeNotifications(defaultDevice?.Id);
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void BindMasterVolumeNotifications(string? deviceId)
+    {
+        lock (_notificationLock)
+        {
+            if (_isDisposed
+                || (_notificationEndpointVolume is not null
+                    && string.Equals(
+                        _notificationDeviceId,
+                        deviceId,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            UnbindMasterVolumeNotificationsCore();
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                return;
+            }
+
+            IAudioEndpointVolume? endpointVolume = null;
+            try
+            {
+                endpointVolume = ActivateEndpointVolume(deviceId);
+                int generation = ++_notificationGeneration;
+                AudioEndpointVolumeCallback callback = new(this, generation);
+                Marshal.ThrowExceptionForHR(
+                    endpointVolume.RegisterControlChangeNotify(callback));
+                _notificationEndpointVolume = endpointVolume;
+                _endpointVolumeCallback = callback;
+                _notificationDeviceId = deviceId;
+                endpointVolume = null;
+            }
+            catch (Exception exception) when (exception is COMException
+                or InvalidCastException
+                or InvalidOperationException)
+            {
+                _logger.Write(
+                    $"[AudioVolume] action=register-notification result=failed " +
+                    $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+                _logger.WriteDetailed(
+                    $"[AudioVolume] action=register-notification result=failed " +
+                    $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                    $"message=\"{LogValue.Normalize(exception.Message)}\"");
+            }
+            finally
+            {
+                ReleaseComObject(endpointVolume);
+            }
+        }
+    }
+
+    private void UnbindMasterVolumeNotifications()
+    {
+        lock (_notificationLock)
+        {
+            UnbindMasterVolumeNotificationsCore();
+        }
+    }
+
+    private void UnbindMasterVolumeNotificationsCore()
+    {
+        ++_notificationGeneration;
+        try
+        {
+            if (_notificationEndpointVolume is not null && _endpointVolumeCallback is not null)
+            {
+                int result = _notificationEndpointVolume.UnregisterControlChangeNotify(
+                    _endpointVolumeCallback);
+                if (result < 0)
+                {
+                    _logger.Write(
+                        $"[AudioVolume] action=unregister-notification result=failed " +
+                        $"hresult=0x{result:X8}");
+                }
+            }
+        }
+        catch (Exception exception) when (exception is COMException
+            or InvalidComObjectException)
+        {
+            _logger.Write(
+                $"[AudioVolume] action=unregister-notification result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+        }
+        finally
+        {
+            ReleaseComObject(_notificationEndpointVolume);
+            _notificationEndpointVolume = null;
+            _endpointVolumeCallback = null;
+            _notificationDeviceId = null;
+        }
+    }
+
+    private void HandleMasterVolumeChanged(int generation, IntPtr notificationData)
+    {
+        if (_isDisposed
+            || generation != Volatile.Read(ref _notificationGeneration)
+            || notificationData == IntPtr.Zero)
+        {
+            return;
+        }
+
+        AudioVolumeNotificationData notification =
+            Marshal.PtrToStructure<AudioVolumeNotificationData>(notificationData);
+        AudioMasterVolumeResult result = AudioMasterVolumeResult.Success(
+            Math.Clamp(notification.MasterVolume * 100, 0, 100),
+            notification.IsMuted);
+        lock (_cacheLock)
+        {
+            _cachedMasterVolume = result;
         }
 
         StateChanged?.Invoke(this, EventArgs.Empty);
@@ -466,6 +595,38 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
         }
     }
 
+    private static IAudioEndpointVolume ActivateEndpointVolume(string deviceId)
+    {
+        IMMDeviceEnumerator? enumerator = null;
+        IMMDevice? device = null;
+        IAudioEndpointVolume? endpointVolume = null;
+        IntPtr endpointVolumePointer = IntPtr.Zero;
+        try
+        {
+            enumerator = CreateEnumerator();
+            Marshal.ThrowExceptionForHR(enumerator.GetDevice(deviceId, out device));
+            Guid interfaceId = typeof(IAudioEndpointVolume).GUID;
+            Marshal.ThrowExceptionForHR(device.Activate(
+                ref interfaceId,
+                23,
+                IntPtr.Zero,
+                out endpointVolumePointer));
+            endpointVolume =
+                (IAudioEndpointVolume)Marshal.GetObjectForIUnknown(endpointVolumePointer);
+            return endpointVolume;
+        }
+        finally
+        {
+            if (endpointVolumePointer != IntPtr.Zero)
+            {
+                Marshal.Release(endpointVolumePointer);
+            }
+
+            ReleaseComObject(device);
+            ReleaseComObject(enumerator);
+        }
+    }
+
     private static IMMDeviceEnumerator CreateEnumerator()
     {
         Type enumeratorType = Type.GetTypeFromCLSID(NativeGuids.MMDeviceEnumerator, throwOnError: true)!;
@@ -487,6 +648,33 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
             catch (InvalidComObjectException)
             {
             }
+        }
+    }
+
+    [ComVisible(true)]
+    [ClassInterface(ClassInterfaceType.None)]
+    private sealed class AudioEndpointVolumeCallback(
+        WindowsAudioOutputService owner,
+        int generation) : IAudioEndpointVolumeCallback
+    {
+        public int OnNotify(IntPtr notificationData)
+        {
+            try
+            {
+                owner.HandleMasterVolumeChanged(generation, notificationData);
+            }
+            catch (Exception exception)
+            {
+                owner._logger.Write(
+                    $"[AudioVolume] action=handle-notification result=failed " +
+                    $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+                owner._logger.WriteDetailed(
+                    $"[AudioVolume] action=handle-notification result=failed " +
+                    $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
+                    $"message=\"{LogValue.Normalize(exception.Message)}\"");
+            }
+
+            return 0;
         }
     }
 

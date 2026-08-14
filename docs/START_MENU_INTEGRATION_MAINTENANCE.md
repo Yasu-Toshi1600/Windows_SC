@@ -2,8 +2,8 @@
 
 ランチャーSurfaceの移動量、時間、イージング、Composition実装、途中反転の視覚仕様は[モーション仕様書](MOTION_SPECIFICATION.md)を参照する。
 
-更新日: 2026-08-09
-対象: Windows_SC `0.9.0` / Windows 11 25H2 / Windows App SDK 1.8
+更新日: 2026-08-15
+対象: Windows_SC `0.9.1` / Windows 11 25H2 / Windows App SDK 1.8
 目的: スタートメニュー検出、Windowsキー監視、ランチャー状態、フォーカス、モーションの保守判断を一か所に集約する。
 
 ## 1. 複雑になる理由

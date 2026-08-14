@@ -94,6 +94,7 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
         LauncherPageDefinition? firstPage = settings.Pages.FirstOrDefault();
         if (firstPage is null)
         {
+            _systemMetricsService.SetActive(false);
             return;
         }
 
@@ -110,6 +111,9 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
             shortcut.ApplyLayoutMode(LayoutMode);
             Shortcuts.Add(shortcut);
         }
+
+        _systemMetricsService.SetActive(
+            Shortcuts.Any(shortcut => shortcut.Kind == LauncherItemKind.Widget));
     }
 
     public void RefreshAudioOutputState()
@@ -148,21 +152,9 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
             }
         });
 
-    public void SetSystemMetricsActive(bool isActive)
-    {
-        if (isActive)
-        {
-            foreach (LauncherItemViewModel shortcut in Shortcuts)
-            {
-                shortcut.ResetSystemMonitorHistory();
-            }
-        }
-
-        _systemMetricsService.SetActive(isActive);
-    }
-
     public void Dispose()
     {
+        _systemMetricsService.SetActive(false);
         _applicationVolumeService.StateChanged -= ApplicationVolumeService_StateChanged;
         _systemMetricsService.MetricsChanged -= SystemMetricsService_MetricsChanged;
         foreach (LauncherItemViewModel shortcut in Shortcuts)

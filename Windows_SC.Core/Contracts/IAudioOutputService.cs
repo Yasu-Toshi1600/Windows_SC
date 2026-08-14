@@ -47,13 +47,14 @@ internal readonly record struct AudioDeviceCycleResult(
 internal readonly record struct AudioMasterVolumeResult(
     bool IsSuccess,
     double VolumePercent,
+    bool IsMuted,
     string ErrorMessage)
 {
-    public static AudioMasterVolumeResult Success(double volumePercent) =>
-        new(true, volumePercent, string.Empty);
+    public static AudioMasterVolumeResult Success(double volumePercent, bool isMuted = false) =>
+        new(true, volumePercent, isMuted, string.Empty);
 
     public static AudioMasterVolumeResult Failure(string message) =>
-        new(false, 0, message);
+        new(false, 0, false, message);
 }
 
 internal static class AudioDeviceId

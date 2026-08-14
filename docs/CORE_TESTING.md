@@ -1,6 +1,6 @@
 # Windows_SC.Core 自動テスト方針
 
-更新日: 2026-08-09
+更新日: 2026-08-15
 対象: `Windows_SC.Core`、`Windows_SC.Tests`
 
 ## 1. 目的
@@ -50,7 +50,7 @@ Coreの振る舞いを変更するときは、正常系だけでなく境界値�
 
 ## 4. 2026-08-09確認結果
 
-- Coreテスト: 69件成功、失敗0
+- Coreテスト: 70件成功、失敗0
 - テストTFM: `net8.0`
 - CoreのWinUI／Windows App SDK／Windows API参照: なし
 - 製品ソースの`Compile Include`: なし

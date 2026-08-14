@@ -54,8 +54,24 @@ public sealed class LauncherStateTests
         IReadOnlyList<MonitorGraphPoint> points = history.CreateGraphPoints();
 
         Assert.AreEqual(2, points.Count);
+        Assert.AreEqual(0d, points[0].X, 0.001);
+        Assert.AreEqual(100d, points[1].X, 0.001);
         Assert.AreEqual(20d, points[0].Y, 0.001);
         Assert.AreEqual(0d, points[1].Y, 0.001);
+    }
+
+    [TestMethod]
+    public void SystemMonitorHistory_RightAlignsPartialHistoryWithoutStretching()
+    {
+        SystemMonitorHistory history = new(6);
+        history.Add(25);
+        history.Add(50);
+
+        IReadOnlyList<MonitorGraphPoint> points = history.CreateGraphPoints();
+
+        Assert.AreEqual(2, points.Count);
+        Assert.AreEqual(80d, points[0].X, 0.001);
+        Assert.AreEqual(100d, points[1].X, 0.001);
     }
 
     [TestMethod]

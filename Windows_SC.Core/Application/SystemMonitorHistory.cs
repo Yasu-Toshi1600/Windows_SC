@@ -37,11 +37,14 @@ internal sealed class SystemMonitorHistory(int capacity = 60)
             return points;
         }
 
-        double xStep = _values.Count == 1 ? 0 : 100d / (_values.Count - 1);
+        double xStep = _capacity == 1 ? 0 : 100d / (_capacity - 1);
+        double startX = 100d - ((_values.Count - 1) * xStep);
         int index = 0;
         foreach (double value in _values)
         {
-            points.Add(new MonitorGraphPoint(index * xStep, 40d - (value * 0.4d)));
+            points.Add(new MonitorGraphPoint(
+                startX + (index * xStep),
+                40d - (value * 0.4d)));
             index++;
         }
 

@@ -188,10 +188,12 @@ internal interface IPolicyConfig
 internal interface IAudioEndpointVolume
 {
     [PreserveSig]
-    int RegisterControlChangeNotify(IntPtr notify);
+    int RegisterControlChangeNotify(
+        [MarshalAs(UnmanagedType.Interface)] IAudioEndpointVolumeCallback notify);
 
     [PreserveSig]
-    int UnregisterControlChangeNotify(IntPtr notify);
+    int UnregisterControlChangeNotify(
+        [MarshalAs(UnmanagedType.Interface)] IAudioEndpointVolumeCallback notify);
 
     [PreserveSig]
     int GetChannelCount(out uint channelCount);
@@ -240,4 +242,24 @@ internal interface IAudioEndpointVolume
 
     [PreserveSig]
     int GetVolumeRange(out float minimumInDecibels, out float maximumInDecibels, out float incrementInDecibels);
+}
+
+[Guid("657804FA-D6AD-4496-8A60-352752AF4F89")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IAudioEndpointVolumeCallback
+{
+    [PreserveSig]
+    int OnNotify(IntPtr notificationData);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct AudioVolumeNotificationData
+{
+    public Guid EventContext;
+
+    [MarshalAs(UnmanagedType.Bool)]
+    public bool IsMuted;
+
+    public float MasterVolume;
+    public uint ChannelCount;
 }

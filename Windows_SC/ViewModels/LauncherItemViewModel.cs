@@ -34,6 +34,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private bool _canAdjustVolume;
     private bool _isRefreshingVolume;
     private bool _isMixedVolume;
+    private bool _isMasterMuted;
     private string _volumeStatusText = string.Empty;
     private int _layoutColumnSpan = 2;
     private double _tileHeight = 160;
@@ -238,6 +239,8 @@ internal sealed class LauncherItemViewModel : ObservableObject
         ? _volumeStatusText
         : _isMixedVolume
             ? "混在"
+            : _isMasterMuted
+                ? "ミュート"
             : $"{SliderValue:F0}%";
 
     public double SliderMinimum => _volumeSlider?.Minimum ?? 0;
@@ -275,6 +278,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
             AudioMasterVolumeResult volumeResult = _audioOutputService.GetCachedMasterVolume();
             CanAdjustVolume = volumeResult.IsSuccess;
             _isMixedVolume = false;
+            _isMasterMuted = volumeResult.IsSuccess && volumeResult.IsMuted;
             _volumeStatusText = volumeResult.IsSuccess ? string.Empty : "利用不能";
             OnPropertyChanged(nameof(SliderValueDisplay));
             if (volumeResult.IsSuccess && !_volumeUpdateCoordinator.IsProcessing)
@@ -417,13 +421,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
 
             UpdateMonitorGraphPoints();
         }
-    }
-
-    public void ResetSystemMonitorHistory()
-    {
-        _monitorHistory.Clear();
-        _standardMonitorGraphPoints.Clear();
-        _compactMonitorGraphPoints.Clear();
     }
 
     private static IReadOnlyList<SystemMonitorMetric> NormalizeSystemMonitorMetrics(
@@ -587,6 +584,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
                     StringComparison.OrdinalIgnoreCase));
         CanAdjustVolume = info?.IsAvailable == true;
         _isMixedVolume = info?.IsMixed == true;
+        _isMasterMuted = false;
         _volumeStatusText = info is null ? "利用不能" : string.Empty;
         if (info is not null && !_volumeUpdateCoordinator.IsProcessing)
         {

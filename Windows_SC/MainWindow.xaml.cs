@@ -282,6 +282,7 @@ public sealed partial class MainWindow : Window
         _preserveVisibilityWhileInactive = false;
         _actionFocusTransferTimer.Stop();
         ViewModel.RefreshAudioOutputState();
+        _ = ViewModel.AudioOutputService.RefreshAsync();
         LauncherScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
 
         if (!reversingExit)
@@ -306,8 +307,6 @@ public sealed partial class MainWindow : Window
         {
             _appWindow.Show(true);
         }
-
-        ViewModel.SetSystemMetricsActive(true);
 
         if (activate)
         {
@@ -355,7 +354,6 @@ public sealed partial class MainWindow : Window
         _activationRetryTimer.Stop();
         _appWindow.Hide();
         _isVisible = false;
-        ViewModel.SetSystemMetricsActive(false);
         _launcherIsActivated = false;
         _pendingActionFocusTransfer = false;
         _preserveVisibilityWhileInactive = false;
@@ -910,7 +908,6 @@ public sealed partial class MainWindow : Window
         _shortcutKeyExecutionCoordinator.Detach(PrepareShortcutKeyTargetAsync);
         _shortcutTargetPreparationCompletion?.TrySetCanceled();
         _shortcutTargetPreparationCompletion = null;
-        ViewModel.SetSystemMetricsActive(false);
         _motionService.Completed -= MotionService_Completed;
         _motionService.Dispose();
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))

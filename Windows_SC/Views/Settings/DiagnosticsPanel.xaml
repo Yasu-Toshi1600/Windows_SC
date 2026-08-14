@@ -59,8 +59,8 @@
             <Button Click="DeleteLogs_Click" Content="ログを削除" />
         </StackPanel>
         <InfoBar IsClosable="False"
-                 IsOpen="{Binding IsTroubleshootingStatusMessageOpen}"
-                 Message="{Binding TroubleshootingStatusMessage}"
-                 Severity="{Binding TroubleshootingStatusSeverity}" />
+                 IsOpen="{Binding IsStatusMessageOpen}"
+                 Message="{Binding StatusMessage}"
+                 Severity="{Binding StatusSeverity}" />
     </StackPanel>
 </UserControl>

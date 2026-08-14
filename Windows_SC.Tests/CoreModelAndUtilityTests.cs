@@ -107,10 +107,12 @@ public sealed class CoreModelAndUtilityTests
         Assert.AreEqual(string.Empty, cycleSuccess.ErrorMessage);
         Assert.IsFalse(AudioDeviceCycleResult.Failure("failed").IsSuccess);
 
-        AudioMasterVolumeResult masterSuccess = AudioMasterVolumeResult.Success(42.5);
+        AudioMasterVolumeResult masterSuccess = AudioMasterVolumeResult.Success(42.5, isMuted: true);
         Assert.IsTrue(masterSuccess.IsSuccess);
         Assert.AreEqual(42.5, masterSuccess.VolumePercent, 0.001);
+        Assert.IsTrue(masterSuccess.IsMuted);
         Assert.AreEqual(0, AudioMasterVolumeResult.Failure("failed").VolumePercent);
+        Assert.IsFalse(AudioMasterVolumeResult.Failure("failed").IsMuted);
 
         ApplicationVolumeResult applicationSuccess = ApplicationVolumeResult.Success(3);
         Assert.IsTrue(applicationSuccess.IsSuccess);
