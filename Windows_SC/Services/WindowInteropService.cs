@@ -18,7 +18,16 @@ internal sealed class WindowInteropService(
     private const int PbtApmResumeAutomatic = 0x0012;
     private const int VirtualKeyEscape = 0x1B;
     private const int GwlpWndProc = -4;
+    private const int GwlExstyle = -20;
+    private const int SwHide = 0;
+    private const int DwmwaCloaked = 14;
+    private const long WsExTopmost = 0x00000008L;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpShowWindow = 0x0040;
     private const uint ClsctxAll = 0x17;
+    private static readonly IntPtr HwndTopmost = new(-1);
     private static readonly Guid VirtualDesktopManagerClassId =
         new("AA509086-5CA9-4C25-8F95-589D3C07B48A");
     private static readonly Guid VirtualDesktopManagerInterfaceId =
@@ -59,6 +68,50 @@ internal sealed class WindowInteropService(
     }
 
     public bool IsForeground(IntPtr windowHandle) => GetForegroundWindow() == windowHandle;
+
+    public WindowPresentationState GetPresentationState(IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return default;
+        }
+
+        bool isVisible = IsWindowVisible(windowHandle);
+        bool isTopmost = (GetWindowLongPtr(windowHandle, GwlExstyle).ToInt64()
+            & WsExTopmost) != 0;
+        int cloakResult = DwmGetWindowAttribute(
+            windowHandle,
+            DwmwaCloaked,
+            out int cloaked,
+            sizeof(int));
+        return new WindowPresentationState(
+            isVisible,
+            isTopmost,
+            cloaked != 0,
+            cloakResult >= 0);
+    }
+
+    public bool TryKeepTopmost(IntPtr windowHandle) =>
+        windowHandle != IntPtr.Zero
+        && SetWindowPos(
+            windowHandle,
+            HwndTopmost,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoActivate | SwpShowWindow);
+
+    public bool TryHide(IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return true;
+        }
+
+        _ = ShowWindow(windowHandle, SwHide);
+        return !IsWindowVisible(windowHandle);
+    }
 
     public bool TryActivate(IntPtr windowHandle)
     {
@@ -299,6 +352,9 @@ internal sealed class WindowInteropService(
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
     private static extern IntPtr SetWindowLongPtr(IntPtr windowHandle, int index, IntPtr newLong);
 
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr(IntPtr windowHandle, int index);
+
     [DllImport("user32.dll")]
     private static extern IntPtr CallWindowProc(
         IntPtr previousWindowProcedure,
@@ -313,5 +369,27 @@ internal sealed class WindowInteropService(
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(IntPtr windowHandle);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(
+        IntPtr windowHandle,
+        IntPtr insertAfter,
+        int x,
+        int y,
+        int width,
+        int height,
+        uint flags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr windowHandle, int commandShow);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(
+        IntPtr windowHandle,
+        int attribute,
+        out int attributeValue,
+        int attributeSize);
 
 }

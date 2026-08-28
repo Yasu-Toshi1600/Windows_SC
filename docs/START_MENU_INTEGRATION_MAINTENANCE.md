@@ -3,7 +3,7 @@
 ランチャーSurfaceの移動量、時間、イージング、Composition実装、途中反転の視覚仕様は[モーション仕様書](MOTION_SPECIFICATION.md)を参照する。
 
 更新日: 2026-08-15
-対象: Windows_SC `0.9.1` / Windows 11 25H2 / Windows App SDK 1.8
+対象: Windows_SC `0.9.2` / Windows 11 25H2 / Windows App SDK 1.8
 目的: スタートメニュー検出、Windowsキー監視、ランチャー状態、フォーカス、モーションの保守判断を一か所に集約する。
 
 ## 1. 複雑になる理由
@@ -59,7 +59,7 @@ Windowsには、外部アプリからスタートメニューの開閉、表示�
 | `Windows_SC/StartMenuSnapshot.cs` | 可視状態、スタート矩形、スマートフォン連携パネル情報の不変Snapshot。 |
 | `Windows_SC/Services/LauncherMotionCoordinator.cs` | ランチャー表示の論理状態機械。 |
 | `Windows_SC/Services/CompositionLauncherMotionService.cs` | SurfaceのTranslation / Opacity、完了通知、途中反転。 |
-| `Windows_SC/MainWindow.xaml.cs` | 入力、Snapshot、フォーカス、状態機械、配置、モーションの統合。 |
+| `Windows_SC/MainWindow.xaml.cs` | 入力をUIスレッドへ非同期転送し、Snapshot、フォーカス、状態機械、配置、モーションを統合する。 |
 | `Windows_SC/Services/LauncherPlacementService.cs` | Snapshot、モニター、DPI、作業領域から最終配置を計算する。 |
 
 OS依存の検出条件は `StartMenuWindowInspector` と `UiAutomationStartMenuInspector` の外へ広げない。
@@ -203,13 +203,19 @@ OSのフォーカス変更イベント
 | 処理 | 実行場所 |
 |---|---|
 | WinUI、AppWindow、Coordinator、Composition開始 | UIスレッド |
-| 低レベルキーボードフック | 登録スレッド。コールバック処理は短時間に限定する。 |
+| 低レベルキーボードフック | 登録スレッド。コールバックではキー分類と`DispatcherQueue`への登録だけを行い、短時間で復帰する。 |
 | UI Automationスキャン | スキャン専用STAスレッド |
 | UI Automationフォーカスイベント登録 | イベント専用STAスレッド。外部プロバイダーによる停止をスキャンへ伝播させない。 |
 | 診断ログのファイル書き込み | バックグラウンドライター |
 | Compositionアニメーション進行 | Compositor |
 
 SnapshotChangedは `HybridStartMenuMonitor` が `DispatcherQueue` へ戻してから `MainWindow` に通知する。UI AutomationワーカーからWinUI要素を直接操作してはいけない。
+
+Windowsキー単体イベントも `MainWindow` が `DispatcherQueue` へ積み直してから処理する。低レベルキーボードフックのコールバック内で仮想デスクトップCOM、Start確認、状態遷移、`AppWindow`操作を実行してはいけない。入力同期呼び出し中にCOMを実行すると`RPC_E_CANTCALLOUT_ININPUTSYNCCALL (0x8001010D)`となり、ランチャーが別の仮想デスクトップに残る場合がある。
+
+Windowsキーとスタートボタンからの表示はStartへフォーカスを残すため、`AppWindow.Show(false)`の後に`SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE)`相当を適用する。`OverlappedPresenter.IsAlwaysOnTop`の初期設定だけに依存すると、非表示からの再表示後にZ順が復元されず、内部では表示済みでも他のウィンドウの背後に残る場合がある。
+
+表示APIの戻りやComposition状態だけを実表示成功の根拠にしない。表示直後にHWNDの`IsWindowVisible`、`WS_EX_TOPMOST`、`DWMWA_CLOAKED`を確認し、不一致時は短時間の再試行を行う。再試行後も一致しない場合は`verify-presentation result=failed`を記録して非表示状態へ戻し、内部だけが表示済みの状態を残さない。非表示完了時も`IsWindowVisible`を確認する。
 
 ## 9. Snapshotの扱い
 

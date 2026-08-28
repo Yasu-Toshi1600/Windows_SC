@@ -21,6 +21,7 @@ namespace Windows_SC;
 public sealed partial class MainWindow : Window
 {
     private const int MaximumActivationAttempts = 5;
+    private const int MaximumPresentationAttempts = 5;
 
     private readonly IntPtr _windowHandle;
     private readonly AppWindow _appWindow;
@@ -32,6 +33,7 @@ public sealed partial class MainWindow : Window
     private readonly EnvironmentInformationService _environmentInformationService;
     private readonly DispatcherQueueTimer _environmentCheckTimer;
     private readonly DispatcherQueueTimer _activationRetryTimer;
+    private readonly DispatcherQueueTimer _presentationVerificationTimer;
     private readonly DispatcherQueueTimer _actionFocusTransferTimer;
     private readonly ILauncherMotionService _motionService;
     private readonly LauncherMotionCoordinator _motionCoordinator;
@@ -53,6 +55,8 @@ public sealed partial class MainWindow : Window
     private string _pendingEnvironmentChangeReason = "display-change";
     private int _activationAttemptCount;
     private string _activationReason = "manual";
+    private int _presentationAttemptCount;
+    private string _presentationReason = "manual";
     private bool _pendingActionFocusTransfer;
     private bool _preserveVisibilityWhileInactive;
     private TaskCompletionSource? _shortcutTargetPreparationCompletion;
@@ -101,6 +105,10 @@ public sealed partial class MainWindow : Window
         _activationRetryTimer.Interval = TimeSpan.FromMilliseconds(50);
         _activationRetryTimer.IsRepeating = false;
         _activationRetryTimer.Tick += ActivationRetryTimer_Tick;
+        _presentationVerificationTimer = DispatcherQueue.CreateTimer();
+        _presentationVerificationTimer.Interval = TimeSpan.FromMilliseconds(50);
+        _presentationVerificationTimer.IsRepeating = false;
+        _presentationVerificationTimer.Tick += PresentationVerificationTimer_Tick;
         _actionFocusTransferTimer = DispatcherQueue.CreateTimer();
         _actionFocusTransferTimer.Interval = TimeSpan.FromSeconds(1);
         _actionFocusTransferTimer.IsRepeating = false;
@@ -235,8 +243,24 @@ public sealed partial class MainWindow : Window
 
     private void InputService_WindowsKeyReleasedAlone(object? sender, EventArgs args)
     {
+        // This event is raised from WH_KEYBOARD_LL. Queue all COM and UI work so
+        // the hook returns before virtual-desktop or Start-menu processing begins.
+        long releasedTimestamp = Stopwatch.GetTimestamp();
+        if (!DispatcherQueue.TryEnqueue(
+            () => HandleWindowsKeyReleasedAlone(releasedTimestamp)))
+        {
+            _logger.Write(
+                "[InputMonitor] action=dispatch-windows-key result=failed");
+        }
+    }
+
+    private void HandleWindowsKeyReleasedAlone(long releasedTimestamp)
+    {
+        _windowsKeyReleasedTimestamp = releasedTimestamp;
+        _logger.WriteDetailed(
+            "[InputMonitor] action=dispatch-windows-key result=success " +
+            $"queue-ms={ElapsedMilliseconds(releasedTimestamp):F1}");
         MoveLauncherToCurrentVirtualDesktop("windows-key");
-        _windowsKeyReleasedTimestamp = Stopwatch.GetTimestamp();
 
         // When the launcher is following an already-visible Start surface, a
         // standalone Windows key closes Start. Do not wait for the slower UIA
@@ -308,6 +332,12 @@ public sealed partial class MainWindow : Window
             _appWindow.Show(true);
         }
 
+        bool keptTopmost = _windowInteropService.TryKeepTopmost(_windowHandle);
+        _logger.Write(
+            $"[Launcher] action=keep-topmost " +
+            $"result={(keptTopmost ? "success" : "failed")} reason={reason}");
+        BeginPresentationVerification(reason);
+
         if (activate)
         {
             BeginActivationVerification(reason);
@@ -352,7 +382,16 @@ public sealed partial class MainWindow : Window
     private void CompleteHide(string reason)
     {
         _activationRetryTimer.Stop();
+        _presentationVerificationTimer.Stop();
         _appWindow.Hide();
+        WindowPresentationState presentationState =
+            _windowInteropService.GetPresentationState(_windowHandle);
+        if (presentationState.IsVisible)
+        {
+            _ = _windowInteropService.TryHide(_windowHandle);
+            presentationState = _windowInteropService.GetPresentationState(_windowHandle);
+        }
+
         _isVisible = false;
         _launcherIsActivated = false;
         _pendingActionFocusTransfer = false;
@@ -360,7 +399,10 @@ public sealed partial class MainWindow : Window
         _actionFocusTransferTimer.Stop();
         _lastPlacementStartSnapshot = null;
         _motionCoordinator.CompleteExit(reason);
-        _logger.Write($"[Launcher] action=hide result=success reason={reason}");
+        _logger.Write(
+            $"[Launcher] action=hide " +
+            $"result={(presentationState.IsVisible ? "failed" : "success")} " +
+            $"reason={reason} visible={presentationState.IsVisible.ToString().ToLowerInvariant()}");
         _startMenuMonitor.SetLauncherVisible(false);
         _shortcutTargetPreparationCompletion?.TrySetResult();
 
@@ -591,6 +633,7 @@ public sealed partial class MainWindow : Window
         }
 
         _activationRetryTimer.Stop();
+        _presentationVerificationTimer.Stop();
         _motionService.SetHidden(GetEntranceTranslation(startLinked: true));
         _appWindow.Hide();
         _isVisible = false;
@@ -800,6 +843,65 @@ public sealed partial class MainWindow : Window
         TryActivateLauncher();
     }
 
+    private void BeginPresentationVerification(string reason)
+    {
+        _presentationVerificationTimer.Stop();
+        _presentationAttemptCount = 0;
+        _presentationReason = reason;
+        VerifyLauncherPresentation();
+    }
+
+    private void PresentationVerificationTimer_Tick(
+        DispatcherQueueTimer sender,
+        object args)
+    {
+        sender.Stop();
+        VerifyLauncherPresentation();
+    }
+
+    private void VerifyLauncherPresentation()
+    {
+        if (!_isVisible || !_motionCoordinator.IsWindowVisible)
+        {
+            _presentationVerificationTimer.Stop();
+            return;
+        }
+
+        WindowPresentationState state =
+            _windowInteropService.GetPresentationState(_windowHandle);
+        if (state.IsPresented)
+        {
+            _presentationVerificationTimer.Stop();
+            _logger.Write(
+                $"[Launcher] action=verify-presentation result=success " +
+                $"reason={_presentationReason} attempts={_presentationAttemptCount} " +
+                $"visible=true topmost=true " +
+                $"cloaked={FormatCloakedState(state)}");
+            return;
+        }
+
+        _presentationAttemptCount++;
+        _ = _windowInteropService.TryKeepTopmost(_windowHandle);
+        if (_presentationAttemptCount < MaximumPresentationAttempts)
+        {
+            _presentationVerificationTimer.Start();
+            return;
+        }
+
+        _logger.Write(
+            $"[Launcher] action=verify-presentation result=failed " +
+            $"reason={_presentationReason} attempts={_presentationAttemptCount} " +
+            $"visible={state.IsVisible.ToString().ToLowerInvariant()} " +
+            $"topmost={state.IsTopmost.ToString().ToLowerInvariant()} " +
+            $"cloaked={FormatCloakedState(state)}");
+        RequestExit("presentation-verification-failed");
+    }
+
+    private static string FormatCloakedState(WindowPresentationState state) =>
+        state.IsCloakingStateKnown
+            ? state.IsCloaked.ToString().ToLowerInvariant()
+            : "unknown";
+
     private void ActionFocusTransferTimer_Tick(
         DispatcherQueueTimer sender,
         object args)
@@ -931,6 +1033,8 @@ public sealed partial class MainWindow : Window
         _environmentCheckTimer.Tick -= EnvironmentCheckTimer_Tick;
         _activationRetryTimer.Stop();
         _activationRetryTimer.Tick -= ActivationRetryTimer_Tick;
+        _presentationVerificationTimer.Stop();
+        _presentationVerificationTimer.Tick -= PresentationVerificationTimer_Tick;
         _actionFocusTransferTimer.Stop();
         _actionFocusTransferTimer.Tick -= ActionFocusTransferTimer_Tick;
         _windowInteropService.Dispose();
