@@ -83,4 +83,28 @@ public sealed class LauncherStateTests
 
         Assert.AreEqual(0, history.CreateGraphPoints().Count);
     }
+
+    [TestMethod]
+    public void PresentationRecoveryGuard_BlocksVisibleStartUntilHiddenObserved()
+    {
+        StartLinkedPresentationRecoveryGuard guard = new();
+        guard.BlockUntilStartMenuHidden();
+
+        Assert.IsFalse(guard.ShouldAllowPresentation(isStartMenuVisible: true));
+        Assert.IsTrue(guard.IsBlocked);
+        Assert.IsFalse(guard.ShouldAllowPresentation(isStartMenuVisible: false));
+        Assert.IsFalse(guard.IsBlocked);
+        Assert.IsTrue(guard.ShouldAllowPresentation(isStartMenuVisible: true));
+    }
+
+    [TestMethod]
+    public void PresentationRecoveryGuard_ResetAllowsManualPresentation()
+    {
+        StartLinkedPresentationRecoveryGuard guard = new();
+        guard.BlockUntilStartMenuHidden();
+
+        guard.Reset();
+
+        Assert.IsTrue(guard.ShouldAllowPresentation(isStartMenuVisible: true));
+    }
 }

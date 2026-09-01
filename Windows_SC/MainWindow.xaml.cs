@@ -22,6 +22,7 @@ public sealed partial class MainWindow : Window
 {
     private const int MaximumActivationAttempts = 5;
     private const int MaximumPresentationAttempts = 5;
+    private static readonly TimeSpan ResumeRecoveryDelay = TimeSpan.FromSeconds(1);
 
     private readonly IntPtr _windowHandle;
     private readonly AppWindow _appWindow;
@@ -32,11 +33,13 @@ public sealed partial class MainWindow : Window
     private readonly IWindowInteropService _windowInteropService;
     private readonly EnvironmentInformationService _environmentInformationService;
     private readonly DispatcherQueueTimer _environmentCheckTimer;
+    private readonly DispatcherQueueTimer _resumeRecoveryTimer;
     private readonly DispatcherQueueTimer _activationRetryTimer;
     private readonly DispatcherQueueTimer _presentationVerificationTimer;
     private readonly DispatcherQueueTimer _actionFocusTransferTimer;
     private readonly ILauncherMotionService _motionService;
     private readonly LauncherMotionCoordinator _motionCoordinator;
+    private readonly StartLinkedPresentationRecoveryGuard _presentationRecoveryGuard = new();
     private readonly ShortcutKeyExecutionCoordinator _shortcutKeyExecutionCoordinator;
     private readonly SequentialAsyncQueue<string> _actionErrorQueue;
     private readonly UISettings _uiSettings;
@@ -101,6 +104,10 @@ public sealed partial class MainWindow : Window
         _environmentCheckTimer.Interval = TimeSpan.FromMilliseconds(750);
         _environmentCheckTimer.IsRepeating = false;
         _environmentCheckTimer.Tick += EnvironmentCheckTimer_Tick;
+        _resumeRecoveryTimer = DispatcherQueue.CreateTimer();
+        _resumeRecoveryTimer.Interval = ResumeRecoveryDelay;
+        _resumeRecoveryTimer.IsRepeating = false;
+        _resumeRecoveryTimer.Tick += ResumeRecoveryTimer_Tick;
         _activationRetryTimer = DispatcherQueue.CreateTimer();
         _activationRetryTimer.Interval = TimeSpan.FromMilliseconds(50);
         _activationRetryTimer.IsRepeating = false;
@@ -213,6 +220,7 @@ public sealed partial class MainWindow : Window
         MoveLauncherToCurrentVirtualDesktop("manual-hotkey");
         if (_motionCoordinator.State == LauncherMotionState.Exiting)
         {
+            PrepareManualPresentation();
             ShowWindow(activate: true, "manual-reverse", null);
         }
         else if (_motionCoordinator.IsWindowVisible)
@@ -221,6 +229,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            PrepareManualPresentation();
             ShowWindow(activate: true, "manual-hotkey", null);
         }
     }
@@ -230,12 +239,20 @@ public sealed partial class MainWindow : Window
         MoveLauncherToCurrentVirtualDesktop("system-tray");
         if (_motionCoordinator.State == LauncherMotionState.Exiting)
         {
+            PrepareManualPresentation();
             ShowWindow(activate: true, "tray-reverse", null);
         }
         else if (!_motionCoordinator.IsWindowVisible)
         {
+            PrepareManualPresentation();
             ShowWindow(activate: true, "system-tray", null);
         }
+    }
+
+    private void PrepareManualPresentation()
+    {
+        _presentationRecoveryGuard.Reset();
+        _startMenuMonitor.CancelPresentationRecovery();
     }
 
     private void InputService_ManualToggleRequested(object? sender, EventArgs args) =>
@@ -407,8 +424,11 @@ public sealed partial class MainWindow : Window
         _shortcutTargetPreparationCompletion?.TrySetResult();
 
         StartMenuSnapshot latestSnapshot = _startMenuMonitor.Snapshot;
+        bool startMenuIsVisible = latestSnapshot is { IsVisible: true, Bounds: not null };
+        bool allowStartLinkedPresentation =
+            _presentationRecoveryGuard.ShouldAllowPresentation(startMenuIsVisible);
         if (_startLinkedVisibilityRequested
-            && latestSnapshot is { IsVisible: true, Bounds: not null })
+            && allowStartLinkedPresentation)
         {
             _startDetectedTimestamp = Stopwatch.GetTimestamp();
             ShowWindow(
@@ -537,6 +557,25 @@ public sealed partial class MainWindow : Window
     {
         StartMenuSnapshot snapshot = _startMenuMonitor.Snapshot;
         bool startMenuIsVisible = snapshot.IsVisible && snapshot.Bounds is not null;
+        bool presentationWasBlocked = _presentationRecoveryGuard.IsBlocked;
+        bool allowStartLinkedPresentation =
+            _presentationRecoveryGuard.ShouldAllowPresentation(startMenuIsVisible);
+        if (presentationWasBlocked && !startMenuIsVisible)
+        {
+            _logger.Write(
+                "[Launcher] action=complete-presentation-recovery result=success " +
+                "reason=start-menu-hidden");
+        }
+
+        if (startMenuIsVisible && !allowStartLinkedPresentation)
+        {
+            _startLinkedVisibilityRequested = false;
+            _logger.WriteDetailed(
+                "[Launcher] action=synchronize-visibility result=skipped " +
+                "reason=presentation-recovery-pending");
+            return;
+        }
+
         if (startMenuIsVisible)
         {
             MoveLauncherToCurrentVirtualDesktop("start-menu-snapshot");
@@ -894,6 +933,12 @@ public sealed partial class MainWindow : Window
             $"visible={state.IsVisible.ToString().ToLowerInvariant()} " +
             $"topmost={state.IsTopmost.ToString().ToLowerInvariant()} " +
             $"cloaked={FormatCloakedState(state)}");
+        if (_startLinkedVisibilityRequested)
+        {
+            _presentationRecoveryGuard.BlockUntilStartMenuHidden();
+            _startLinkedVisibilityRequested = false;
+            _startMenuMonitor.BeginPresentationRecovery();
+        }
         RequestExit("presentation-verification-failed");
     }
 
@@ -968,6 +1013,78 @@ public sealed partial class MainWindow : Window
         _pendingEnvironmentChangeReason = args.Reason;
         _environmentCheckTimer.Stop();
         _environmentCheckTimer.Start();
+        if (args.Reason == "resume")
+        {
+            _resumeRecoveryTimer.Stop();
+            _resumeRecoveryTimer.Start();
+            _logger.Write(
+                "[Recovery] action=schedule result=success reason=resume delay-ms=1000");
+        }
+    }
+
+    private void ResumeRecoveryTimer_Tick(
+        DispatcherQueueTimer sender,
+        object args)
+    {
+        sender.Stop();
+        bool launcherRecovered = TryResetLauncherAfterResume();
+        bool inputRecovered = _inputService.RecoverAfterResume();
+        bool startMenuRecovered = _startMenuMonitor.RecoverAfterResume();
+        bool succeeded = launcherRecovered && inputRecovered && startMenuRecovered;
+        _logger.Write(
+            $"[Recovery] action=resume result={(succeeded ? "success" : "failed")} " +
+            $"launcher={(launcherRecovered ? "success" : "failed")} " +
+            $"input={(inputRecovered ? "success" : "failed")} " +
+            $"start-menu={(startMenuRecovered ? "success" : "failed")}");
+    }
+
+    private bool TryResetLauncherAfterResume()
+    {
+        try
+        {
+            _activationRetryTimer.Stop();
+            _presentationVerificationTimer.Stop();
+            _actionFocusTransferTimer.Stop();
+            _motionService.SetHidden(GetEntranceTranslation(startLinked: true));
+            _appWindow.Hide();
+            WindowPresentationState state =
+                _windowInteropService.GetPresentationState(_windowHandle);
+            if (state.IsVisible)
+            {
+                _ = _windowInteropService.TryHide(_windowHandle);
+                state = _windowInteropService.GetPresentationState(_windowHandle);
+            }
+
+            _isVisible = false;
+            _launcherIsActivated = false;
+            _pendingActionFocusTransfer = false;
+            _preserveVisibilityWhileInactive = false;
+            _startLinkedVisibilityRequested = false;
+            _lastPlacementStartSnapshot = null;
+            _lastLoggedLauncherFocus = null;
+            _lastLoggedStartMenuVisibility = null;
+            _windowsKeyReleasedTimestamp = 0;
+            _startDetectedTimestamp = 0;
+            _showRequestedTimestamp = 0;
+            _presentationRecoveryGuard.Reset();
+            _startMenuMonitor.CancelPresentationRecovery();
+            _motionCoordinator.ResetHidden("resume-recovery");
+            _startMenuMonitor.SetLauncherVisible(false);
+            _shortcutTargetPreparationCompletion?.TrySetResult();
+
+            bool hidden = !state.IsVisible;
+            _logger.Write(
+                $"[Launcher] action=recover result={(hidden ? "success" : "failed")} " +
+                $"reason=resume visible={state.IsVisible.ToString().ToLowerInvariant()}");
+            return hidden;
+        }
+        catch (Exception exception)
+        {
+            _logger.Write(
+                $"[Launcher] action=recover result=failed reason=resume " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            return false;
+        }
     }
 
     private void EnvironmentCheckTimer_Tick(
@@ -1031,6 +1148,8 @@ public sealed partial class MainWindow : Window
             WindowInteropService_DisplayEnvironmentChanged;
         _environmentCheckTimer.Stop();
         _environmentCheckTimer.Tick -= EnvironmentCheckTimer_Tick;
+        _resumeRecoveryTimer.Stop();
+        _resumeRecoveryTimer.Tick -= ResumeRecoveryTimer_Tick;
         _activationRetryTimer.Stop();
         _activationRetryTimer.Tick -= ActivationRetryTimer_Tick;
         _presentationVerificationTimer.Stop();

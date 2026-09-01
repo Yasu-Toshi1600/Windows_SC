@@ -13,6 +13,7 @@ internal sealed class GlobalInputService : IGlobalInputService
     private const uint VirtualKeySpace = 0x20;
     private const uint WmHotKey = 0x0312;
 
+    private readonly DiagnosticLogger _logger;
     private readonly GlobalWindowsKeyMonitor _windowsKeyMonitor;
     private IntPtr _windowHandle;
     private bool _isStarted;
@@ -21,6 +22,7 @@ internal sealed class GlobalInputService : IGlobalInputService
 
     public GlobalInputService(DiagnosticLogger logger)
     {
+        _logger = logger;
         _windowsKeyMonitor = new GlobalWindowsKeyMonitor(
             () =>
             {
@@ -55,28 +57,42 @@ internal sealed class GlobalInputService : IGlobalInputService
             return;
         }
 
-        if (!RegisterHotKey(
-            windowHandle,
-            HotKeyId,
-            ModControl | ModAlt | ModNoRepeat,
-            VirtualKeySpace))
-        {
-            throw new Win32Exception(
-                Marshal.GetLastWin32Error(),
-                "Ctrl+Alt+Space のグローバルホットキーを登録できませんでした。");
-        }
-
         _windowHandle = windowHandle;
         try
         {
-            _windowsKeyMonitor.Start();
-            _isStarted = true;
+            StartMonitoring();
         }
         catch
         {
-            UnregisterHotKey(_windowHandle, HotKeyId);
             _windowHandle = IntPtr.Zero;
             throw;
+        }
+    }
+
+    public bool RecoverAfterResume()
+    {
+        if (_isDisposed || _windowHandle == IntPtr.Zero)
+        {
+            _logger.Write(
+                "[InputMonitor] action=recover result=skipped reason=not-started");
+            return false;
+        }
+
+        StopMonitoring();
+        try
+        {
+            StartMonitoring();
+            _logger.Write(
+                "[InputMonitor] action=recover result=success reason=resume " +
+                "components=windows-key-hook,manual-hotkey");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _logger.Write(
+                $"[InputMonitor] action=recover result=failed reason=resume " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            return false;
         }
     }
 
@@ -104,12 +120,41 @@ internal sealed class GlobalInputService : IGlobalInputService
         }
 
         _isDisposed = true;
-        _windowsKeyMonitor.Dispose();
+        StopMonitoring();
+        _windowHandle = IntPtr.Zero;
+    }
 
-        if (_windowHandle != IntPtr.Zero)
+    private void StartMonitoring()
+    {
+        if (!RegisterHotKey(
+            _windowHandle,
+            HotKeyId,
+            ModControl | ModAlt | ModNoRepeat,
+            VirtualKeySpace))
         {
-            UnregisterHotKey(_windowHandle, HotKeyId);
-            _windowHandle = IntPtr.Zero;
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                "Ctrl+Alt+Space のグローバルホットキーを登録できませんでした。");
+        }
+
+        try
+        {
+            _windowsKeyMonitor.Start();
+            _isStarted = true;
+        }
+        catch
+        {
+            _ = UnregisterHotKey(_windowHandle, HotKeyId);
+            throw;
+        }
+    }
+
+    private void StopMonitoring()
+    {
+        _windowsKeyMonitor.Dispose();
+        if (_isStarted && _windowHandle != IntPtr.Zero)
+        {
+            _ = UnregisterHotKey(_windowHandle, HotKeyId);
         }
 
         _isStarted = false;

@@ -50,7 +50,7 @@ Coreの振る舞いを変更するときは、正常系だけでなく境界値�
 
 ## 4. 2026-08-09確認結果
 
-- Coreテスト: 70件成功、失敗0
+- Coreテスト: 72件成功、失敗0
 - テストTFM: `net8.0`
 - CoreのWinUI／Windows App SDK／Windows API参照: なし
 - 製品ソースの`Compile Include`: なし

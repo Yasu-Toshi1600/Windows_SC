@@ -16,6 +16,12 @@ internal interface IStartMenuMonitor : IDisposable
 
     void Start();
 
+    bool RecoverAfterResume();
+
+    void BeginPresentationRecovery();
+
+    void CancelPresentationRecovery();
+
     void NotifyWindowsKeyReleased();
 
     void NotifyStartMenuClosing();

@@ -56,7 +56,7 @@
 - [ ] `Ctrl+Alt+Space`で表示後、ランチャーへ一度も触れず画面外をクリックして閉じる。
 - [ ] 通常の画面外クリックとEscapeですぐ閉じる。
 - [ ] 最大化した通常ウィンドウを前面に置いた状態でWindowsキーを押し、ランチャーがその背後に隠れず最前面へ表示される。もう一度Windowsキーを押す場合と、別ウィンドウをクリックする場合の両方で閉じる。
-- [ ] 休止状態から復帰後に同じ表示・終了操作を行い、ログの`verify-presentation result=success`が`visible=true topmost=true cloaked=false`となる。画面上の結果とログが一致する。
+- [ ] 休止状態から復帰後、ログの`[Recovery] action=resume result=success`で`launcher`、`input`、`start-menu`がすべて`success`となる。その後に同じ表示・終了操作を行い、`verify-presentation result=success`が`visible=true topmost=true cloaked=false`となる。画面上の結果とログが一致する。
 - [ ] 仮想デスクトップ1→2→1を移動し、各デスクトップでWindowsキー、スタートボタン、`Ctrl+Alt+Space`、トレイから1回目の操作で表示できる。Windowsキー経路ではランチャーが直前のデスクトップへ残らず、ログに`0x8001010D`が出ない。
 
 ### A-3 基本操作

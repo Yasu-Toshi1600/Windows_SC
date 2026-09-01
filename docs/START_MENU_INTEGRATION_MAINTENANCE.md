@@ -2,8 +2,8 @@
 
 ランチャーSurfaceの移動量、時間、イージング、Composition実装、途中反転の視覚仕様は[モーション仕様書](MOTION_SPECIFICATION.md)を参照する。
 
-更新日: 2026-08-15
-対象: Windows_SC `0.9.2` / Windows 11 25H2 / Windows App SDK 1.8
+更新日: 2026-09-01
+対象: Windows_SC `0.9.3` / Windows 11 25H2 / Windows App SDK 1.8
 目的: スタートメニュー検出、Windowsキー監視、ランチャー状態、フォーカス、モーションの保守判断を一か所に集約する。
 
 ## 1. 複雑になる理由
@@ -51,11 +51,11 @@ Windowsには、外部アプリからスタートメニューの開閉、表示�
 | ファイル | 責務 |
 |---|---|
 | `Windows_SC/GlobalWindowsKeyMonitor.cs` | 低レベルキーボードフック。左右Windowsキー、修飾キー、他キーとの組み合わせを分類する。入力は遮断しない。 |
-| `Windows_SC/Services/GlobalInputService.cs` | Windowsキー単体イベントと`Ctrl+Alt+Space`の登録・公開。 |
+| `Windows_SC/Services/GlobalInputService.cs` | Windowsキー単体イベントと`Ctrl+Alt+Space`の登録・公開。休止状態／スリープ復帰時はフックと固定ホットキーを再登録する。 |
 | `Windows_SC/StartMenuWindowInspector.cs` | Win32による軽量検出。対象プロセス、可視状態、DWMクローキング、矩形を確認する。 |
 | `Windows_SC/StartMenuBoundsValidator.cs` | SearchHost等のモニター全面サーフェスをスタートメニュー矩形から除外する。 |
 | `Windows_SC/UiAutomationStartMenuInspector.cs` | スキャン用STAとイベント登録用STAを分離し、フォーカス中のUI Automation矩形を優先し、取得不能時だけWin32検出へフォールバックしてSnapshotを更新する。 |
-| `Windows_SC/Services/HybridStartMenuMonitor.cs` | イベント監視と50/250msの有界フォールバック、監視の開始・停止。 |
+| `Windows_SC/Services/HybridStartMenuMonitor.cs` | イベント監視と50/250msの有界フォールバック、監視の開始・停止。復帰時は内部のUI Automation監視を作り直す。 |
 | `Windows_SC/StartMenuSnapshot.cs` | 可視状態、スタート矩形、スマートフォン連携パネル情報の不変Snapshot。 |
 | `Windows_SC/Services/LauncherMotionCoordinator.cs` | ランチャー表示の論理状態機械。 |
 | `Windows_SC/Services/CompositionLauncherMotionService.cs` | SurfaceのTranslation / Opacity、完了通知、途中反転。 |
@@ -216,6 +216,17 @@ Windowsキー単体イベントも `MainWindow` が `DispatcherQueue` へ積み�
 Windowsキーとスタートボタンからの表示はStartへフォーカスを残すため、`AppWindow.Show(false)`の後に`SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE)`相当を適用する。`OverlappedPresenter.IsAlwaysOnTop`の初期設定だけに依存すると、非表示からの再表示後にZ順が復元されず、内部では表示済みでも他のウィンドウの背後に残る場合がある。
 
 表示APIの戻りやComposition状態だけを実表示成功の根拠にしない。表示直後にHWNDの`IsWindowVisible`、`WS_EX_TOPMOST`、`DWMWA_CLOAKED`を確認し、不一致時は短時間の再試行を行う。再試行後も一致しない場合は`verify-presentation result=failed`を記録して非表示状態へ戻し、内部だけが表示済みの状態を残さない。非表示完了時も`IsWindowVisible`を確認する。
+
+最前面状態の検証に失敗した場合、StartのVisible Snapshotを根拠にHide直後の再進入を繰り返してはいけない。StartがHiddenになったことを250msフォールバックで確認するまでStart連動表示を遮断する。`Ctrl+Alt+Space`またはトレイからの手動表示はこの遮断を解除できる。
+
+休止状態／スリープ復帰の`WM_POWERBROADCAST`を受けた場合は、ExplorerとDWMの復帰を待つため1秒デバウンスした後、次をUIスレッドで行う。
+
+1. Composition、アクティブ化、表示検証の途中状態を破棄し、実HWNDを非表示へ戻す。
+2. Windowsキーの低レベルフックと`Ctrl+Alt+Space`を解除して再登録する。
+3. UI Automationのスキャン／フォーカスイベント用STAと250msフォールバック監視を再初期化する。
+4. `[Recovery] action=resume`で各領域の成功／失敗を個別に記録する。
+
+アプリプロセス、設定画面、トレイ、音声COMサービスはこの復帰処理では作り直さない。設定の未保存状態を壊さず、起動経路と表示状態だけを小さく回復させる。
 
 ## 9. Snapshotの扱い
 

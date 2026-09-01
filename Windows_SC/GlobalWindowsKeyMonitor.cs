@@ -82,6 +82,16 @@ internal sealed class GlobalWindowsKeyMonitor : IDisposable
             UnhookWindowsHookEx(_hookHandle);
             _hookHandle = IntPtr.Zero;
         }
+
+        _leftWindowsDown = false;
+        _rightWindowsDown = false;
+        _chordDetected = false;
+        lock (_captureLock)
+        {
+            _captureAwaitingResult = false;
+            _pendingShortcutKey = null;
+            _capturePressedKeys.Clear();
+        }
     }
 
     private IntPtr KeyboardHookCallback(int code, IntPtr wParam, IntPtr lParam)

@@ -15,6 +15,8 @@ internal interface IGlobalInputService : IDisposable
 
     void Start(IntPtr windowHandle);
 
+    bool RecoverAfterResume();
+
     bool TryHandleWindowMessage(uint message, IntPtr wParam);
 }
 
