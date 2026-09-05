@@ -12,18 +12,26 @@ namespace Windows_SC;
 internal sealed class DiagnosticLogger : IDisposable
 {
     private const long MaximumLogSize = 2 * 1024 * 1024;
+    private const int MaximumPendingEntries = 5000;
+    private const int RetainedFileCount = 4;
     private readonly string _logDirectoryPath;
     private readonly string _logFilePath;
-    private readonly string _previousLogFilePath;
     private readonly string _detailedLogFilePath;
-    private readonly string _previousDetailedLogFilePath;
+    private readonly string[] _normalLogPaths;
+    private readonly string[] _detailedLogPaths;
     private readonly ConcurrentQueue<LogEntry> _pendingEntries = new();
     private readonly AutoResetEvent _writeRequested = new(false);
     private readonly Thread _writerThread;
+    private readonly object _aggregationGate = new();
     private readonly object _drainGate = new();
     private readonly object _fileGate = new();
+    private AggregationState _normalAggregation;
+    private AggregationState _detailedAggregation;
+    private long _droppedNormalEntries;
+    private long _droppedDetailedEntries;
     private long _detailedLoggingExpiresUtcTicks;
     private int _detailedLoggingAlwaysEnabled;
+    private int _pendingEntryCount;
     private int _isDisposed;
 
     public DiagnosticLogger()
@@ -33,13 +41,13 @@ internal sealed class DiagnosticLogger : IDisposable
 
         Directory.CreateDirectory(_logDirectoryPath);
         _logFilePath = Path.Combine(_logDirectoryPath, "window-diagnostics.log");
-        _previousLogFilePath = Path.Combine(_logDirectoryPath, "window-diagnostics.previous.log");
         _detailedLogFilePath = Path.Combine(_logDirectoryPath, "window-diagnostics.detail.log");
-        _previousDetailedLogFilePath = Path.Combine(
-            _logDirectoryPath,
+        _normalLogPaths = CreateRetentionPaths(_logFilePath, "window-diagnostics.previous.log");
+        _detailedLogPaths = CreateRetentionPaths(
+            _detailedLogFilePath,
             "window-diagnostics.detail.previous.log");
-        RotateIfNeeded(_logFilePath, _previousLogFilePath);
-        RotateIfNeeded(_detailedLogFilePath, _previousDetailedLogFilePath);
+        RotateIfNeeded(_normalLogPaths);
+        RotateIfNeeded(_detailedLogPaths);
         EnsureFileExists(_logFilePath);
         _writerThread = new Thread(WriterLoop)
         {
@@ -98,54 +106,82 @@ internal sealed class DiagnosticLogger : IDisposable
                   $"expires-at={new DateTimeOffset(ticks, TimeSpan.Zero):O}");
     }
 
-    public void Write(string message)
-    {
-        Enqueue(message, includeNormalLog: true, includeDetailedLog: IsDetailedLoggingEnabled);
-    }
+    public void Write(string message) =>
+        EnqueueAggregated(
+            message,
+            includeNormalLog: true,
+            includeDetailedLog: IsDetailedLoggingEnabled,
+            isDetailedOnly: false);
 
     public void WriteDetailed(string message)
     {
         if (IsDetailedLoggingEnabled)
         {
-            Enqueue(message, includeNormalLog: false, includeDetailedLog: true);
+            EnqueueAggregated(
+                message,
+                includeNormalLog: false,
+                includeDetailedLog: true,
+                isDetailedOnly: true);
         }
     }
 
     public void WriteCritical(string message)
     {
-        Enqueue(message, includeNormalLog: true, includeDetailedLog: IsDetailedLoggingEnabled);
+        Write(message);
+        FlushAggregatedErrors();
         FlushPendingEntries();
+    }
+
+    public void RotateLogs(string reason)
+    {
+        FlushAggregatedErrors();
+        FlushPendingEntries();
+        try
+        {
+            lock (_fileGate)
+            {
+                Rotate(_normalLogPaths);
+                Rotate(_detailedLogPaths);
+                EnsureFileExists(_logFilePath);
+            }
+
+            Write($"[Diagnostics] action=rotate-logs result=success reason={reason}");
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException)
+        {
+            Write(
+                $"[Diagnostics] action=rotate-logs result=failed reason={reason} " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+        }
     }
 
     public void ClearLogs()
     {
+        FlushAggregatedErrors();
         FlushPendingEntries();
         lock (_fileGate)
         {
-            DeleteIfExists(_logFilePath);
-            DeleteIfExists(_previousLogFilePath);
-            DeleteIfExists(_detailedLogFilePath);
-            DeleteIfExists(_previousDetailedLogFilePath);
+            foreach (string path in _normalLogPaths)
+            {
+                DeleteIfExists(path);
+            }
+
+            foreach (string path in _detailedLogPaths)
+            {
+                DeleteIfExists(path);
+            }
         }
     }
 
-    private void Enqueue(string message, bool includeNormalLog, bool includeDetailedLog)
+    public void Dispose()
     {
         if (Volatile.Read(ref _isDisposed) != 0)
         {
             return;
         }
 
-        _pendingEntries.Enqueue(new LogEntry(
-            $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} " +
-            $"{Services.LogPrivacySanitizer.Sanitize(message)}{Environment.NewLine}",
-            includeNormalLog,
-            includeDetailedLog));
-        _writeRequested.Set();
-    }
-
-    public void Dispose()
-    {
+        FlushAggregatedErrors();
         if (Interlocked.Exchange(ref _isDisposed, 1) != 0)
         {
             return;
@@ -154,6 +190,110 @@ internal sealed class DiagnosticLogger : IDisposable
         _writeRequested.Set();
         _writerThread.Join(TimeSpan.FromSeconds(2));
         _writeRequested.Dispose();
+    }
+
+    private void EnqueueAggregated(
+        string message,
+        bool includeNormalLog,
+        bool includeDetailedLog,
+        bool isDetailedOnly)
+    {
+        if (Volatile.Read(ref _isDisposed) != 0)
+        {
+            return;
+        }
+
+        string sanitized = LogPrivacySanitizer.Sanitize(message);
+        lock (_aggregationGate)
+        {
+            ref AggregationState state = ref (isDetailedOnly
+                ? ref _detailedAggregation
+                : ref _normalAggregation);
+            bool isFailure = sanitized.Contains("result=failed", StringComparison.Ordinal);
+            if (isFailure
+                && state.Message == sanitized
+                && state.IncludeNormalLog == includeNormalLog
+                && state.IncludeDetailedLog == includeDetailedLog)
+            {
+                state.Occurrences++;
+                return;
+            }
+
+            FlushAggregation(ref state, isDetailedOnly ? "detailed" : "normal");
+            EnqueueSanitized(sanitized, includeNormalLog, includeDetailedLog);
+            state = isFailure
+                ? new AggregationState(sanitized, includeNormalLog, includeDetailedLog, 1)
+                : default;
+        }
+    }
+
+    private void FlushAggregatedErrors()
+    {
+        lock (_aggregationGate)
+        {
+            FlushAggregation(ref _normalAggregation, "normal");
+            FlushAggregation(ref _detailedAggregation, "detailed");
+        }
+    }
+
+    private void FlushAggregation(ref AggregationState state, string source)
+    {
+        if (state.Occurrences > 1)
+        {
+            EnqueueSanitized(
+                $"[Diagnostics] action=aggregate-error result=success source={source} " +
+                $"occurrences={state.Occurrences}",
+                state.IncludeNormalLog,
+                state.IncludeDetailedLog);
+        }
+
+        state = default;
+    }
+
+    private void EnqueueSanitized(
+        string sanitizedMessage,
+        bool includeNormalLog,
+        bool includeDetailedLog)
+    {
+        if (!TryReserveQueueEntry())
+        {
+            if (includeNormalLog)
+            {
+                Interlocked.Increment(ref _droppedNormalEntries);
+            }
+
+            if (includeDetailedLog)
+            {
+                Interlocked.Increment(ref _droppedDetailedEntries);
+            }
+
+            _writeRequested.Set();
+            return;
+        }
+
+        _pendingEntries.Enqueue(new LogEntry(
+            $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} " +
+            $"{sanitizedMessage}{Environment.NewLine}",
+            includeNormalLog,
+            includeDetailedLog));
+        _writeRequested.Set();
+    }
+
+    private bool TryReserveQueueEntry()
+    {
+        while (true)
+        {
+            int count = Volatile.Read(ref _pendingEntryCount);
+            if (count >= MaximumPendingEntries)
+            {
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref _pendingEntryCount, count + 1, count) == count)
+            {
+                return true;
+            }
+        }
     }
 
     private void WriterLoop()
@@ -171,15 +311,11 @@ internal sealed class DiagnosticLogger : IDisposable
     {
         lock (_drainGate)
         {
-            if (_pendingEntries.IsEmpty)
-            {
-                return;
-            }
-
             StringBuilder normalBatch = new();
             StringBuilder detailedBatch = new();
             while (_pendingEntries.TryDequeue(out LogEntry entry))
             {
+                Interlocked.Decrement(ref _pendingEntryCount);
                 if (entry.IncludeNormalLog)
                 {
                     normalBatch.Append(entry.Line);
@@ -189,6 +325,17 @@ internal sealed class DiagnosticLogger : IDisposable
                 {
                     detailedBatch.Append(entry.Line);
                 }
+            }
+
+            AppendDroppedEntrySummary(
+                normalBatch,
+                Interlocked.Exchange(ref _droppedNormalEntries, 0));
+            AppendDroppedEntrySummary(
+                detailedBatch,
+                Interlocked.Exchange(ref _droppedDetailedEntries, 0));
+            if (normalBatch.Length == 0 && detailedBatch.Length == 0)
+            {
+                return;
             }
 
             try
@@ -203,6 +350,52 @@ internal sealed class DiagnosticLogger : IDisposable
                 or UnauthorizedAccessException)
             {
                 Debug.WriteLine($"診断ログを書き込めませんでした: {exception}");
+            }
+        }
+    }
+
+    private static void AppendDroppedEntrySummary(StringBuilder batch, long count)
+    {
+        if (count <= 0)
+        {
+            return;
+        }
+
+        batch.Append($"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} ");
+        batch.Append("[Diagnostics] action=drop-log-entry result=failed ");
+        batch.Append($"reason=queue-capacity count={count} capacity={MaximumPendingEntries}");
+        batch.Append(Environment.NewLine);
+    }
+
+    private static string[] CreateRetentionPaths(string currentPath, string previousFileName)
+    {
+        string directory = Path.GetDirectoryName(currentPath)!;
+        string previousPath = Path.Combine(directory, previousFileName);
+        return
+        [
+            currentPath,
+            previousPath,
+            previousPath.Replace(".log", ".2.log", StringComparison.Ordinal),
+            previousPath.Replace(".log", ".3.log", StringComparison.Ordinal)
+        ];
+    }
+
+    private static void RotateIfNeeded(string[] paths)
+    {
+        if (File.Exists(paths[0]) && new FileInfo(paths[0]).Length >= MaximumLogSize)
+        {
+            Rotate(paths);
+        }
+    }
+
+    private static void Rotate(string[] paths)
+    {
+        DeleteIfExists(paths[RetainedFileCount - 1]);
+        for (int index = RetainedFileCount - 1; index > 0; index--)
+        {
+            if (File.Exists(paths[index - 1]))
+            {
+                File.Move(paths[index - 1], paths[index], overwrite: true);
             }
         }
     }
@@ -227,14 +420,6 @@ internal sealed class DiagnosticLogger : IDisposable
             FileShare.ReadWrite);
     }
 
-    private static void RotateIfNeeded(string path, string previousPath)
-    {
-        if (File.Exists(path) && new FileInfo(path).Length >= MaximumLogSize)
-        {
-            File.Move(path, previousPath, overwrite: true);
-        }
-    }
-
     private static void DeleteIfExists(string path)
     {
         if (File.Exists(path))
@@ -247,4 +432,10 @@ internal sealed class DiagnosticLogger : IDisposable
         string Line,
         bool IncludeNormalLog,
         bool IncludeDetailedLog);
+
+    private record struct AggregationState(
+        string? Message,
+        bool IncludeNormalLog,
+        bool IncludeDetailedLog,
+        int Occurrences);
 }

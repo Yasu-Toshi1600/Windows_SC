@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Dispatching;
 using System;
+using System.Threading.Tasks;
 using Windows_SC.Models;
 using Windows_SC.Services;
 using Windows_SC.ViewModels;
@@ -27,6 +28,7 @@ public partial class App : Application
     private IGlobalInputService? _inputService;
     private IMacroExecutionService? _macroExecutionService;
     private IUiDispatcher? _uiDispatcher;
+    private readonly SettingsPersistenceCoordinator _settingsPersistenceCoordinator = new();
     private bool _isShuttingDown;
 
     public App()
@@ -80,6 +82,30 @@ public partial class App : Application
         }
 
         _settingsRepository = new JsonSettingsRepository(logger);
+        LauncherSettings settings;
+        try
+        {
+            settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
+        }
+        catch (FutureSettingsSchemaException exception)
+        {
+            logger.Write(
+                $"[Application] action=start result=cancelled reason=future-settings " +
+                $"found={exception.FoundVersion} supported={exception.SupportedVersion}");
+            StartupCompatibilityChecker.ShowFutureSettingsVersionError(
+                exception.FoundVersion,
+                exception.SupportedVersion);
+            _singleInstanceService.Dispose();
+            _singleInstanceService = null;
+            logger.Dispose();
+            _logger = null;
+            Exit();
+            return;
+        }
+
+        logger.ConfigureDetailedLogging(
+            settings.DetailedLoggingExpiresAtUtc,
+            settings.DetailedLoggingAlwaysEnabled);
         _uiDispatcher = new DispatcherQueueUiDispatcher(DispatcherQueue.GetForCurrentThread());
         ShortcutKeyExecutionCoordinator shortcutKeyExecutionCoordinator = new();
         IShortcutKeyExecutionService shortcutKeyExecutionService =
@@ -103,10 +129,6 @@ public partial class App : Application
             _applicationVolumeService,
             _systemMetricsService,
             _uiDispatcher);
-        LauncherSettings settings = _settingsRepository.LoadAsync().GetAwaiter().GetResult();
-        logger.ConfigureDetailedLogging(
-            settings.DetailedLoggingExpiresAtUtc,
-            settings.DetailedLoggingAlwaysEnabled);
         _environmentInformationService = new EnvironmentInformationService(logger);
         _viewModel.ApplySettings(settings);
         _startupService = new RegistryStartupService(logger);
@@ -226,7 +248,8 @@ public partial class App : Application
             _environmentInformationService,
             _startMenuMonitor,
             _inputService,
-            _uiDispatcher);
+            _uiDispatcher,
+            _settingsPersistenceCoordinator);
         _settingsViewModel.ExitApplicationRequested += SettingsViewModel_ExitApplicationRequested;
         _settingsWindow = new SettingsWindow(_settingsViewModel);
         _settingsWindow.Closed += SettingsWindow_Closed;
@@ -269,7 +292,7 @@ public partial class App : Application
         _window?.DispatcherQueue.TryEnqueue(() => RequestShutdown("system-tray"));
     }
 
-    private void RequestShutdown(string source)
+    private async void RequestShutdown(string source)
     {
         if (_isShuttingDown)
         {
@@ -280,6 +303,8 @@ public partial class App : Application
         _logger?.Write(
             $"[Application] action=shutdown-request result=success source={source}");
         _settingsWindow?.Close();
+        await _settingsPersistenceCoordinator.WaitForIdleAsync();
+        _logger?.Write("[Settings] action=wait-before-shutdown result=success");
         _window?.Close();
     }
 

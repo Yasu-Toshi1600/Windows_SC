@@ -95,12 +95,40 @@ public sealed class LauncherSettingsMigrationTests
     }
 
     [TestMethod]
-    public void Migrate_FutureVersion_ThrowsInvalidDataException()
+    public void Migrate_FutureVersion_ThrowsFutureSettingsSchemaException()
     {
         JsonNode root = JsonNode.Parse("""{ "SchemaVersion": 99 }""")!;
 
+        FutureSettingsSchemaException exception = Assert.ThrowsExactly<FutureSettingsSchemaException>(() =>
+            LauncherSettingsMigrator.Migrate(root));
+
+        Assert.AreEqual(99, exception.FoundVersion);
+        Assert.AreEqual(LauncherSettings.CurrentSchemaVersion, exception.SupportedVersion);
+    }
+
+    [TestMethod]
+    [DataRow("[]")]
+    [DataRow("\"settings\"")]
+    [DataRow("{ \"SchemaVersion\": \"2\" }")]
+    [DataRow("{ \"SchemaVersion\": true }")]
+    [DataRow("{ \"SchemaVersion\": -1 }")]
+    public void Migrate_InvalidRootOrSchemaType_ThrowsInvalidDataException(string json)
+    {
+        JsonNode root = JsonNode.Parse(json)!;
+
         Assert.ThrowsExactly<InvalidDataException>(() =>
             LauncherSettingsMigrator.Migrate(root));
+    }
+
+    [TestMethod]
+    public void Migrate_FutureVersionBeyondIntRange_IsPreservedAsFutureVersion()
+    {
+        JsonNode root = JsonNode.Parse("""{ "SchemaVersion": 2147483648 }""")!;
+
+        FutureSettingsSchemaException exception = Assert.ThrowsExactly<FutureSettingsSchemaException>(() =>
+            LauncherSettingsMigrator.Migrate(root));
+
+        Assert.AreEqual(2147483648L, exception.FoundVersion);
     }
 
     [TestMethod]

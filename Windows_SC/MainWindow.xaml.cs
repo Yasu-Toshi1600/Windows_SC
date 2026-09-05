@@ -1027,6 +1027,7 @@ public sealed partial class MainWindow : Window
         object args)
     {
         sender.Stop();
+        _logger.RotateLogs("resume");
         bool launcherRecovered = TryResetLauncherAfterResume();
         bool inputRecovered = _inputService.RecoverAfterResume();
         bool startMenuRecovered = _startMenuMonitor.RecoverAfterResume();

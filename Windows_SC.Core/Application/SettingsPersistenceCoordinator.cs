@@ -23,4 +23,10 @@ internal sealed class SettingsPersistenceCoordinator
             _gate.Release();
         }
     }
+
+    public async Task WaitForIdleAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        _gate.Release();
+    }
 }

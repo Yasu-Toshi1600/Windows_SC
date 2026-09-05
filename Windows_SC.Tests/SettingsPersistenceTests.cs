@@ -90,4 +90,25 @@ public sealed class SettingsPersistenceTests
         await Assert.ThrowsExactlyAsync<ArgumentNullException>(() =>
             coordinator.RunAsync(null!));
     }
+
+    [TestMethod]
+    public async Task WaitForIdleAsync_WaitsForRunningAndQueuedOperations()
+    {
+        SettingsPersistenceCoordinator coordinator = new();
+        TaskCompletionSource firstStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource releaseFirst = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Task first = coordinator.RunAsync(async () =>
+        {
+            firstStarted.SetResult();
+            await releaseFirst.Task;
+        });
+        await firstStarted.Task;
+        Task second = coordinator.RunAsync(() => Task.CompletedTask);
+        Task waitForIdle = coordinator.WaitForIdleAsync();
+
+        Assert.IsFalse(waitForIdle.IsCompleted);
+        releaseFirst.SetResult();
+        await Task.WhenAll(first, second, waitForIdle);
+    }
 }

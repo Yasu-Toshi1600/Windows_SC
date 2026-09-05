@@ -9,18 +9,30 @@ internal static class LauncherSettingsMigrator
 {
     public static void Migrate(JsonNode root)
     {
-        int schemaVersion = root["SchemaVersion"]?.GetValue<int>() ?? 0;
+        if (root is not JsonObject settingsObject)
+        {
+            throw new InvalidDataException("The settings root must be a JSON object.");
+        }
+
+        long schemaVersion = ReadSchemaVersion(settingsObject);
+        if (schemaVersion > LauncherSettings.CurrentSchemaVersion)
+        {
+            throw new FutureSettingsSchemaException(
+                schemaVersion,
+                LauncherSettings.CurrentSchemaVersion);
+        }
+
         if (schemaVersion == 0)
         {
             schemaVersion = 1;
-            root["SchemaVersion"] = schemaVersion;
+            settingsObject["SchemaVersion"] = schemaVersion;
         }
 
         while (schemaVersion < LauncherSettings.CurrentSchemaVersion)
         {
             schemaVersion = schemaVersion switch
             {
-                1 => MigrateVersionOneToTwo(root),
+                1 => MigrateVersionOneToTwo(settingsObject),
                 _ => throw new InvalidDataException(
                     $"未対応の設定スキーマです: {schemaVersion}")
             };
@@ -30,6 +42,25 @@ internal static class LauncherSettingsMigrator
         {
             throw new InvalidDataException($"未対応の設定スキーマです: {schemaVersion}");
         }
+    }
+
+    private static long ReadSchemaVersion(JsonObject root)
+    {
+        JsonNode? versionNode = root["SchemaVersion"];
+        if (versionNode is null)
+        {
+            return 0;
+        }
+
+        if (versionNode is JsonValue value
+            && value.TryGetValue(out long schemaVersion)
+            && schemaVersion >= 0)
+        {
+            return schemaVersion;
+        }
+
+        throw new InvalidDataException(
+            "The settings schema version must be a non-negative integer.");
     }
 
     private static int MigrateVersionOneToTwo(JsonNode root)

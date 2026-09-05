@@ -33,6 +33,7 @@ internal sealed class ApplicationVolumeStateStore : IApplicationVolumeStateStore
     private readonly string _path;
     private readonly Action<string> _writeLog;
     private readonly object _gate = new();
+    private readonly object _saveGate = new();
     private readonly Dictionary<StateKey, int> _entries = new();
     private Timer? _saveTimer;
     private bool _isDisposed;
@@ -95,8 +96,14 @@ internal sealed class ApplicationVolumeStateStore : IApplicationVolumeStateStore
                 throw new InvalidDataException("未対応のアプリ音量状態スキーマです。");
             }
 
-            foreach (ApplicationVolumeStateEntry entry in document.Entries ?? [])
+            foreach (ApplicationVolumeStateEntry? entry in document.Entries ?? [])
             {
+                if (entry is null)
+                {
+                    throw new InvalidDataException(
+                        "The application volume state contains a null entry.");
+                }
+
                 if (string.IsNullOrWhiteSpace(entry.DeviceId)
                     || string.IsNullOrWhiteSpace(entry.TargetId)
                     || !Enum.IsDefined(entry.TargetKind)
@@ -139,31 +146,45 @@ internal sealed class ApplicationVolumeStateStore : IApplicationVolumeStateStore
 
     private void SaveSnapshot()
     {
-        List<ApplicationVolumeStateEntry> snapshot;
-        lock (_gate)
+        lock (_saveGate)
         {
-            snapshot = _entries
-                .OrderBy(entry => entry.Key.DeviceId, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(entry => entry.Key.TargetId, StringComparer.OrdinalIgnoreCase)
-                .Select(entry => new ApplicationVolumeStateEntry(
-                    entry.Key.DeviceId,
-                    entry.Key.TargetKind,
-                    entry.Key.TargetId,
-                    entry.Value))
-                .ToList();
-        }
+            List<ApplicationVolumeStateEntry> snapshot;
+            lock (_gate)
+            {
+                snapshot = _entries
+                    .OrderBy(entry => entry.Key.DeviceId, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(entry => entry.Key.TargetId, StringComparer.OrdinalIgnoreCase)
+                    .Select(entry => new ApplicationVolumeStateEntry(
+                        entry.Key.DeviceId,
+                        entry.Key.TargetKind,
+                        entry.Key.TargetId,
+                        entry.Value))
+                    .ToList();
+            }
 
-        string directory = Path.GetDirectoryName(_path)
-            ?? throw new InvalidOperationException("状態ファイルの保存先が不正です。");
-        Directory.CreateDirectory(directory);
-        string temporaryPath = _path + ".tmp";
-        string json = JsonSerializer.Serialize(
-            new StateDocument { Entries = snapshot },
-            JsonOptions);
-        File.WriteAllText(temporaryPath, json);
-        File.Move(temporaryPath, _path, overwrite: true);
-        _writeLog(
-            $"[ApplicationVolume] action=save-state result=success entries={snapshot.Count}");
+            string directory = Path.GetDirectoryName(_path)
+                ?? throw new InvalidOperationException("状態ファイルの保存先が不正です。");
+            Directory.CreateDirectory(directory);
+            string temporaryPath = _path + ".tmp";
+            string json = JsonSerializer.Serialize(
+                new StateDocument { Entries = snapshot },
+                JsonOptions);
+            try
+            {
+                File.WriteAllText(temporaryPath, json);
+                File.Move(temporaryPath, _path, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
+            }
+
+            _writeLog(
+                $"[ApplicationVolume] action=save-state result=success entries={snapshot.Count}");
+        }
     }
 
     private void TryQuarantineCorruptFile()

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Windows_SC.Models;
 using Windows_SC.Services;
@@ -120,6 +121,56 @@ public sealed class ApplicationVolumeStateStoreTests
                 directory,
                 "application-volume-state.corrupt-*.json"));
             Assert.IsTrue(logs.Exists(log => log.Contains("result=failed", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Store_QuarantinesNullEntryAndStartsEmpty()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "application-volume-state.json");
+        File.WriteAllText(path, """{ "SchemaVersion": 1, "Entries": [null] }""");
+        List<string> logs = [];
+        try
+        {
+            using ApplicationVolumeStateStore store = new(path, logs.Add);
+
+            Assert.HasCount(1, Directory.GetFiles(
+                directory,
+                "application-volume-state.corrupt-*.json"));
+            Assert.IsTrue(logs.Exists(log => log.Contains("result=failed", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task Store_ConcurrentFlushes_LeaveValidStateFile()
+    {
+        string directory = CreateTemporaryDirectory();
+        string path = Path.Combine(directory, "application-volume-state.json");
+        ApplicationAudioTarget target = new(
+            ApplicationAudioIdentifierKind.PackageIdentity,
+            "package-id",
+            "Package");
+        try
+        {
+            using ApplicationVolumeStateStore store = new(path, _ => { });
+            store.Set("device-a", target, 40);
+
+            await Task.WhenAll(
+                store.FlushAsync(),
+                store.FlushAsync(),
+                store.FlushAsync());
+
+            JsonNode root = JsonNode.Parse(File.ReadAllText(path))!;
+            Assert.AreEqual(1, root["Entries"]!.AsArray().Count);
         }
         finally
         {

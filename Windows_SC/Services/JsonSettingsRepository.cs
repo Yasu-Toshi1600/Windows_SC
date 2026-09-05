@@ -57,6 +57,13 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
                 $"pages={settings.Pages.Count}");
             return settings;
         }
+        catch (FutureSettingsSchemaException exception)
+        {
+            _logger.Write(
+                $"[Settings] action=load result=failed reason=future-schema " +
+                $"found={exception.FoundVersion} supported={exception.SupportedVersion}");
+            throw;
+        }
         catch (Exception exception) when (exception is JsonException
             or InvalidDataException
             or NotSupportedException)
@@ -68,9 +75,10 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
                 $"[Settings] action=load result=failed reason=invalid-settings " +
                 $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8} " +
                 $"message=\"{LogValue.Normalize(exception.Message)}\"");
-            BackupInvalidSettings();
+            TryBackupInvalidSettings();
             LauncherSettings defaults = LauncherSettings.CreateDefault();
             await SaveAsync(defaults, cancellationToken).ConfigureAwait(false);
+            _logger.Write("[Settings] action=recover-default result=success");
             return defaults;
         }
     }
@@ -125,7 +133,7 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
         }
     }
 
-    private void BackupInvalidSettings()
+    private void TryBackupInvalidSettings()
     {
         if (!File.Exists(_settingsFilePath))
         {
@@ -135,14 +143,24 @@ internal sealed class JsonSettingsRepository : ISettingsRepository
         string backupDirectory = _usesDefaultSettingsPath
             ? ApplicationDataPaths.SettingsBackupDirectoryPath
             : Path.GetDirectoryName(_settingsFilePath)!;
-        Directory.CreateDirectory(backupDirectory);
-        string backupPath = Path.Combine(
-            backupDirectory,
-            $"settings.corrupt-{DateTimeOffset.Now:yyyyMMdd-HHmmss}.json");
-        File.Move(_settingsFilePath, backupPath, overwrite: true);
-        _logger.Write("[Settings] action=backup-invalid result=success");
-        _logger.WriteDetailed(
-            $"[Settings] action=backup-invalid result=success " +
-            $"path=\"{LogValue.Normalize(backupPath)}\"");
+        try
+        {
+            Directory.CreateDirectory(backupDirectory);
+            string backupPath = Path.Combine(
+                backupDirectory,
+                $"settings.corrupt-{DateTimeOffset.Now:yyyyMMdd-HHmmss-fff}.json");
+            File.Move(_settingsFilePath, backupPath, overwrite: true);
+            _logger.Write("[Settings] action=backup-invalid result=success");
+            _logger.WriteDetailed(
+                $"[Settings] action=backup-invalid result=success " +
+                $"path=\"{LogValue.Normalize(backupPath)}\"");
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException)
+        {
+            _logger.Write(
+                $"[Settings] action=backup-invalid result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+        }
     }
 }

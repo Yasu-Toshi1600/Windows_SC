@@ -90,6 +90,20 @@ internal static class StartupCompatibilityChecker
             MbOk | MbIconWarning | MbSetForeground);
     }
 
+    public static void ShowFutureSettingsVersionError(long foundVersion, int supportedVersion)
+    {
+        string message =
+            "この設定ファイルは、現在のWindows_SCより新しい版で作成されています。\n\n" +
+            $"設定スキーマ: {foundVersion}\n" +
+            $"このアプリが対応する設定スキーマ: {supportedVersion}\n\n" +
+            "設定を保護するため、内容を変更せずに終了します。";
+        _ = MessageBox(
+            nint.Zero,
+            message,
+            "Windows_SC - 新しい設定を検出しました",
+            MbOk | MbIconError | MbSetForeground);
+    }
+
     private static (string WarningMessage, string LogDetails) CheckDisplayResolution()
     {
         try

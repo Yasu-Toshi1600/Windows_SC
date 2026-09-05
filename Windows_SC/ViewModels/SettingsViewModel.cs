@@ -24,7 +24,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private readonly EnvironmentInformationService _environmentInformationService;
     private readonly IGlobalInputService _globalInputService;
     private readonly SettingsEditRevisionTracker _editRevisionTracker = new();
-    private readonly SettingsPersistenceCoordinator _persistenceCoordinator = new();
+    private readonly SettingsPersistenceCoordinator _persistenceCoordinator;
     private readonly ShortcutRecordingSession _shortcutRecordingSession;
     private readonly Guid _pageId;
     private LauncherItemEditorViewModel? _selectedItem;
@@ -63,7 +63,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         EnvironmentInformationService environmentInformationService,
         IStartMenuMonitor startMenuMonitor,
         IGlobalInputService globalInputService,
-        IUiDispatcher uiDispatcher)
+        IUiDispatcher uiDispatcher,
+        SettingsPersistenceCoordinator persistenceCoordinator)
     {
         _settingsRepository = settingsRepository;
         _mainWindowViewModel = mainWindowViewModel;
@@ -74,6 +75,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         _logger = logger;
         _environmentInformationService = environmentInformationService;
         _globalInputService = globalInputService;
+        _persistenceCoordinator = persistenceCoordinator;
         _shortcutRecordingSession = new ShortcutRecordingSession(
             _globalInputService.SetSuppressed);
         _globalInputService.ShortcutKeyCaptured += GlobalInputService_ShortcutKeyCaptured;
