@@ -135,6 +135,7 @@ dotnet build Windows_SC.slnx -c Release -p:Platform=x64 --no-restore
 ## 文書
 
 - [現行設計](docs/DESIGN.md)
+- [2026-09-05 プロジェクトレビュー](docs/PROJECT_REVIEW_2026-09-05.md)
 - [スタート連動機能 保守ガイド](docs/START_MENU_INTEGRATION_MAINTENANCE.md)
 - [モーション仕様](docs/MOTION_SPECIFICATION.md)
 - [ログ・詳細診断・プライバシー仕様](docs/LOGGING_AND_PRIVACY.md)

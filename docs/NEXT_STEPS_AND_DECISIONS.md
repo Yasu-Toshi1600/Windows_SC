@@ -8,6 +8,7 @@
 本書は現在地点、未完了作業、配布判断だけを管理する。仕様や保守手順を重複して持たない。
 
 - 現行設計: [DESIGN.md](DESIGN.md)
+- 優先度付きプロジェクトレビュー: [PROJECT_REVIEW_2026-09-05.md](PROJECT_REVIEW_2026-09-05.md)
 - 機能保守: [FEATURE_MAINTENANCE.md](FEATURE_MAINTENANCE.md)
 - UI・MVVMの実施順: [UI_MVVM_REFACTORING_PLAN.md](UI_MVVM_REFACTORING_PLAN.md)
 - Core自動テスト: [CORE_TESTING.md](CORE_TESTING.md)
