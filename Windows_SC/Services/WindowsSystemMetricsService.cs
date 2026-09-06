@@ -10,6 +10,8 @@ internal sealed class WindowsSystemMetricsService : ISystemMetricsService
     private const uint PdhMoreData = 0x800007D2;
     private readonly DiagnosticLogger _logger;
     private readonly object _gate = new();
+    private readonly BackgroundResourceLifetime _nativeLifetime = new();
+    private bool _gpuInitialized;
     private readonly Timer _timer;
     private SystemMetricsSnapshot _cached = new(null, null, 0, 0, 0);
     private ulong? _previousIdle;
@@ -19,12 +21,11 @@ internal sealed class WindowsSystemMetricsService : ISystemMetricsService
     private IntPtr _gpuCounter;
     private bool? _lastGpuAvailable;
     private int _sampleRunning;
-    private bool _isDisposed;
+    private volatile bool _isDisposed;
 
     public WindowsSystemMetricsService(DiagnosticLogger logger)
     {
         _logger = logger;
-        InitializeGpuCounter();
         _timer = new Timer(_ => Sample(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -64,33 +65,43 @@ internal sealed class WindowsSystemMetricsService : ISystemMetricsService
 
         try
         {
-            double? cpu = ReadCpuPercent();
-            double? gpu = ReadGpuPercent();
-            ReadMemory(out double memoryPercent, out ulong usedBytes, out ulong totalBytes);
-            lock (_gate)
-            {
-                _cached = new SystemMetricsSnapshot(
-                    cpu,
-                    gpu,
-                    memoryPercent,
-                    usedBytes,
-                    totalBytes);
-            }
-
-            bool gpuAvailable = gpu.HasValue;
-            if (_lastGpuAvailable != gpuAvailable)
-            {
-                _lastGpuAvailable = gpuAvailable;
-                _logger.Write(
-                    $"[SystemMetrics] action=gpu-sample " +
-                    $"result={(gpuAvailable ? "success" : "skipped")}");
-            }
-
-            MetricsChanged?.Invoke(this, EventArgs.Empty);
+            _nativeLifetime.TryRun(SampleCore);
         }
         finally
         {
             Volatile.Write(ref _sampleRunning, 0);
+        }
+    }
+
+    private void SampleCore()
+    {
+        if (!_gpuInitialized)
+        {
+            _gpuInitialized = true;
+            InitializeGpuCounter();
+        }
+
+        double? cpu = ReadCpuPercent();
+        double? gpu = ReadGpuPercent();
+        if (_isDisposed) return;
+        ReadMemory(out double memoryPercent, out ulong usedBytes, out ulong totalBytes);
+        lock (_gate)
+        {
+            _cached = new SystemMetricsSnapshot(cpu, gpu, memoryPercent, usedBytes, totalBytes);
+        }
+
+        bool gpuAvailable = gpu.HasValue;
+        if (_lastGpuAvailable != gpuAvailable)
+        {
+            _lastGpuAvailable = gpuAvailable;
+            _logger.Write(
+                $"[SystemMetrics] action=gpu-sample " +
+                $"result={(gpuAvailable ? "success" : "skipped")}");
+        }
+
+        if (!_isDisposed)
+        {
+            MetricsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -239,8 +250,14 @@ internal sealed class WindowsSystemMetricsService : ISystemMetricsService
         _isDisposed = true;
         _timer.Change(Timeout.Infinite, Timeout.Infinite);
         _timer.Dispose();
-        SpinWait.SpinUntil(() => Volatile.Read(ref _sampleRunning) == 0, 1000);
-        CloseGpuQuery();
+        bool completed = _nativeLifetime.Stop(
+            CloseGpuQuery,
+            exception => System.Diagnostics.Debug.WriteLine(
+                $"System metrics cleanup failed: {exception.GetType().Name}"),
+            TimeSpan.FromSeconds(1));
+        _logger.Write(
+            $"[SystemMetrics] action=dispose result={(completed ? "success" : "skipped")} " +
+            $"reason={(completed ? "cleanup-finished" : "cleanup-pending")}");
     }
 
     [StructLayout(LayoutKind.Sequential)]

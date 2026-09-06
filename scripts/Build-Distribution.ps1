@@ -24,8 +24,9 @@ if (-not $resolvedArtifactsRoot.StartsWith(
     throw "Artifacts path escaped the repository: $resolvedArtifactsRoot"
 }
 
-if (Test-Path -LiteralPath $artifactsRoot) {
-    Remove-Item -LiteralPath $artifactsRoot -Recurse -Force
+New-Item -ItemType Directory -Path $artifactsRoot -Force | Out-Null
+if (Test-Path -LiteralPath $stagingRoot) {
+    Remove-Item -LiteralPath $stagingRoot -Recurse -Force
 }
 New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
 
@@ -58,6 +59,9 @@ function Remove-UnusedLanguageDirectories {
 $folderName = "Windows_SC-$displayVersion-x64"
 $folderStage = Join-Path $stagingRoot $folderName
 $folderZip = Join-Path $artifactsRoot "$folderName.zip"
+if (Test-Path -LiteralPath $folderZip) {
+    throw "Distribution already exists. Increment the version before rebuilding: $folderZip"
+}
 
 & dotnet publish $projectPath `
     -c Release `

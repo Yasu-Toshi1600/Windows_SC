@@ -176,20 +176,21 @@ internal sealed class DiagnosticLogger : IDisposable
 
     public void Dispose()
     {
-        if (Volatile.Read(ref _isDisposed) != 0)
+        lock (_aggregationGate)
         {
-            return;
+            if (Volatile.Read(ref _isDisposed) != 0)
+            {
+                return;
+            }
+            FlushAggregatedErrors();
+            Interlocked.Exchange(ref _isDisposed, 1);
+            _writeRequested.Set();
         }
 
-        FlushAggregatedErrors();
-        if (Interlocked.Exchange(ref _isDisposed, 1) != 0)
+        if (_writerThread.Join(TimeSpan.FromSeconds(2)))
         {
-            return;
+            _writeRequested.Dispose();
         }
-
-        _writeRequested.Set();
-        _writerThread.Join(TimeSpan.FromSeconds(2));
-        _writeRequested.Dispose();
     }
 
     private void EnqueueAggregated(
@@ -206,6 +207,7 @@ internal sealed class DiagnosticLogger : IDisposable
         string sanitized = LogPrivacySanitizer.Sanitize(message);
         lock (_aggregationGate)
         {
+            if (Volatile.Read(ref _isDisposed) != 0) return;
             ref AggregationState state = ref (isDetailedOnly
                 ? ref _detailedAggregation
                 : ref _normalAggregation);

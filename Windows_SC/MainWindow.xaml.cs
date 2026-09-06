@@ -45,6 +45,7 @@ public sealed partial class MainWindow : Window
     private readonly UISettings _uiSettings;
     private bool _isVisible;
     private bool _isInitialized;
+    private bool _shutdownResourcesReleased;
     private bool _launcherIsActivated;
     private bool? _lastLoggedLauncherFocus;
     private bool? _lastLoggedStartMenuVisibility;
@@ -152,7 +153,6 @@ public sealed partial class MainWindow : Window
         _windowInteropService.Start(_windowHandle);
 
         Activated += Window_Activated;
-        Closed += Window_Closed;
         _inputService.ManualToggleRequested += InputService_ManualToggleRequested;
         _inputService.WindowsKeyReleasedAlone += InputService_WindowsKeyReleasedAlone;
         _inputService.Start(_windowHandle);
@@ -1123,17 +1123,26 @@ public sealed partial class MainWindow : Window
             ? -1
             : Stopwatch.GetElapsedTime(start, end).TotalMilliseconds;
 
-    private void Window_Closed(object sender, WindowEventArgs args)
+    internal void ReleaseShutdownResources(Action<string, Action> release)
     {
+        if (_shutdownResourcesReleased)
+        {
+            return;
+        }
+        _shutdownResourcesReleased = true;
+        _logger.Write("[Application] action=release-window-resources result=success phase=begin");
         _shortcutKeyExecutionCoordinator.Detach(PrepareShortcutKeyTargetAsync);
         _shortcutTargetPreparationCompletion?.TrySetCanceled();
         _shortcutTargetPreparationCompletion = null;
         _motionService.Completed -= MotionService_Completed;
-        _motionService.Dispose();
-        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+        release("motion", _motionService.Dispose);
+        release("ui-settings", () =>
         {
-            _uiSettings.AnimationsEnabledChanged -= UISettings_AnimationsEnabledChanged;
-        }
+            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+            {
+                _uiSettings.AnimationsEnabledChanged -= UISettings_AnimationsEnabledChanged;
+            }
+        });
         RootBorder.Loaded -= RootBorder_Loaded;
         ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
         ViewModel.LauncherItemExecuted -= ViewModel_LauncherItemExecuted;
@@ -1143,7 +1152,7 @@ public sealed partial class MainWindow : Window
         _startMenuMonitor.SnapshotChanged -= StartMenuMonitor_SnapshotChanged;
         _startMenuMonitor.ReadyChanged -= StartMenuMonitor_ReadyChanged;
         _startMenuMonitor.StartConfirmationExpired -= StartMenuMonitor_StartConfirmationExpired;
-        _startMenuMonitor.Dispose();
+        release("start-menu", _startMenuMonitor.Dispose);
         _windowInteropService.EscapePressed -= WindowInteropService_EscapePressed;
         _windowInteropService.DisplayEnvironmentChanged -=
             WindowInteropService_DisplayEnvironmentChanged;
@@ -1157,8 +1166,8 @@ public sealed partial class MainWindow : Window
         _presentationVerificationTimer.Tick -= PresentationVerificationTimer_Tick;
         _actionFocusTransferTimer.Stop();
         _actionFocusTransferTimer.Tick -= ActionFocusTransferTimer_Tick;
-        _windowInteropService.Dispose();
-        _inputService.Dispose();
+        release("window-interop", _windowInteropService.Dispose);
+        release("input", _inputService.Dispose);
         _logger.Write("[InputMonitor] action=stop result=success");
         _logger.Write("[Application] action=window-close result=success");
     }

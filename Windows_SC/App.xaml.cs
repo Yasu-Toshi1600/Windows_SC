@@ -170,12 +170,14 @@ public partial class App : Application
 
     private void Window_Closed(object sender, WindowEventArgs args)
     {
+        _isShuttingDown = true;
+        ReleaseForShutdown("window", () => _window?.ReleaseShutdownResources(ReleaseForShutdown));
         // Settings are committed only by explicit settings operations. Saving the
         // cached launcher state here could overwrite a newer in-flight save.
         if (_viewModel is not null)
         {
             _viewModel.SettingsRequested -= ViewModel_SettingsRequested;
-            _viewModel.Dispose();
+            ReleaseForShutdown("view-model", _viewModel.Dispose);
         }
 
         if (_systemTrayService is not null)
@@ -183,30 +185,46 @@ public partial class App : Application
             _systemTrayService.ShowLauncherRequested -= SystemTrayService_ShowLauncherRequested;
             _systemTrayService.SettingsRequested -= SystemTrayService_SettingsRequested;
             _systemTrayService.ExitRequested -= SystemTrayService_ExitRequested;
-            _systemTrayService.Dispose();
+            ReleaseForShutdown("system-tray", _systemTrayService.Dispose);
             _systemTrayService = null;
         }
 
-        _singleInstanceService?.Dispose();
-        _singleInstanceService = null;
-        _applicationVolumeService?.Dispose();
+        ReleaseForShutdown("application-volume", () => _applicationVolumeService?.Dispose());
         _applicationVolumeService = null;
-        _audioOutputService?.Dispose();
+        ReleaseForShutdown("audio-output", () => _audioOutputService?.Dispose());
         _audioOutputService = null;
-        _applicationVolumeStateStore?.Dispose();
+        ReleaseForShutdown("volume-state", () => _applicationVolumeStateStore?.Dispose());
         _applicationVolumeStateStore = null;
-        _systemMetricsService?.Dispose();
+        ReleaseForShutdown("system-metrics", () => _systemMetricsService?.Dispose());
         _systemMetricsService = null;
-        _macroExecutionService?.Dispose();
+        ReleaseForShutdown("macro", () => _macroExecutionService?.Dispose());
         _macroExecutionService = null;
         UnhandledException -= App_UnhandledException;
         AppDomain.CurrentDomain.UnhandledException -= CurrentDomain_UnhandledException;
         System.Threading.Tasks.TaskScheduler.UnobservedTaskException -=
             TaskScheduler_UnobservedTaskException;
+        ReleaseForShutdown("single-instance", () => _singleInstanceService?.Dispose());
+        _singleInstanceService = null;
+        _logger?.Write("[Application] action=shutdown-complete result=success");
         _logger?.Dispose();
         _logger = null;
         _environmentInformationService = null;
         Exit();
+    }
+
+    private void ReleaseForShutdown(string component, Action release)
+    {
+        _logger?.Write($"[Application] action=release-resource result=success component={component} phase=begin");
+        try
+        {
+            release();
+            _logger?.Write($"[Application] action=release-resource result=success component={component} phase=end");
+        }
+        catch (Exception exception)
+        {
+            _logger?.Write($"[Application] action=release-resource result=failed component={component} " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+        }
     }
 
     private void ViewModel_SettingsRequested(object? sender, EventArgs args)
@@ -216,6 +234,7 @@ public partial class App : Application
 
     private void ShowSettingsWindow()
     {
+        if (_isShuttingDown) return;
         if (_settingsWindow is not null)
         {
             _settingsWindow.Activate();

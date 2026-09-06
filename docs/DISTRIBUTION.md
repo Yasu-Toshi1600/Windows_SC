@@ -1,7 +1,7 @@
 # Windows_SC 配布手順
 
-更新日: 2026-09-01
-対象ソースバージョン: `0.9.3`
+更新日: 2026-09-06
+対象ソースバージョン: `0.9.5`
 
 ## 1. 配布形式
 
@@ -42,8 +42,9 @@ PowerShellの実行ポリシーでスクリプトが止められるPCでは、�
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Distribution.ps1
 ```
 
-スクリプトは`Version.props`から版番号を読み、`artifacts\distribution`を作り直す。
-完了時にファイル数、容量、SHA-256を表示する。
+スクリプトは`Version.props`から版番号を読み、`artifacts\distribution`内の旧成果物を
+保持したまま作業用`staging`だけを作り直す。同じ版番号のZIPが既にある場合は上書きせず
+停止する。完了時にファイル数、容量、SHA-256を表示する。
 
 ## 4. 配布前確認
 
@@ -65,8 +66,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Distribu
 
 ## 6. 公開状況と再配布
 
-公開済みのタグ／配布版は`v0.6.2-beta.1`である。現在のソース`0.9.3`は、
-ローカルZIPを生成しても、タグとGitHub Releaseを作成するまでは公開済みではない。
+公開済みのタグ／配布版は`v0.6.2-beta.1`である。現在のソース`0.9.5`は、
+ローカルZIPの生成と内容確認まで完了しているが、タグとGitHub Releaseを作成するまでは公開済みではない。
 `0.6.2-beta.1`では通常ZIP版と単一EXE版を公開したが、単一EXE版は起動障害が
 確認されたため使用しない。
 重大な問題が出た場合は通常ZIP版でも再現するか確認し、通常ログと必要に応じて
