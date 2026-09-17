@@ -18,6 +18,7 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly IApplicationVolumeService _applicationVolumeService;
     private readonly ISystemMetricsService _systemMetricsService;
     private readonly IUiDispatcher _uiDispatcher;
+    private readonly CommandCycleStateStore _commandCycleState;
 
     public MainWindowViewModel(
         IActionExecutionService actionExecutionService,
@@ -25,13 +26,15 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
         IAudioOutputService audioOutputService,
         IApplicationVolumeService applicationVolumeService,
         ISystemMetricsService systemMetricsService,
-        IUiDispatcher uiDispatcher)
+        IUiDispatcher uiDispatcher,
+        CommandCycleStateStore commandCycleState)
     {
         _actionExecutionService = actionExecutionService;
         _macroExecutionService = macroExecutionService;
         _applicationVolumeService = applicationVolumeService;
         _systemMetricsService = systemMetricsService;
         _uiDispatcher = uiDispatcher;
+        _commandCycleState = commandCycleState;
         _applicationVolumeService.StateChanged += ApplicationVolumeService_StateChanged;
         _systemMetricsService.MetricsChanged += SystemMetricsService_MetricsChanged;
         AudioOutputService = audioOutputService;
@@ -106,7 +109,8 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
                 _macroExecutionService,
                 AudioOutputService,
                 _applicationVolumeService,
-                _systemMetricsService);
+                _systemMetricsService,
+                _commandCycleState);
             shortcut.Executed += Shortcut_Executed;
             shortcut.ApplyLayoutMode(LayoutMode);
             Shortcuts.Add(shortcut);

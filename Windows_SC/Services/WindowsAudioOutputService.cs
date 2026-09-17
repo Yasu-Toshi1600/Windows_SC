@@ -207,7 +207,8 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
 
     public Task<AudioDeviceCycleResult> CycleAsync(
         IReadOnlyList<string> orderedDeviceIds,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, string>? stableIds = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -229,6 +230,8 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
 
             Dictionary<string, AudioOutputDevice> devices = EnumerateDevices()
                 .ToDictionary(device => device.Id, StringComparer.OrdinalIgnoreCase);
+            orderedIds = AudioDeviceIdentityResolver.ResolveIds(
+                orderedIds, stableIds, devices.Values.ToList()).ToList();
             string? currentDeviceId = QueryDefaultDevice()?.Id;
             int currentIndex = currentDeviceId is null
                 ? -1
@@ -504,10 +507,38 @@ internal sealed class WindowsAudioOutputService : IAudioOutputService
             .Select(device => new AudioOutputDevice(
                 AudioDeviceId.Normalize(device.Id),
                 device.Name,
-                device.IsEnabled))
+                device.IsEnabled,
+                QueryStableId(AudioDeviceId.Normalize(device.Id))))
             .OrderByDescending(device => device.IsAvailable)
             .ThenBy(device => device.DisplayName, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
+
+    private static string? QueryStableId(string id)
+    {
+        IMMDeviceEnumerator? enumerator = null;
+        IMMDevice? device = null;
+        IPropertyStore? store = null;
+        PropVariant value = default;
+        try
+        {
+            enumerator = CreateEnumerator();
+            if (enumerator.GetDevice(id, out device) < 0
+                || device.OpenPropertyStore(StorageAccessMode.Read, out store) < 0) return null;
+            PropertyKey key = PropertyKeys.AudioEndpointStableId;
+            if (store.GetValue(ref key, out value) < 0) return null;
+            string stableId = value.GetString();
+            return string.IsNullOrEmpty(stableId) ? null : stableId;
+        }
+        catch (Exception exception) when (exception is COMException or InvalidCastException
+            or InvalidOperationException) { return null; }
+        finally
+        {
+            value.Dispose();
+            ReleaseComObject(store);
+            ReleaseComObject(device);
+            ReleaseComObject(enumerator);
+        }
     }
 
     private static AudioOutputDevice ReadDevice(IMMDevice device)

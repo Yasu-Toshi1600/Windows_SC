@@ -86,7 +86,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             AvailableAudioOutputDevices.Add(new AudioOutputDeviceOption(
                 device.Id,
                 device.DisplayName,
-                device.IsAvailable));
+                device.IsAvailable, device.StableId));
         }
 
         RefreshApplicationCandidatesFromCache();
@@ -124,6 +124,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         AddWidgetCommand = new RelayCommand(() => AddItem(LauncherItemKind.Widget));
         DeleteItemCommand = new RelayCommand(DeleteSelectedItem, () => SelectedItem is not null);
         AddAudioDeviceCommand = new RelayCommand(AddAudioDevice, CanAddAudioDevice);
+        ReplaceAudioDeviceCommand = new RelayCommand(ReplaceAudioDevice, CanReplaceAudioDevice);
         RefreshAudioDevicesCommand = new AsyncRelayCommand(
             RefreshAudioDevicesAsync,
             () => !_isRefreshingAudioDevices
@@ -327,6 +328,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _audioDeviceToAdd, value))
             {
                 AddAudioDeviceCommand.NotifyCanExecuteChanged();
+                ReplaceAudioDeviceCommand.NotifyCanExecuteChanged();
             }
         }
     }
@@ -554,6 +556,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     public RelayCommand AddCommandStepCommand { get; }
     public RelayCommand AddMacroStepCommand { get; }
     public RelayCommand RemoveAudioDeviceCommand { get; }
+    public RelayCommand ReplaceAudioDeviceCommand { get; }
     public RelayCommand MoveAudioDeviceUpCommand { get; }
     public RelayCommand MoveAudioDeviceDownCommand { get; }
     public AsyncRelayCommand SaveCommand { get; }
@@ -990,6 +993,28 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         && SelectedItem.RegisteredAudioDevices.All(device =>
             !string.Equals(device.Id, AudioDeviceToAdd.Id, StringComparison.OrdinalIgnoreCase));
 
+    private bool CanReplaceAudioDevice() => CanAddAudioDevice()
+        && AudioDeviceToAdd?.IsAvailable == true
+        && SelectedRegisteredAudioDevice is not null
+        && SelectedItem!.RegisteredAudioDevices.Contains(SelectedRegisteredAudioDevice);
+
+    private void ReplaceAudioDevice()
+    {
+        if (!CanReplaceAudioDevice()) return;
+        int index = SelectedItem!.RegisteredAudioDevices.IndexOf(SelectedRegisteredAudioDevice!);
+        AudioOutputDeviceOption replacement = AudioDeviceToAdd!;
+        SelectedRegisteredAudioDevice = null;
+        RegisteredAudioDeviceEditorViewModel registered = new(
+            replacement.Id, replacement.DisplayName, replacement.IsAvailable, replacement.StableId);
+        SelectedItem.RegisteredAudioDevices[index] = registered;
+        SelectedRegisteredAudioDevice = registered;
+        AudioDeviceToAdd = AvailableAudioOutputDevices.FirstOrDefault(device =>
+            SelectedItem.RegisteredAudioDevices.All(existing =>
+                !string.Equals(existing.Id, device.Id, StringComparison.OrdinalIgnoreCase)));
+        MarkDirty();
+        NotifyAudioDeviceCommands();
+    }
+
     private void AddAudioDevice()
     {
         if (!CanAddAudioDevice() || SelectedItem is null || AudioDeviceToAdd is null)
@@ -1000,7 +1025,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         RegisteredAudioDeviceEditorViewModel registered = new(
             AudioDeviceToAdd.Id,
             AudioDeviceToAdd.DisplayName,
-            AudioDeviceToAdd.IsAvailable);
+            AudioDeviceToAdd.IsAvailable, AudioDeviceToAdd.StableId);
         SelectedItem.RegisteredAudioDevices.Add(registered);
         SelectedRegisteredAudioDevice = registered;
         AudioDeviceToAdd = AvailableAudioOutputDevices.FirstOrDefault(device =>
@@ -1078,6 +1103,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     {
         AddAudioDeviceCommand.NotifyCanExecuteChanged();
         RefreshAudioDevicesCommand.NotifyCanExecuteChanged();
+        ReplaceAudioDeviceCommand.NotifyCanExecuteChanged();
         RemoveAudioDeviceCommand.NotifyCanExecuteChanged();
         MoveAudioDeviceUpCommand.NotifyCanExecuteChanged();
         MoveAudioDeviceDownCommand.NotifyCanExecuteChanged();
@@ -1213,7 +1239,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 .Select(device => new AudioOutputDeviceOption(
                     device.Id,
                     device.DisplayName,
-                    device.IsAvailable))
+                    device.IsAvailable, device.StableId))
                 .ToList();
 
             AvailableAudioOutputDevices.Clear();
@@ -1229,15 +1255,14 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 {
                     RegisteredAudioDeviceEditorViewModel registered =
                         item.RegisteredAudioDevices[index];
-                    AudioOutputDeviceOption? available = refreshedDevices.FirstOrDefault(device =>
-                        string.Equals(
-                            AudioDeviceId.Normalize(device.Id),
-                            AudioDeviceId.Normalize(registered.Id),
-                            StringComparison.OrdinalIgnoreCase));
+                    AudioOutputDevice? available = AudioDeviceIdentityResolver.Resolve(registered.Id,
+                        registered.StableId, refreshedDevices.Select(device => new AudioOutputDevice(
+                            device.Id, device.DisplayName, device.IsAvailable, device.StableId)).ToList());
                     item.RegisteredAudioDevices[index] = new RegisteredAudioDeviceEditorViewModel(
-                        registered.Id,
+                        available?.Id ?? registered.Id,
                         available?.DisplayName ?? registered.DisplayName,
-                        available?.IsAvailable == true);
+                        available?.IsAvailable == true,
+                        available?.StableId ?? registered.StableId);
                 }
             }
 

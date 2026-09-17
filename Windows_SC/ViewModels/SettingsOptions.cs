@@ -9,7 +9,8 @@ internal sealed record ActionKindOption(
 internal sealed record AudioOutputDeviceOption(
     string Id,
     string DisplayName,
-    bool IsAvailable)
+    bool IsAvailable,
+    string? StableId = null)
 {
     public string DisplayLabel => IsAvailable
         ? DisplayName

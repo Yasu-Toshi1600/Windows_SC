@@ -919,14 +919,41 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        _presentationAttemptCount++;
-        _ = _windowInteropService.TryKeepTopmost(_windowHandle);
-        if (_presentationAttemptCount < MaximumPresentationAttempts)
+        if (_presentationAttemptCount >= MaximumPresentationAttempts)
         {
-            _presentationVerificationTimer.Start();
+            HandlePresentationFailure(state);
             return;
         }
 
+        _presentationAttemptCount++;
+        // AppWindow's presenter can still report AlwaysOnTop while the initial
+        // non-activating HWND presentation has lost WS_EX_TOPMOST. Reapply the
+        // presenter policy once, then retain the native non-activating retries.
+        if (_presentationAttemptCount == 1 && !state.IsTopmost
+            && _appWindow.Presenter is OverlappedPresenter presenter)
+        {
+            try
+            {
+                presenter.IsAlwaysOnTop = false;
+                presenter.IsAlwaysOnTop = true;
+                _logger.Write(
+                    "[Launcher] action=reapply-topmost-policy result=success");
+            }
+            catch (Exception exception)
+            {
+                _logger.Write(
+                    $"[Launcher] action=reapply-topmost-policy result=failed " +
+                    $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+            }
+        }
+        _ = _windowInteropService.TryKeepTopmost(_windowHandle);
+        // Observe every retry, including the final one, on the next UI tick.
+        // Previously the last attempt was declared failed using its BEFORE state.
+        _presentationVerificationTimer.Start();
+    }
+
+    private void HandlePresentationFailure(WindowPresentationState state)
+    {
         _logger.Write(
             $"[Launcher] action=verify-presentation result=failed " +
             $"reason={_presentationReason} attempts={_presentationAttemptCount} " +

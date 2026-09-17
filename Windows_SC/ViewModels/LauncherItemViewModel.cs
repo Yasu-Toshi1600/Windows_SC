@@ -31,6 +31,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private string _cycleStatusText = "切り替え内容が設定されていません";
     private bool _canExecuteCycle;
     private int _nextCommandStepIndex;
+    private readonly CommandCycleStateStore _commandCycleState;
     private bool _canAdjustVolume;
     private bool _isRefreshingVolume;
     private bool _isMixedVolume;
@@ -54,13 +55,17 @@ internal sealed class LauncherItemViewModel : ObservableObject
         IMacroExecutionService macroExecutionService,
         IAudioOutputService audioOutputService,
         IApplicationVolumeService applicationVolumeService,
-        ISystemMetricsService systemMetricsService)
+        ISystemMetricsService systemMetricsService,
+        CommandCycleStateStore commandCycleState)
     {
         Id = definition.Id;
         Kind = definition.Kind;
         Title = definition.Title;
         _action = definition.Action;
         _cycleAction = definition.GetEffectiveCycleAction();
+        _commandCycleState = commandCycleState;
+        if (_cycleAction?.Kind == CycleActionKind.Commands)
+            _nextCommandStepIndex = commandCycleState.GetNext(Id, _cycleAction.CommandSteps);
         _volumeSlider = definition.VolumeSlider;
         _widget = definition.Widget;
         _selectedMonitorMetrics = NormalizeSystemMonitorMetrics(_widget?.Metrics);
@@ -321,14 +326,17 @@ internal sealed class LauncherItemViewModel : ObservableObject
                 group => group.First(),
                 StringComparer.OrdinalIgnoreCase);
         AudioOutputDevice? currentDevice = _audioOutputService.GetCachedDefaultDevice();
+        int registeredDeviceCount = registeredIds.Count;
+        registeredIds = AudioDeviceIdentityResolver.ResolveIds(registeredIds,
+            _cycleAction?.AudioDeviceStableIds, _audioOutputService.GetCachedDevices());
         AudioOutputDevice? nextDevice = AudioOutputCycleSelector.FindNext(
             registeredIds,
             availableDevices,
             currentDevice?.Id);
-        bool canCycle = registeredIds.Count >= 2 && nextDevice is not null;
+        bool canCycle = registeredDeviceCount >= 2 && nextDevice is not null;
         CycleStatusText = canCycle
             ? $"次: {nextDevice!.DisplayName}"
-            : registeredIds.Count < 2
+            : registeredDeviceCount < 2
                 ? "音声出力デバイスを2台以上登録してください"
                 : "切り替え可能な音声出力デバイスがありません";
 
@@ -513,7 +521,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private async System.Threading.Tasks.Task CycleAudioOutputAsync()
     {
         AudioDeviceCycleResult result = await _audioOutputService.CycleAsync(
-            _cycleAction?.AudioDeviceIds ?? []);
+            _cycleAction?.AudioDeviceIds ?? [], stableIds: _cycleAction?.AudioDeviceStableIds);
         if (result.IsSuccess && result.CurrentDevice is not null)
         {
             Executed?.Invoke(
@@ -543,6 +551,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
         CommandCycleStepDefinition step = steps[_nextCommandStepIndex];
         ActionExecutionResult result = await _actionExecutionService.ExecuteAsync(step.Action);
         _nextCommandStepIndex = (_nextCommandStepIndex + 1) % steps.Count;
+        await _commandCycleState.SaveNextAsync(Id, steps, _nextCommandStepIndex);
         UpdateCommandCycleStatus();
 
         RaiseExecuted(

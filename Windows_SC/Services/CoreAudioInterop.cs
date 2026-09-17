@@ -52,6 +52,12 @@ internal struct PropertyKey
 
 internal static class PropertyKeys
 {
+    // Microsoft.Windows.SDK.CPP 10.0.28000.2705, mmdeviceapi.h.
+    public static PropertyKey AudioEndpointStableId => new()
+    {
+        FormatId = new Guid("1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E"),
+        PropertyId = 12
+    };
     public static PropertyKey DeviceFriendlyName => new()
     {
         FormatId = new Guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"),

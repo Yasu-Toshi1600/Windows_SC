@@ -128,7 +128,10 @@ public partial class App : Application
             _audioOutputService,
             _applicationVolumeService,
             _systemMetricsService,
-            _uiDispatcher);
+            _uiDispatcher,
+            new CommandCycleStateStore(
+                System.IO.Path.Combine(ApplicationDataPaths.SettingsDirectoryPath, "command-cycle-state.json"),
+                logger.Write));
         _environmentInformationService = new EnvironmentInformationService(logger);
         _viewModel.ApplySettings(settings);
         _startupService = new RegistryStartupService(logger);

@@ -62,15 +62,20 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         foreach (string deviceId in cycleAction?.AudioDeviceIds ?? [])
         {
             string normalizedDeviceId = AudioDeviceId.Normalize(deviceId);
-            AudioOutputDeviceOption? availableDevice = availableAudioDevices.FirstOrDefault(device =>
-                string.Equals(
-                    AudioDeviceId.Normalize(device.Id),
-                    normalizedDeviceId,
-                    StringComparison.OrdinalIgnoreCase));
+            string? stableId = AudioDeviceIdentityResolver.GetStableId(normalizedDeviceId,
+                cycleAction?.AudioDeviceStableIds);
+            AudioOutputDevice? availableDevice = AudioDeviceIdentityResolver.Resolve(normalizedDeviceId,
+                stableId, availableAudioDevices.Select(device => new AudioOutputDevice(
+                    device.Id, device.DisplayName, device.IsAvailable, device.StableId)).ToList());
             RegisteredAudioDevices.Add(new RegisteredAudioDeviceEditorViewModel(
-                normalizedDeviceId,
-                availableDevice?.DisplayName ?? "不明なデバイス",
-                availableDevice?.IsAvailable == true));
+                availableDevice?.Id ?? normalizedDeviceId,
+                availableDevice?.DisplayName
+                    ?? cycleAction?.AudioDeviceNames?.FirstOrDefault(pair =>
+                        string.Equals(AudioDeviceId.Normalize(pair.Key), normalizedDeviceId,
+                            StringComparison.OrdinalIgnoreCase)).Value
+                    ?? "不明なデバイス",
+                availableDevice?.IsAvailable == true,
+                availableDevice?.StableId ?? stableId));
         }
 
         foreach (CommandCycleStepDefinition step in cycleAction?.CommandSteps ?? [])
@@ -381,6 +386,16 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
             {
                 Kind = CycleKind,
                 AudioDeviceIds = RegisteredAudioDevices.Select(device => device.Id).ToList(),
+                AudioDeviceStableIds = RegisteredAudioDevices
+                    .Where(device => !string.IsNullOrEmpty(device.StableId))
+                    .GroupBy(device => device.Id, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.First().StableId!,
+                        StringComparer.OrdinalIgnoreCase),
+                AudioDeviceNames = RegisteredAudioDevices
+                    .Where(device => device.DisplayName != "不明なデバイス")
+                    .GroupBy(device => device.Id, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.First().DisplayName,
+                        StringComparer.OrdinalIgnoreCase),
                 CommandSteps = CommandSteps.Select(step => step.ToDefinition()).ToList()
             }
             : null,

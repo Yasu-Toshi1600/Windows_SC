@@ -24,13 +24,15 @@ internal interface IAudioOutputService : IDisposable
 
     Task<AudioDeviceCycleResult> CycleAsync(
         IReadOnlyList<string> orderedDeviceIds,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, string>? stableIds = null);
 }
 
 internal sealed record AudioOutputDevice(
     string Id,
     string DisplayName,
-    bool IsAvailable);
+    bool IsAvailable,
+    string? StableId = null);
 
 internal readonly record struct AudioDeviceCycleResult(
     bool IsSuccess,

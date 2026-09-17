@@ -10,8 +10,8 @@
 製品ソースのリンクではなくCore成果物を`ProjectReference`で参照する。
 
 ```powershell
-dotnet test Windows_SC.Tests/Windows_SC.Tests.csproj -c Debug --no-restore
-dotnet test Windows_SC.Tests/Windows_SC.Tests.csproj -c Release --no-restore
+dotnet test Windows_SC.Tests/Windows_SC.Tests.csproj -c Debug -p:Platform=x64 --no-restore
+dotnet test Windows_SC.Tests/Windows_SC.Tests.csproj -c Release -p:Platform=x64 --no-restore
 ```
 
 ## 2. 自動確認する領域
@@ -48,11 +48,6 @@ Coreの振る舞いを変更するときは、正常系だけでなく境界値�
 これらは`TEST_CHECKLIST.md`と`PHASE5_6_TEST_PROCEDURE.md`を正とし、
 ビルドやCoreテスト成功だけで動作確認済みとはしない。
 
-## 4. 2026-08-09確認結果
+## 4. 検証結果
 
-- Coreテスト: 72件成功、失敗0
-- テストTFM: `net8.0`
-- CoreのWinUI／Windows App SDK／Windows API参照: なし
-- 製品ソースの`Compile Include`: なし
-- 自動テスト追加時に、アプリ音量状態のデバイスID比較とユーザープロファイル配下の
-  ログ匿名化で不足を検出し、Core実装と回帰テストを修正した。
+件数と直近結果は[現在の状況](NEXT_STEPS_AND_DECISIONS.md)に集約する。

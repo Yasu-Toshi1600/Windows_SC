@@ -375,6 +375,9 @@
                                 <FontIcon Glyph="&#xE72C;" />
                             </Button>
                         </StackPanel>
+                        <Button Content="選択した登録先を差し替え"
+                                Command="{Binding ReplaceAudioDeviceCommand}"
+                                ToolTipService.ToolTip="一覧の登録先と、追加するデバイスから新しい出力先を選びます。登録順を維持して差し替え、保存で確定します。" />
                         <ListView x:Name="AudioDeviceList"
                                   Height="180"
                                   ItemsSource="{Binding SelectedItem.RegisteredAudioDevices}"

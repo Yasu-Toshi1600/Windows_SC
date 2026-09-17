@@ -243,6 +243,8 @@ internal sealed class CycleActionDefinition
     public CycleActionKind Kind { get; set; } = CycleActionKind.AudioOutput;
 
     public List<string> AudioDeviceIds { get; set; } = [];
+    public Dictionary<string, string> AudioDeviceNames { get; set; } = [];
+    public Dictionary<string, string> AudioDeviceStableIds { get; set; } = [];
 
     public List<CommandCycleStepDefinition> CommandSteps { get; set; } = [];
 }

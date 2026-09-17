@@ -4,7 +4,7 @@
 
 作成日: 2026-07-21
 更新日: 2026-09-01
-対象: Windows_SC `0.9.5` / Windows 11 25H2 x64 / Windows App SDK 1.8
+対象: Windows_SC `0.9.6` / Windows 11 25H2 x64 / Windows App SDK 1.8
 目的: Phase 5の対応環境検証・エラー処理と、Phase 6の回帰・性能・配布確認を、同じ条件で再実施できるようにする。
 
 関連資料:
