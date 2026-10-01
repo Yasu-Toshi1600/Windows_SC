@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -67,10 +68,29 @@ public sealed class LauncherSettingsMigrationTests
         Assert.AreEqual(LauncherLayoutMode.Compact, settings.LayoutMode);
         Assert.AreEqual(2, settings.Pages[0].Items.Count);
         Assert.AreEqual("App", settings.Pages[0].Items[0].Title);
+        Assert.IsTrue(settings.Pages[0].Items.All(item =>
+            item.BackgroundColor == LauncherItemBackgroundColor.PaleBlue));
         CollectionAssert.AreEqual(
             new[] { "device-b", "device-a" },
             settings.Pages[0].Items[1].CycleAction!.AudioDeviceIds);
         Assert.AreEqual(0, LauncherSettingsValidator.Validate(settings).Count);
+    }
+
+    [TestMethod]
+    public void Serialize_RoundTripsLauncherItemBackgroundColor()
+    {
+        LauncherSettings settings = LauncherSettings.CreateDefault();
+        settings.Pages[0].Items[0].BackgroundColor = LauncherItemBackgroundColor.PalePurple;
+
+        string json = JsonSerializer.Serialize(settings, SerializerOptions);
+        LauncherSettings restored = JsonSerializer.Deserialize<LauncherSettings>(
+            json,
+            SerializerOptions)!;
+
+        Assert.AreEqual(
+            LauncherItemBackgroundColor.PalePurple,
+            restored.Pages[0].Items[0].BackgroundColor);
+        Assert.AreEqual(0, LauncherSettingsValidator.Validate(restored).Count);
     }
 
     [TestMethod]

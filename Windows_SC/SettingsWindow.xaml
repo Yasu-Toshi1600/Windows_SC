@@ -133,8 +133,50 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Spacing="12">
                     <TextBlock FontSize="16" FontWeight="SemiBold" Text="選択項目" />
-                    <TextBlock FontWeight="SemiBold"
-                               Text="{Binding SelectedItem.KindSummary}" />
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
+                        <TextBlock FontWeight="SemiBold"
+                                   Text="{Binding SelectedItem.KindSummary}"
+                                   VerticalAlignment="Center" />
+                        <Grid Grid.Column="1"
+                              ColumnDefinitions="Auto,*"
+                              ColumnSpacing="8">
+                            <TextBlock Text="背景"
+                                       VerticalAlignment="Center" />
+                            <ListView Grid.Column="1"
+                                      Height="40"
+                                      HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding BackgroundColors}"
+                                      SelectedItem="{Binding SelectedBackgroundColor, Mode=TwoWay}"
+                                      SelectionMode="Single"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                <ListView.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <ItemsStackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ListView.ItemsPanel>
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="MinWidth" Value="34" />
+                                        <Setter Property="MinHeight" Value="34" />
+                                        <Setter Property="Padding" Value="4" />
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="viewModels:LauncherItemBackgroundColorOption">
+                                        <Border Width="24"
+                                                Height="24"
+                                                AutomationProperties.Name="{x:Bind DisplayLabel}"
+                                                Background="{x:Bind PreviewBrush}"
+                                                BorderBrush="{x:Bind BorderBrush}"
+                                                BorderThickness="2"
+                                                CornerRadius="4"
+                                                ToolTipService.ToolTip="{x:Bind DisplayLabel}" />
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </Grid>
+                    </Grid>
                     <StackPanel Spacing="4">
                         <TextBox Header="表示名"
                                  Text="{Binding SelectedItem.Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />

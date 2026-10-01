@@ -23,6 +23,7 @@ public sealed class CoreModelAndUtilityTests
         Assert.IsTrue(settings.Pages[0].Items.All(item =>
             item.Id != Guid.Empty
             && item.Kind == LauncherItemKind.Button
+            && item.BackgroundColor == LauncherItemBackgroundColor.PaleBlue
             && item.Action?.Kind == LauncherActionKind.Application
             && !string.IsNullOrWhiteSpace(item.Action.Target)));
         Assert.AreEqual(0, LauncherSettingsValidator.Validate(settings).Count);

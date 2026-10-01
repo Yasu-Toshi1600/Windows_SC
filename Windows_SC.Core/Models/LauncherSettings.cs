@@ -60,6 +60,9 @@ internal sealed class LauncherItemDefinition
 
     public string Title { get; set; } = string.Empty;
 
+    public LauncherItemBackgroundColor BackgroundColor { get; set; } =
+        LauncherItemBackgroundColor.PaleBlue;
+
     public LauncherPostExecutionBehavior PostExecutionBehavior { get; set; } =
         LauncherPostExecutionBehavior.CloseOnSuccess;
 
@@ -101,6 +104,18 @@ internal sealed class LauncherItemDefinition
             AudioDeviceIds = AudioDeviceToggle.GetOrderedDeviceIds().ToList()
         };
     }
+}
+
+internal enum LauncherItemBackgroundColor
+{
+    PaleBlue,
+    PaleGreen,
+    PaleYellow,
+    PaleOrange,
+    PalePink,
+    PalePurple,
+    PaleCyan,
+    PaleGray
 }
 
 internal enum LauncherItemKind

@@ -8,6 +8,68 @@
     Title="Windows_SC">
 
     <Grid x:Name="MotionViewport" Background="Transparent">
+        <Grid.Resources>
+        <Style x:Key="LauncherItemButtonStyle" TargetType="Button">
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="12" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid x:Name="TemplateRoot">
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualStateGroup.Transitions>
+                                        <VisualTransition GeneratedDuration="0:0:0.083" />
+                                    </VisualStateGroup.Transitions>
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="PointerOver">
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="InteractionOverlay"
+                                                             Storyboard.TargetProperty="Opacity"
+                                                             Duration="0:0:0.083"
+                                                             To="0.06" />
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Pressed">
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="InteractionOverlay"
+                                                             Storyboard.TargetProperty="Opacity"
+                                                             Duration="0:0:0.083"
+                                                             To="0.12" />
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Disabled">
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="TemplateRoot"
+                                                             Storyboard.TargetProperty="Opacity"
+                                                             Duration="0"
+                                                             To="0.55" />
+                                        </Storyboard>
+                                    </VisualState>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="{TemplateBinding CornerRadius}" />
+                            <Border x:Name="InteractionOverlay"
+                                    Background="#FF000000"
+                                    CornerRadius="{TemplateBinding CornerRadius}"
+                                    IsHitTestVisible="False"
+                                    Opacity="0" />
+                            <ContentPresenter HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              Padding="{TemplateBinding Padding}"
+                                              Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              Foreground="{TemplateBinding Foreground}" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        </Grid.Resources>
         <Grid x:Name="LauncherSurface">
             <Border
                 x:Name="RootBorder"
@@ -55,13 +117,22 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Grid Height="{Binding TileHeight, Mode=OneWay}">
+                                <Grid.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#FF1F1F1F" />
+                                    </Style>
+                                </Grid.Resources>
                                 <Button
+                                    Background="{Binding ItemBackgroundBrush, Mode=OneTime}"
+                                    BorderBrush="{Binding ItemBorderBrush, Mode=OneTime}"
+                                    Foreground="{Binding ItemForegroundBrush, Mode=OneTime}"
                                     Margin="6"
                                     HorizontalAlignment="Stretch"
                                     VerticalAlignment="Stretch"
                                     Command="{Binding ExecuteCommand, Mode=OneTime}"
                                     FontSize="16"
                                     FontWeight="SemiBold"
+                                    Style="{StaticResource LauncherItemButtonStyle}"
                                     ToolTipService.ToolTip="{Binding Title, Mode=OneTime}"
                                     Visibility="{Binding ButtonVisibility, Mode=OneTime}">
                                     <TextBlock
@@ -75,8 +146,8 @@
                                 <Border
                                     Margin="6"
                                     Padding="10,4"
-                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    Background="{Binding ItemBackgroundBrush, Mode=OneTime}"
+                                    BorderBrush="{Binding ItemBorderBrush, Mode=OneTime}"
                                     BorderThickness="1"
                                     CornerRadius="8"
                                     Visibility="{Binding WidgetVisibility, Mode=OneTime}">
@@ -203,8 +274,8 @@
                                 <Border
                                     Margin="6"
                                     Padding="16"
-                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    Background="{Binding ItemBackgroundBrush, Mode=OneTime}"
+                                    BorderBrush="{Binding ItemBorderBrush, Mode=OneTime}"
                                     BorderThickness="1"
                                     CornerRadius="8"
                                     Visibility="{Binding StandardToggleVisibility, Mode=OneWay}">
@@ -221,7 +292,7 @@
                                             Grid.Row="1"
                                             MaxLines="2"
                                             VerticalAlignment="Center"
-                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Foreground="{Binding ItemForegroundBrush, Mode=OneTime}"
                                             Text="{Binding CycleStatusText, Mode=OneWay}"
                                             TextTrimming="CharacterEllipsis"
                                             ToolTipService.ToolTip="{Binding CycleStatusText, Mode=OneWay}"
@@ -237,8 +308,8 @@
                                 <Border
                                     Margin="6"
                                     Padding="16"
-                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    Background="{Binding ItemBackgroundBrush, Mode=OneTime}"
+                                    BorderBrush="{Binding ItemBorderBrush, Mode=OneTime}"
                                     BorderThickness="1"
                                     CornerRadius="8"
                                     Visibility="{Binding StandardSliderVisibility, Mode=OneWay}">
@@ -255,7 +326,7 @@
                                             Grid.Row="1"
                                             HorizontalAlignment="Right"
                                             VerticalAlignment="Center"
-                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Foreground="{Binding ItemForegroundBrush, Mode=OneTime}"
                                             Text="{Binding SliderValueDisplay, Mode=OneWay}" />
                                         <Slider
                                             Grid.Row="2"
@@ -271,8 +342,8 @@
                                 <Border
                                     Margin="6"
                                     Padding="10,6"
-                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    Background="{Binding ItemBackgroundBrush, Mode=OneTime}"
+                                    BorderBrush="{Binding ItemBorderBrush, Mode=OneTime}"
                                     BorderThickness="1"
                                     CornerRadius="8"
                                     Visibility="{Binding CompactToggleVisibility, Mode=OneWay}">
@@ -290,7 +361,7 @@
                                         <TextBlock
                                             Grid.Row="1"
                                             VerticalAlignment="Center"
-                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Foreground="{Binding ItemForegroundBrush, Mode=OneTime}"
                                             MaxLines="1"
                                             Text="{Binding CycleStatusText, Mode=OneWay}"
                                             TextTrimming="CharacterEllipsis"
@@ -309,8 +380,8 @@
                                 <Border
                                     Margin="6"
                                     Padding="10,4"
-                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    Background="{Binding ItemBackgroundBrush, Mode=OneTime}"
+                                    BorderBrush="{Binding ItemBorderBrush, Mode=OneTime}"
                                     BorderThickness="1"
                                     CornerRadius="8"
                                     Visibility="{Binding CompactSliderVisibility, Mode=OneWay}">
@@ -328,7 +399,7 @@
                                             <TextBlock
                                                 Grid.Column="1"
                                                 VerticalAlignment="Center"
-                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Foreground="{Binding ItemForegroundBrush, Mode=OneTime}"
                                                 Text="{Binding SliderValueDisplay, Mode=OneWay}" />
                                         </Grid>
                                         <Slider

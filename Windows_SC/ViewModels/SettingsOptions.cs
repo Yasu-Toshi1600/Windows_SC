@@ -1,3 +1,4 @@
+using Microsoft.UI.Xaml.Media;
 using Windows_SC.Models;
 
 namespace Windows_SC.ViewModels;
@@ -32,6 +33,16 @@ internal sealed record ShortcutKeyInputModeOption(
 internal sealed record LayoutModeOption(
     LauncherLayoutMode Value,
     string DisplayName);
+
+internal sealed record LauncherItemBackgroundColorOption(
+    LauncherItemBackgroundColor Value,
+    string DisplayName,
+    string HexCode,
+    SolidColorBrush PreviewBrush,
+    SolidColorBrush BorderBrush)
+{
+    public string DisplayLabel => $"{DisplayName} {HexCode}";
+}
 
 internal sealed record MacroStepKindOption(
     MacroStepKind Value,

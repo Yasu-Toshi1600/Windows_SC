@@ -11,6 +11,17 @@ namespace Windows_SC.Tests;
 public sealed class CoreValidationTests
 {
     [TestMethod]
+    public void Validate_RejectsUnknownLauncherItemBackgroundColor()
+    {
+        LauncherSettings settings = LauncherSettings.CreateDefault();
+        settings.Pages[0].Items[0].BackgroundColor = (LauncherItemBackgroundColor)999;
+
+        IReadOnlyList<string> errors = LauncherSettingsValidator.Validate(settings);
+
+        Assert.IsTrue(errors.Any(error => error.Contains("背景色", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public void Validate_RejectsUnsupportedSchemaLayoutAndMissingPages()
     {
         LauncherSettings settings = new()

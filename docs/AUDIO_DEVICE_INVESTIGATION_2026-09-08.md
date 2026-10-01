@@ -37,4 +37,4 @@
 - Debug x64ビルド成功、警告・エラー0。
 - Core自動テスト90件成功。旧JSON互換性、名前とStableIdの保存往復、ID変更・大文字小文字・競合・複数一致・順序維持を確認。
 - 新しい差し替えUIのGUI操作は未確認。上記の再現試験は変更前0.9.5に対するもの。
-- この時点ではReleaseビルド、ZIP、別PC、公開Release確認は未実施。その後の0.9.6の版更新・検証状況は[現在の状況](NEXT_STEPS_AND_DECISIONS.md)を参照。
+- この時点ではReleaseビルド、ZIP、別PC、公開Release確認は未実施。その後の版更新・検証状況は[現在の状況](NEXT_STEPS_AND_DECISIONS.md)を参照。

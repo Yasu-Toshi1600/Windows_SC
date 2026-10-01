@@ -44,6 +44,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private bool _assumePhonePanelVisible;
     private bool _startWithWindows;
     private LayoutModeOption? _selectedLayoutMode;
+    private LauncherItemBackgroundColorOption? _selectedBackgroundColor;
     private string _statusMessage = string.Empty;
     private InfoBarSeverity _statusSeverity = InfoBarSeverity.Informational;
     private bool _suppressDirtyTracking = true;
@@ -212,6 +213,18 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         new(LauncherLayoutMode.Compact, "コンパクト（最大4列）")
     ];
 
+    public IReadOnlyList<LauncherItemBackgroundColorOption> BackgroundColors { get; } =
+    [
+        CreateBackgroundColorOption(LauncherItemBackgroundColor.PaleBlue, "淡い青"),
+        CreateBackgroundColorOption(LauncherItemBackgroundColor.PaleGreen, "淡い緑"),
+        CreateBackgroundColorOption(LauncherItemBackgroundColor.PaleYellow, "淡い黄"),
+        CreateBackgroundColorOption(LauncherItemBackgroundColor.PaleOrange, "淡いオレンジ"),
+        CreateBackgroundColorOption(LauncherItemBackgroundColor.PalePink, "淡いピンク"),
+        CreateBackgroundColorOption(LauncherItemBackgroundColor.PalePurple, "淡い紫"),
+        CreateBackgroundColorOption(LauncherItemBackgroundColor.PaleCyan, "淡い水色"),
+        CreateBackgroundColorOption(LauncherItemBackgroundColor.PaleGray, "淡いグレー")
+    ];
+
     public IReadOnlyList<PostExecutionBehaviorOption> PostExecutionBehaviors { get; } =
     [
         new(LauncherPostExecutionBehavior.CloseOnSuccess, "成功後に閉じる"),
@@ -246,6 +259,9 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 SelectedVolumeSliderKind = value is { IsSlider: true }
                     ? VolumeSliderKinds.First(option => option.Value == value.VolumeSliderKind)
                     : null;
+                SelectedBackgroundColor = value is null
+                    ? null
+                    : BackgroundColors.First(option => option.Value == value.BackgroundColor);
                 SelectedShortcutKeyInputMode = value is null
                     ? null
                     : GetShortcutKeyInputMode(value.ShortcutKeyInputMode);
@@ -419,6 +435,20 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 && SelectedItem is { IsButton: true } selectedItem)
             {
                 selectedItem.ShortcutKeyInputMode = value.Value;
+            }
+        }
+    }
+
+    public LauncherItemBackgroundColorOption? SelectedBackgroundColor
+    {
+        get => _selectedBackgroundColor;
+        set
+        {
+            if (SetProperty(ref _selectedBackgroundColor, value)
+                && value is not null
+                && SelectedItem is not null)
+            {
+                SelectedItem.BackgroundColor = value.Value;
             }
         }
     }
@@ -1592,6 +1622,15 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
         return settings;
     }
+
+    private static LauncherItemBackgroundColorOption CreateBackgroundColorOption(
+        LauncherItemBackgroundColor value,
+        string displayName) => new(
+            value,
+            displayName,
+            LauncherItemColorPalette.GetHexCode(value),
+            LauncherItemColorPalette.CreateBackgroundBrush(value),
+            LauncherItemColorPalette.CreateBorderBrush(value));
 
     private bool TryRestoreStartupSetting(bool enabled)
     {

@@ -84,6 +84,11 @@ internal static class LauncherSettingsValidator
                         $"未対応の実行後動作です: {item.PostExecutionBehavior} ({item.Id})");
                 }
 
+                if (!Enum.IsDefined(item.BackgroundColor))
+                {
+                    errors.Add($"未対応の背景色です: {item.BackgroundColor} ({item.Id})");
+                }
+
                 switch (item.Kind)
                 {
                     case LauncherItemKind.Button:

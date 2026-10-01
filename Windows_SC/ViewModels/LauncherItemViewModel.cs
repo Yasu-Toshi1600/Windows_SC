@@ -61,6 +61,10 @@ internal sealed class LauncherItemViewModel : ObservableObject
         Id = definition.Id;
         Kind = definition.Kind;
         Title = definition.Title;
+        ItemBackgroundBrush = LauncherItemColorPalette.CreateBackgroundBrush(
+            definition.BackgroundColor);
+        ItemBorderBrush = LauncherItemColorPalette.CreateBorderBrush(
+            definition.BackgroundColor);
         _action = definition.Action;
         _cycleAction = definition.GetEffectiveCycleAction();
         _commandCycleState = commandCycleState;
@@ -95,6 +99,12 @@ internal sealed class LauncherItemViewModel : ObservableObject
     public LauncherItemKind Kind { get; }
 
     public string Title { get; }
+
+    public SolidColorBrush ItemBackgroundBrush { get; }
+
+    public SolidColorBrush ItemBorderBrush { get; }
+
+    public SolidColorBrush ItemForegroundBrush => LauncherItemColorPalette.ForegroundBrush;
 
     public AsyncRelayCommand ExecuteCommand { get; }
 

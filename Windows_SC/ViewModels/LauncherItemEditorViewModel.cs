@@ -11,6 +11,7 @@ namespace Windows_SC.ViewModels;
 internal sealed class LauncherItemEditorViewModel : ObservableObject
 {
     private string _title;
+    private LauncherItemBackgroundColor _backgroundColor;
     private LauncherActionKind _actionKind;
     private string _target = string.Empty;
     private string _arguments = string.Empty;
@@ -51,6 +52,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
                 DisplayText = action.ShortcutKey.DisplayText
             };
         _postExecutionBehavior = definition.PostExecutionBehavior;
+        _backgroundColor = definition.BackgroundColor;
         _volumeSliderKind = definition.VolumeSlider?.Type
             ?? Windows_SC.Models.VolumeSliderKind.Master;
         _applicationAudioTarget = CloneTarget(definition.VolumeSlider?.Application);
@@ -246,6 +248,12 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         set => SetProperty(ref _hideCommandWindow, value);
     }
 
+    public LauncherItemBackgroundColor BackgroundColor
+    {
+        get => _backgroundColor;
+        set => SetProperty(ref _backgroundColor, value);
+    }
+
     public void SetShortcutKey(ShortcutKeyDefinition? shortcutKey)
     {
         if (shortcutKey is not null)
@@ -350,6 +358,7 @@ internal sealed class LauncherItemEditorViewModel : ObservableObject
         Id = Id,
         Kind = Kind,
         Title = Title,
+        BackgroundColor = BackgroundColor,
         PostExecutionBehavior = IsToggle
             ? PostExecutionBehavior
             : LauncherPostExecutionBehavior.CloseOnSuccess,
