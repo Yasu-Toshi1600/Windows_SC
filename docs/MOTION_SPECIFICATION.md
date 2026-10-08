@@ -1,6 +1,6 @@
 # Windows_SC モーション仕様書
 
-更新日: 2026-09-01
+更新日: 2026-10-08
 対象: Windows_SC `0.9.8` / Windows App SDK 1.8 / x64
 
 ## 1. 目的と文書境界
@@ -36,6 +36,23 @@ MainWindow（最終位置・最終サイズの透明な枠なしウィンドウ�
 ```
 
 - `MainWindow`は最終矩形へ一度だけ配置し、アニメーション中に`SetWindowPos`を反復しない。
+- 外側背景は`TransparentWindowBackdrop`の透明なCompositionブラシで描画する。
+  `Windows.UI.Composition.Compositor`の生成前にWinUIの
+  `DispatcherQueue.EnsureSystemDispatcherQueue()`で同一スレッドの
+  `Windows.System.DispatcherQueue`を用意する。終了管理はWinUIのキューに委ね、
+  別のキューコントローラーを独自に生成・停止しない。
+  `TransparentWindowBackground`でDWMのクライアント領域のアルファ描画を設定し、
+  `WM_ERASEBKGND`ではネイティブ背景をクリアする。DWM構成変更時に再設定し、
+  終了時は背景ブラシとCompositorを解放する。全体のOpacityや内側パネルの背景は変更しない。
+  外側のDWM枠線は`DWMWA_BORDER_COLOR=DWMWA_COLOR_NONE`で非描画にする。
+  `WM_NCCALCSIZE`の`wParam != 0`で提案された矩形を変更せず0を返し、標準フレームの
+  非クライアント余白も除去する。フック設置後に位置・サイズ・Z順・アクティブ状態を維持した
+  `SWP_FRAMECHANGED`で再計算する。枠色の無効化だけでは余白の除去にならない。
+  `DWMWA_WINDOW_CORNER_PREFERENCE=DWMWCP_DONOTROUND`でOS側の角丸を無効にし、
+  内側`RootBorder`の角丸と枠線だけを使う。透明領域のクリック透過は追加していない。
+  角の透過、黒い背景の残留、テーマ変更、進入・退出・反転は実機確認待ち。
+
+標準フレーム除去の手順は[Microsoftのカスタムフレーム資料](https://learn.microsoft.com/en-us/windows/win32/dwm/customframe#removing-the-standard-frame)に従う。
 - `LauncherSurface`へCompositionプロパティセットの`Translation`と`Opacity`を接続する。
 - Windows App SDK 1.8ではSurface単位の`SystemBackdropElement`を利用できないため、`RootBorder`へ`AcrylicInAppFillColorDefaultBrush`を適用する。
 - Window全体のDesktop Acrylicは、Surfaceが画面外にある間もウィンドウ矩形全体を塗るため使用しない。

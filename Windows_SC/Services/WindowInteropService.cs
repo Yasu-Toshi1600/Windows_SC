@@ -210,6 +210,22 @@ internal sealed class WindowInteropService(
         IntPtr wParam,
         IntPtr lParam)
     {
+        if (message == TransparentWindowBackground.NonClientSizeMessage && wParam != IntPtr.Zero)
+        {
+            // Keep the proposed window rectangle unchanged: the whole host is
+            // client area. This removes the standard frame, not just its color.
+            return IntPtr.Zero;
+        }
+        if (message == TransparentWindowBackground.EraseBackgroundMessage
+            && TransparentWindowBackground.Clear(windowHandle, wParam))
+        {
+            return new IntPtr(1);
+        }
+        if (message == TransparentWindowBackground.CompositionChangedMessage)
+        {
+            _ = TransparentWindowBackground.Configure(windowHandle);
+        }
+
         if (systemTrayService.TryHandleWindowMessage(message, wParam, lParam, out IntPtr result))
         {
             return result;

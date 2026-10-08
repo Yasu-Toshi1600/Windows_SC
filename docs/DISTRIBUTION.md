@@ -67,6 +67,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Distribu
 
 ## 6. 公開状況と再配布
 
+外側背景の透明化は既存`0.9.8` ZIPの生成後に追加したソース変更で、同ZIPには含まれない。
+この変更をZIPへ含める場合は、版番号を上げ、角の透過と進入・退出の実機確認を行う。
+
 版ごとの検証・公開状況は[現在の状況](NEXT_STEPS_AND_DECISIONS.md)に集約する。
 同じ版の成果物を内容だけ差し替えず、再配布時は増版する。
 

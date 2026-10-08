@@ -151,6 +151,15 @@ public sealed partial class MainWindow : Window
         _windowInteropService.DisplayEnvironmentChanged +=
             WindowInteropService_DisplayEnvironmentChanged;
         _windowInteropService.Start(_windowHandle);
+        SystemBackdrop = new TransparentWindowBackdrop();
+        int transparencyResult = TransparentWindowBackground.Configure(_windowHandle);
+        _logger.Write(transparencyResult >= 0
+            ? "[Launcher] action=configure-transparent-background result=success corners=xaml border=hidden"
+            : $"[Launcher] action=configure-transparent-background result=failed hresult=0x{transparencyResult:X8}");
+        int frameResult = TransparentWindowBackground.RecalculateFrame(_windowHandle);
+        _logger.Write(frameResult >= 0
+            ? "[Launcher] action=remove-native-frame result=success"
+            : $"[Launcher] action=remove-native-frame result=failed hresult=0x{frameResult:X8}");
 
         Activated += Window_Activated;
         _inputService.ManualToggleRequested += InputService_ManualToggleRequested;
@@ -1163,6 +1172,7 @@ public sealed partial class MainWindow : Window
         _shortcutTargetPreparationCompletion = null;
         _motionService.Completed -= MotionService_Completed;
         release("motion", _motionService.Dispose);
+        release("window-backdrop", () => SystemBackdrop = null);
         release("ui-settings", () =>
         {
             if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
