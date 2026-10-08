@@ -17,6 +17,7 @@ public partial class App : Application
     private ISettingsRepository? _settingsRepository;
     private MainWindowViewModel? _viewModel;
     private DiagnosticLogger? _logger;
+    private ProcessMemoryDiagnostics? _memoryDiagnostics;
     private EnvironmentInformationService? _environmentInformationService;
     private IStartMenuMonitor? _startMenuMonitor;
     private IStartupService? _startupService;
@@ -169,11 +170,16 @@ public partial class App : Application
             shortcutKeyExecutionCoordinator);
         _window.Closed += Window_Closed;
         _window.InitializeBackgroundWindow();
+        _memoryDiagnostics = new ProcessMemoryDiagnostics(logger);
+        _memoryDiagnostics.Capture("startup");
     }
 
     private void Window_Closed(object sender, WindowEventArgs args)
     {
         _isShuttingDown = true;
+        _memoryDiagnostics?.Capture("shutdown");
+        ReleaseForShutdown("memory-diagnostics", () => _memoryDiagnostics?.Dispose());
+        _memoryDiagnostics = null;
         ReleaseForShutdown("window", () => _window?.ReleaseShutdownResources(ReleaseForShutdown));
         // Settings are committed only by explicit settings operations. Saving the
         // cached launcher state here could overwrite a newer in-flight save.
@@ -260,6 +266,7 @@ public partial class App : Application
             return;
         }
 
+        _memoryDiagnostics?.Capture("settings-opening");
         _settingsViewModel = new SettingsViewModel(
             _settingsRepository,
             _viewModel,
@@ -276,6 +283,7 @@ public partial class App : Application
         _settingsWindow = new SettingsWindow(_settingsViewModel);
         _settingsWindow.Closed += SettingsWindow_Closed;
         _settingsWindow.Activate();
+        _memoryDiagnostics?.Capture("settings-opened", settingsOpen: true);
     }
 
     private void SettingsWindow_Closed(object sender, WindowEventArgs args)
@@ -292,6 +300,7 @@ public partial class App : Application
             _settingsViewModel.Dispose();
             _settingsViewModel = null;
         }
+        _memoryDiagnostics?.Capture("settings-closed", settingsOpen: false);
     }
 
     private void SettingsViewModel_ExitApplicationRequested(object? sender, EventArgs args)

@@ -1,7 +1,7 @@
 # Windows_SC 配布手順
 
-更新日: 2026-10-01
-対象ソースバージョン: `0.9.7`
+更新日: 2026-10-08
+対象ソースバージョン: `0.9.8`
 
 ## 1. 配布形式
 
@@ -57,6 +57,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Distribu
 7. Windowsの未署名アプリ警告が出る可能性を利用者へ伝える。
 8. 1080p未満の警告動作を確認できていなければ、未検証範囲として明記する。
 9. Gitタグ、Release本文、公開アセットの版とSHA-256を確認する。
+10. 起動後と設定画面の開閉後に通常ログの`[Memory]`行が記録され、メモリ・CPU・I/O・GPU診断を確認できる。GPU取得不可時は`unavailable`を許容する。指標の意味は[ログ仕様](LOGGING_AND_PRIVACY.md#メモリ診断)を参照する。
 
 ## 5. 自動起動と配置
 

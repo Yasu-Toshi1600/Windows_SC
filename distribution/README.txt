@@ -18,6 +18,9 @@ Windows_SC.exeを実行してください。起動後は通知領域へ常駐し
 
 設定とログ:
 %LOCALAPPDATA%\Windows_SC
+通常ログの[Memory]行に、起動・終了時、1分ごと、設定画面の開閉時の
+メモリ、GC、CPU、I/O、GPU診断を記録します。詳細ログの有効化は不要です。
+I/Oにはディスク以外も含まれます。GPU取得不可時はunavailableと記録します。
 
 この配布物は自己完結版です。Visual Studioや.NET SDKを別途インストールする
 必要はありません。
