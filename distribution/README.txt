@@ -1,4 +1,4 @@
-Windows_SC {{VERSION}}
+Windows_SC {{VERSION}}（特別版）
 =====================
 
 対応環境:

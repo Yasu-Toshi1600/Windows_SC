@@ -9,6 +9,7 @@
   xmlns:virtualization="http://schemas.microsoft.com/appx/manifest/virtualization/windows10"
   IgnorableNamespaces="uap rescap systemai virtualization">
 
+  <!-- 特別版の表示はVersion.propsで管理。MSIX Identityは数値4区切りを維持する。 -->
   <Identity
     Name="f2c98583-2ab3-425c-b897-870aa8fd5a92"
     Publisher="CN=anxil"

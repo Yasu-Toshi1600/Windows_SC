@@ -5,6 +5,12 @@
     },
     "Windows_SC (Unpackaged)": {
       "commandName": "Project"
+    },
+    "Windows_SC (Memory Flight)": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "WINDOWS_SC_MEMORY_FLIGHT": "1"
+      }
     }
   }
 }

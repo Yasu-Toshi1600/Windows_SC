@@ -2,8 +2,9 @@
   <PropertyGroup>
     <!-- Semantic Versioning: major.minor.patch -->
     <VersionPrefix>0.9.9</VersionPrefix>
-    <!-- Use dev/beta.N/rc.N during development; leave empty for a stable release. -->
-    <VersionSuffix></VersionSuffix>
+    <!-- Use dev/beta.N/rc.N/special during development; leave empty for a stable release. -->
+    <VersionSuffix>special</VersionSuffix>
+    <InformationalVersion>$(VersionPrefix)（特別版）</InformationalVersion>
 
     <AssemblyVersion>$(VersionPrefix).0</AssemblyVersion>
     <FileVersion>$(VersionPrefix).0</FileVersion>

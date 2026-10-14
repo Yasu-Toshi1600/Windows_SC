@@ -13,6 +13,7 @@ internal sealed class ProcessMemoryDiagnostics : IDisposable
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
     private readonly Timer _timer;
     private readonly ProcessGpuUsageSampler _gpu = new();
+    private readonly MemoryFlightRecorder? _flightRecorder;
     private long? _previousTimestamp;
     private TimeSpan _previousCpu;
     private IoCounters? _previousIo;
@@ -20,9 +21,10 @@ internal sealed class ProcessMemoryDiagnostics : IDisposable
     private bool _settingsOpen;
     private int _settingsOpenCount;
 
-    public ProcessMemoryDiagnostics(DiagnosticLogger logger)
+    public ProcessMemoryDiagnostics(DiagnosticLogger logger, IntPtr windowHandle = default)
     {
         _logger = logger;
+        _flightRecorder = MemoryFlightRecorder.StartIfEnabled(logger, windowHandle);
         _timer = new Timer(_ => Capture("periodic"), null,
             TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
     }
@@ -32,6 +34,7 @@ internal sealed class ProcessMemoryDiagnostics : IDisposable
         lock (_gate)
         {
             if (_isDisposed) return;
+            if (reason != "periodic") _flightRecorder?.Mark(reason, settingsOpen);
             if (settingsOpen.HasValue)
             {
                 _settingsOpen = settingsOpen.Value;
@@ -115,6 +118,7 @@ internal sealed class ProcessMemoryDiagnostics : IDisposable
             if (_isDisposed) return;
             _isDisposed = true;
             _timer.Dispose();
+            _flightRecorder?.Dispose();
             _gpu.Dispose();
         }
     }

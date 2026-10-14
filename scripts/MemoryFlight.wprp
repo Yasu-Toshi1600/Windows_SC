@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0" Author="Windows_SC">
+  <Profiles>
+    <SystemCollector Id="MemorySystem" Name="Windows_SC Memory System">
+      <BufferSize Value="256" />
+      <Buffers Value="128" />
+    </SystemCollector>
+    <EventCollector Id="MemoryEvents" Name="Windows_SC Memory Events">
+      <BufferSize Value="64" />
+      <Buffers Value="128" />
+    </EventCollector>
+    <SystemProvider Id="MemoryKernel">
+      <Keywords>
+        <Keyword Value="ProcessThread" />
+        <Keyword Value="Loader" />
+        <Keyword Value="Memory" />
+        <Keyword Value="MemoryInfo" />
+        <Keyword Value="MemoryInfoWS" />
+        <Keyword Value="ProcessCounter" />
+        <Keyword Value="AllFaults" />
+        <Keyword Value="HardFaults" />
+        <Keyword Value="VirtualAllocation" />
+      </Keywords>
+      <Stacks>
+        <Stack Value="HardFault" />
+        <Stack Value="VirtualAllocation" />
+        <Stack Value="VirtualFree" />
+      </Stacks>
+    </SystemProvider>
+    <EventProvider Id="ClrGc" Name="e13c0d23-ccbc-4e12-931b-d9cc2eee27e4" Level="4">
+      <Keywords><Keyword Value="0x1" /></Keywords>
+    </EventProvider>
+    <Profile Id="MemoryFlight.Verbose.Memory" Name="MemoryFlight" Description="Resident memory, page faults, virtual allocation and GC; no working set reset" LoggingMode="Memory" DetailLevel="Verbose">
+      <Collectors>
+        <SystemCollectorId Value="MemorySystem"><SystemProviderId Value="MemoryKernel" /></SystemCollectorId>
+        <EventCollectorId Value="MemoryEvents"><EventProviders><EventProviderId Value="ClrGc" /></EventProviders></EventCollectorId>
+      </Collectors>
+    </Profile>
+  </Profiles>
+</WindowsPerformanceRecorder>
