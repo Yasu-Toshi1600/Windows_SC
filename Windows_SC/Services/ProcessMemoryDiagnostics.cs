@@ -13,6 +13,7 @@ internal sealed class ProcessMemoryDiagnostics : IDisposable
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
     private readonly Timer _timer;
     private readonly ProcessGpuUsageSampler _gpu = new();
+    private readonly Func<bool> _shouldSampleGpu;
     private readonly MemoryFlightRecorder? _flightRecorder;
     private long? _previousTimestamp;
     private TimeSpan _previousCpu;
@@ -21,9 +22,11 @@ internal sealed class ProcessMemoryDiagnostics : IDisposable
     private bool _settingsOpen;
     private int _settingsOpenCount;
 
-    public ProcessMemoryDiagnostics(DiagnosticLogger logger, IntPtr windowHandle = default)
+    public ProcessMemoryDiagnostics(DiagnosticLogger logger, IntPtr windowHandle = default,
+        Func<bool>? shouldSampleGpu = null)
     {
         _logger = logger;
+        _shouldSampleGpu = shouldSampleGpu ?? (() => false);
         _flightRecorder = MemoryFlightRecorder.StartIfEnabled(logger, windowHandle);
         _timer = new Timer(_ => Capture("periodic"), null,
             TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
@@ -73,7 +76,15 @@ internal sealed class ProcessMemoryDiagnostics : IDisposable
                 string gpuPercent;
                 try
                 {
-                    gpuPercent = _gpu.Sample();
+                    if (_shouldSampleGpu())
+                    {
+                        gpuPercent = _gpu.Sample();
+                    }
+                    else
+                    {
+                        _gpu.Dispose();
+                        gpuPercent = "not-selected";
+                    }
                 }
                 catch (Exception exception)
                 {

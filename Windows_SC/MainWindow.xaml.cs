@@ -350,6 +350,7 @@ public sealed partial class MainWindow : Window
         if (!_isVisible)
         {
             _isVisible = true;
+            ViewModel.SetLauncherVisible(true);
             _appWindow.Show(activate);
             _startMenuMonitor.SetLauncherVisible(true);
         }
@@ -419,6 +420,7 @@ public sealed partial class MainWindow : Window
         }
 
         _isVisible = false;
+        ViewModel.SetLauncherVisible(false);
         _launcherIsActivated = false;
         _pendingActionFocusTransfer = false;
         _preserveVisibilityWhileInactive = false;
@@ -685,6 +687,7 @@ public sealed partial class MainWindow : Window
         _motionService.SetHidden(GetEntranceTranslation(startLinked: true));
         _appWindow.Hide();
         _isVisible = false;
+        ViewModel.SetLauncherVisible(false);
         _launcherIsActivated = false;
         _pendingActionFocusTransfer = false;
         _preserveVisibilityWhileInactive = false;
@@ -1093,6 +1096,7 @@ public sealed partial class MainWindow : Window
             }
 
             _isVisible = false;
+            ViewModel.SetLauncherVisible(false);
             _launcherIsActivated = false;
             _pendingActionFocusTransfer = false;
             _preserveVisibilityWhileInactive = false;
@@ -1166,6 +1170,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         _shutdownResourcesReleased = true;
+        ViewModel.SetLauncherVisible(false);
         _logger.Write("[Application] action=release-window-resources result=success phase=begin");
         _shortcutKeyExecutionCoordinator.Detach(PrepareShortcutKeyTargetAsync);
         _shortcutTargetPreparationCompletion?.TrySetCanceled();

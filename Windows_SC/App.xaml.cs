@@ -170,7 +170,9 @@ public partial class App : Application
             shortcutKeyExecutionCoordinator);
         _window.Closed += Window_Closed;
         _window.InitializeBackgroundWindow();
-        _memoryDiagnostics = new ProcessMemoryDiagnostics(logger, WinRT.Interop.WindowNative.GetWindowHandle(_window));
+        _memoryDiagnostics = new ProcessMemoryDiagnostics(logger,
+            WinRT.Interop.WindowNative.GetWindowHandle(_window),
+            () => (_systemMetricsService.RequestedMetrics & SystemMonitorMetric.Gpu) != 0);
         _memoryDiagnostics.Capture("startup");
     }
 

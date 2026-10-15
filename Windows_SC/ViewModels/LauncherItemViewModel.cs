@@ -47,7 +47,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private string _secondaryMonitorText = string.Empty;
     private readonly PointCollection _standardMonitorGraphPoints = [];
     private readonly PointCollection _compactMonitorGraphPoints = [];
-    private readonly SystemMonitorHistory _monitorHistory = new();
 
     public LauncherItemViewModel(
         LauncherItemDefinition definition,
@@ -97,6 +96,10 @@ internal sealed class LauncherItemViewModel : ObservableObject
     public Guid Id { get; }
 
     public LauncherItemKind Kind { get; }
+
+    internal SystemMonitorMetric MonitoredMetrics => Kind == LauncherItemKind.Widget
+        ? _selectedMonitorMetrics.Aggregate(SystemMonitorMetric.None, (metrics, metric) => metrics | metric)
+        : SystemMonitorMetric.None;
 
     public string Title { get; }
 
@@ -427,16 +430,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
 
         if (_selectedMonitorMetrics.Count == 1)
         {
-            double? value = GetMonitorMetricValue(_selectedMonitorMetrics[0], snapshot);
-            if (value is null)
-            {
-                _monitorHistory.Add(null);
-            }
-            else
-            {
-                _monitorHistory.Add(value);
-            }
-
             UpdateMonitorGraphPoints();
         }
     }
@@ -507,7 +500,7 @@ internal sealed class LauncherItemViewModel : ObservableObject
     }
 
     private List<Point> BuildMonitorGraphPoints() =>
-        _monitorHistory.CreateGraphPoints()
+        _systemMetricsService.GetGraphPoints(_selectedMonitorMetrics[0])
             .Select(point => new Point(point.X, point.Y))
             .ToList();
 

@@ -19,6 +19,7 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly ISystemMetricsService _systemMetricsService;
     private readonly IUiDispatcher _uiDispatcher;
     private readonly CommandCycleStateStore _commandCycleState;
+    private readonly VisibleUiUpdateCoordinator _metricsUpdates;
 
     public MainWindowViewModel(
         IActionExecutionService actionExecutionService,
@@ -35,6 +36,7 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
         _systemMetricsService = systemMetricsService;
         _uiDispatcher = uiDispatcher;
         _commandCycleState = commandCycleState;
+        _metricsUpdates = new VisibleUiUpdateCoordinator(_uiDispatcher, RefreshSystemMetrics);
         _applicationVolumeService.StateChanged += ApplicationVolumeService_StateChanged;
         _systemMetricsService.MetricsChanged += SystemMetricsService_MetricsChanged;
         AudioOutputService = audioOutputService;
@@ -97,7 +99,7 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
         LauncherPageDefinition? firstPage = settings.Pages.FirstOrDefault();
         if (firstPage is null)
         {
-            _systemMetricsService.SetActive(false);
+            _systemMetricsService.SetMetrics(SystemMonitorMetric.None);
             return;
         }
 
@@ -116,8 +118,9 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
             Shortcuts.Add(shortcut);
         }
 
-        _systemMetricsService.SetActive(
-            Shortcuts.Any(shortcut => shortcut.Kind == LauncherItemKind.Widget));
+        _systemMetricsService.SetMetrics(Shortcuts.Aggregate(SystemMonitorMetric.None,
+            (metrics, shortcut) => metrics | shortcut.MonitoredMetrics));
+        _metricsUpdates.RequestUpdate();
     }
 
     public void RefreshAudioOutputState()
@@ -147,18 +150,23 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
     private void ApplicationVolumeService_StateChanged(object? sender, EventArgs args) =>
         _uiDispatcher.TryEnqueue(RefreshAudioOutputState);
 
+    public void SetLauncherVisible(bool visible) => _metricsUpdates.SetVisible(visible);
+
     private void SystemMetricsService_MetricsChanged(object? sender, EventArgs args) =>
-        _uiDispatcher.TryEnqueue(() =>
+        _metricsUpdates.RequestUpdate();
+
+    private void RefreshSystemMetrics()
+    {
+        foreach (LauncherItemViewModel shortcut in Shortcuts)
         {
-            foreach (LauncherItemViewModel shortcut in Shortcuts)
-            {
-                shortcut.RefreshSystemMetrics();
-            }
-        });
+            shortcut.RefreshSystemMetrics();
+        }
+    }
 
     public void Dispose()
     {
-        _systemMetricsService.SetActive(false);
+        _metricsUpdates.Dispose();
+        _systemMetricsService.SetMetrics(SystemMonitorMetric.None);
         _applicationVolumeService.StateChanged -= ApplicationVolumeService_StateChanged;
         _systemMetricsService.MetricsChanged -= SystemMetricsService_MetricsChanged;
         foreach (LauncherItemViewModel shortcut in Shortcuts)

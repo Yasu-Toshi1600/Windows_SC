@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
+using Windows_SC.Models;
 
 namespace Windows_SC.Services;
 
@@ -9,11 +11,11 @@ internal sealed class WindowsSystemMetricsService : ISystemMetricsService
     private const uint PdhFormatDouble = 0x00000200;
     private const uint PdhMoreData = 0x800007D2;
     private readonly DiagnosticLogger _logger;
-    private readonly object _gate = new();
+    private readonly object _configurationGate = new();
+    private readonly SystemMetricsState _state = new();
     private readonly BackgroundResourceLifetime _nativeLifetime = new();
     private bool _gpuInitialized;
     private readonly Timer _timer;
-    private SystemMetricsSnapshot _cached = new(null, null, 0, 0, 0);
     private ulong? _previousIdle;
     private ulong? _previousKernel;
     private ulong? _previousUser;
@@ -31,28 +33,20 @@ internal sealed class WindowsSystemMetricsService : ISystemMetricsService
 
     public event EventHandler? MetricsChanged;
 
-    public SystemMetricsSnapshot GetCachedMetrics()
-    {
-        lock (_gate)
-        {
-            return _cached;
-        }
-    }
+    public SystemMetricsSnapshot GetCachedMetrics() => _state.GetCachedMetrics();
 
-    public void SetActive(bool isActive)
-    {
-        if (_isDisposed)
-        {
-            return;
-        }
+    public IReadOnlyList<MonitorGraphPoint> GetGraphPoints(SystemMonitorMetric metric) =>
+        _state.GetGraphPoints(metric);
 
-        if (isActive)
+    public SystemMonitorMetric RequestedMetrics => _state.Request.Metrics;
+
+    public void SetMetrics(SystemMonitorMetric metrics)
+    {
+        lock (_configurationGate)
         {
+            if (_isDisposed || !_state.Configure(metrics)) return;
+            // Even disabling all metrics gets one background pass to close PDH.
             _timer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(1));
-        }
-        else
-        {
-            _timer.Change(Timeout.Infinite, Timeout.Infinite);
         }
     }
 
@@ -75,23 +69,57 @@ internal sealed class WindowsSystemMetricsService : ISystemMetricsService
 
     private void SampleCore()
     {
-        if (!_gpuInitialized)
+        var request = _state.Request;
+        bool sampleGpu = (request.Metrics & SystemMonitorMetric.Gpu) != 0;
+        double? gpu = null;
+        if (!sampleGpu)
+        {
+            CloseGpuQuery();
+            _gpuInitialized = false;
+            _lastGpuAvailable = null;
+        }
+        else if (!_gpuInitialized)
         {
             _gpuInitialized = true;
             InitializeGpuCounter();
         }
-
-        double? cpu = ReadCpuPercent();
-        double? gpu = ReadGpuPercent();
-        if (_isDisposed) return;
-        ReadMemory(out double memoryPercent, out ulong usedBytes, out ulong totalBytes);
-        lock (_gate)
+        else
         {
-            _cached = new SystemMetricsSnapshot(cpu, gpu, memoryPercent, usedBytes, totalBytes);
+            gpu = ReadGpuPercent();
         }
 
+        if (request.Metrics == SystemMonitorMetric.None)
+        {
+            lock (_configurationGate)
+            {
+                if (!_isDisposed && _state.Request.Generation == request.Generation)
+                    _timer.Change(Timeout.Infinite, Timeout.Infinite);
+            }
+            _previousIdle = _previousKernel = _previousUser = null;
+            return;
+        }
+
+        double? cpu = null;
+        if ((request.Metrics & SystemMonitorMetric.Cpu) != 0)
+        {
+            cpu = ReadCpuPercent();
+        }
+        else
+        {
+            _previousIdle = _previousKernel = _previousUser = null;
+        }
+        if (_isDisposed) return;
+        double memoryPercent = 0;
+        ulong usedBytes = 0, totalBytes = 0;
+        if ((request.Metrics & SystemMonitorMetric.Memory) != 0)
+        {
+            ReadMemory(out memoryPercent, out usedBytes, out totalBytes);
+        }
+        if (!_state.Publish(new SystemMetricsSnapshot(cpu, gpu, memoryPercent, usedBytes, totalBytes),
+                request.Generation)) return;
+
         bool gpuAvailable = gpu.HasValue;
-        if (_lastGpuAvailable != gpuAvailable)
+        if (sampleGpu && _lastGpuAvailable != gpuAvailable)
         {
             _lastGpuAvailable = gpuAvailable;
             _logger.Write(
@@ -242,14 +270,13 @@ internal sealed class WindowsSystemMetricsService : ISystemMetricsService
 
     public void Dispose()
     {
-        if (_isDisposed)
+        lock (_configurationGate)
         {
-            return;
+            if (_isDisposed) return;
+            _isDisposed = true;
+            _timer.Change(Timeout.Infinite, Timeout.Infinite);
+            _timer.Dispose();
         }
-
-        _isDisposed = true;
-        _timer.Change(Timeout.Infinite, Timeout.Infinite);
-        _timer.Dispose();
         bool completed = _nativeLifetime.Stop(
             CloseGpuQuery,
             exception => System.Diagnostics.Debug.WriteLine(
