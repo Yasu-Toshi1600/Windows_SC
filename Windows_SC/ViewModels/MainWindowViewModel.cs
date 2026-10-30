@@ -20,6 +20,7 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly IUiDispatcher _uiDispatcher;
     private readonly CommandCycleStateStore _commandCycleState;
     private readonly VisibleUiUpdateCoordinator _metricsUpdates;
+    private bool _isDisposed;
 
     public MainWindowViewModel(
         IActionExecutionService actionExecutionService,
@@ -125,6 +126,7 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public void RefreshAudioOutputState()
     {
+        if (_isDisposed) return;
         foreach (LauncherItemViewModel shortcut in Shortcuts)
         {
             shortcut.RefreshAudioOutputState();
@@ -165,6 +167,8 @@ internal sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_isDisposed) return;
+        _isDisposed = true;
         _metricsUpdates.Dispose();
         _systemMetricsService.SetMetrics(SystemMonitorMetric.None);
         _applicationVolumeService.StateChanged -= ApplicationVolumeService_StateChanged;

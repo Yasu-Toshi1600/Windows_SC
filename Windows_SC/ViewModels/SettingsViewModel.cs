@@ -51,6 +51,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private bool _isSaving;
     private bool _isRefreshingAudioDevices;
     private bool _isRefreshingApplications;
+    private bool _isDisposed;
     private bool _isRecordingShortcutKey;
     private string _shortcutRecordingStatus = "［キーを記録］を押して登録します。";
 
@@ -608,6 +609,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_isDisposed) return;
+        _isDisposed = true;
         CancelShortcutKeyRecording();
         _globalInputService.ShortcutKeyCaptured -= GlobalInputService_ShortcutKeyCaptured;
         _applicationVolumeService.StateChanged -= ApplicationVolumeService_StateChanged;
@@ -796,6 +799,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         InfoBarSeverity severity,
         bool includeUnsavedReminder = true)
     {
+        if (_isDisposed) return;
         if (IsDirty && includeUnsavedReminder)
         {
             const string unsavedReminder = "変更内容はまだ保存されていません。";
@@ -1131,6 +1135,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     private void NotifyAudioDeviceCommands()
     {
+        if (_isDisposed) return;
         AddAudioDeviceCommand.NotifyCanExecuteChanged();
         RefreshAudioDevicesCommand.NotifyCanExecuteChanged();
         ReplaceAudioDeviceCommand.NotifyCanExecuteChanged();
@@ -1152,6 +1157,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         try
         {
             await _applicationVolumeService.RefreshAsync();
+            if (_isDisposed) return;
             RefreshApplicationCandidatesFromCache();
             SetStatus(
                 $"アプリ別音量の候補を更新しました（{AvailableApplications.Count}件）。",
@@ -1169,12 +1175,13 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         finally
         {
             _isRefreshingApplications = false;
-            RefreshApplicationsCommand.NotifyCanExecuteChanged();
+            if (!_isDisposed) RefreshApplicationsCommand.NotifyCanExecuteChanged();
         }
     }
 
     private void RefreshApplicationCandidatesFromCache()
     {
+        if (_isDisposed) return;
         ApplicationAudioTargetDefinition? selectedDefinition =
             SelectedItem?.ApplicationAudioTarget;
         List<ApplicationAudioTargetOption> options = _applicationVolumeService
@@ -1263,6 +1270,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             string? selectedAddDeviceId = AudioDeviceToAdd?.Id;
             string? selectedRegisteredDeviceId = SelectedRegisteredAudioDevice?.Id;
             await _audioOutputService.RefreshAsync();
+            if (_isDisposed) return;
 
             IReadOnlyList<AudioOutputDeviceOption> refreshedDevices = _audioOutputService
                 .GetCachedDevices()
@@ -1564,7 +1572,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         finally
         {
             _isSaving = false;
-            SaveCommand.NotifyCanExecuteChanged();
+            if (!_isDisposed) SaveCommand.NotifyCanExecuteChanged();
         }
     }
 

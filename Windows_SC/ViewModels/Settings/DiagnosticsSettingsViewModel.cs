@@ -22,6 +22,7 @@ internal sealed class DiagnosticsSettingsViewModel : ObservableObject, IDisposab
     private bool _isDetailedDiagnosticsAlwaysEnabled;
     private DateTimeOffset? _detailedLoggingExpiresAt;
     private bool _isApplyingSetting;
+    private bool _isDisposed;
 
     public DiagnosticsSettingsViewModel(
         LauncherSettings settings,
@@ -183,7 +184,7 @@ internal sealed class DiagnosticsSettingsViewModel : ObservableObject, IDisposab
                     _detailedLoggingExpiresAt = newExpiration;
                     _logger.ConfigureDetailedLogging(newExpiration, newAlwaysEnabled);
                     _environmentInformationService.LogIfChanged("diagnostics-setting");
-                    OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
+                    if (!_isDisposed) OnPropertyChanged(nameof(DetailedDiagnosticsStatus));
                     SetStatus(
                         newAlwaysEnabled
                             ? "詳細診断ログを常時有効にしました。"
@@ -249,18 +250,23 @@ internal sealed class DiagnosticsSettingsViewModel : ObservableObject, IDisposab
         }
     }
 
-    public void Dispose() =>
+    public void Dispose()
+    {
+        _isDisposed = true;
         _startMenuMonitor.ReadyChanged -= StartMenuMonitor_ReadyChanged;
+    }
 
-    private void StartMenuMonitor_ReadyChanged(object? sender, EventArgs args) =>
-        OnPropertyChanged(nameof(StartMenuMonitoringStatus));
+    private void StartMenuMonitor_ReadyChanged(object? sender, EventArgs args)
+    {
+        if (!_isDisposed) OnPropertyChanged(nameof(StartMenuMonitoringStatus));
+    }
 
     private void OpenFolder(string folderPath, string displayName)
     {
         try
         {
             Directory.CreateDirectory(folderPath);
-            Process.Start(new ProcessStartInfo
+            using Process? process = Process.Start(new ProcessStartInfo
             {
                 FileName = folderPath,
                 UseShellExecute = true
@@ -301,6 +307,7 @@ internal sealed class DiagnosticsSettingsViewModel : ObservableObject, IDisposab
 
     private void SetStatus(string message, InfoBarSeverity severity)
     {
+        if (_isDisposed) return;
         StatusSeverity = severity;
         StatusMessage = message;
     }

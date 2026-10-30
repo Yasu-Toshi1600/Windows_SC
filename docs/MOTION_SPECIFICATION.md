@@ -127,6 +127,8 @@ Windowsキー待機中でなくても、新しいスタートVisible Snapshotを
 - アニメーションごとに世代IDを増やす。
 - `CompositionScopedBatch.Completed`はUI Dispatcherへ戻す。
 - 完了通知の世代IDが現在と一致しない場合は無視する。
+- 完了・反転・中断時にはCompleted購読を解除し、所有するBatch、KeyFrameAnimation、EasingFunctionをDisposeする。
+- 終了時にはSurface側のTranslation／OpacityのExpressionAnimationもStopAnimationしてDisposeし、PropertySetを解放する。XAML所有のCompositorは破棄しない。
 - 退出完了前に新しいWindowsキー、手動表示、トレイ表示を受けた場合は即時反転する。
 - スタート非表示を確認して退出した後、新しいVisible Snapshotを受けた場合も連続クリックによる再表示として反転する。
 - 退出前から残っていた古いVisible Snapshotだけでは反転しない。

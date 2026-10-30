@@ -58,7 +58,7 @@ Windowsには、外部アプリからスタートメニューの開閉、表示�
 | `Windows_SC/Services/GlobalInputService.cs` | Windowsキー単体イベントと`Ctrl+Alt+Space`の登録・公開。休止状態／スリープ復帰時はフックと固定ホットキーを再登録する。 |
 | `Windows_SC/StartMenuWindowInspector.cs` | Win32による軽量検出。対象プロセス、可視状態、DWMクローキング、矩形を確認する。 |
 | `Windows_SC/StartMenuBoundsValidator.cs` | SearchHost等のモニター全面サーフェスをスタートメニュー矩形から除外する。 |
-| `Windows_SC/UiAutomationStartMenuInspector.cs` | スキャン用STAとイベント登録用STAを分離し、フォーカス中のUI Automation矩形を優先し、取得不能時だけWin32検出へフォールバックしてSnapshotを更新する。 |
+| `Windows_SC/UiAutomationStartMenuInspector.cs` | スキャン用MTAとイベント登録用MTAを分離し、フォーカス中のUI Automation矩形を優先し、取得不能時だけWin32検出へフォールバックしてSnapshotを更新する。 |
 | `Windows_SC/Services/HybridStartMenuMonitor.cs` | イベント監視と50/250msの有界フォールバック、監視の開始・停止。復帰時は内部のUI Automation監視を作り直す。 |
 | `Windows_SC/StartMenuSnapshot.cs` | 可視状態、スタート矩形、スマートフォン連携パネル情報の不変Snapshot。 |
 | `Windows_SC/Services/LauncherMotionCoordinator.cs` | ランチャー表示の論理状態機械。 |
@@ -101,7 +101,7 @@ UI Automationで有効なフォーカス矩形を取れない場合のみ、`Sta
 ### 4.3 スタートボタンクリック
 
 グローバルフォーカス変更時にWin32でスタートウィンドウが可視か確認する。可視なら
-STAワーカーへスキャンを要求し、`Hidden`から`EnteringWithStart`へ遷移する。
+MTAワーカーへスキャンを要求し、`Hidden`から`EnteringWithStart`へ遷移する。
 さらに、UI Automationのフォーカス通知が長時間稼働後に無言で途絶える場合に備え、
 非表示・非対話中も250ms間隔で同じ軽量なWin32可視確認を行う。スタート系
 ウィンドウが可視の場合だけUI Automationスキャンを要求する。
@@ -184,7 +184,7 @@ OS側の非表示検出を待つ方式へ戻すと、フォーカスやCOM応答
 ```text
 OSのフォーカス変更イベント
   → Win32でStart/Searchウィンドウの可視状態を確認
-  → STAワーカーへスキャン要求
+  → MTAワーカーへスキャン要求
   → Snapshot.Visible
   → Hiddenから直接EnteringWithStart
 ```
@@ -208,10 +208,12 @@ OSのフォーカス変更イベント
 |---|---|
 | WinUI、AppWindow、Coordinator、Composition開始 | UIスレッド |
 | 低レベルキーボードフック | 登録スレッド。コールバックではキー分類と`DispatcherQueue`への登録だけを行い、短時間で復帰する。 |
-| UI Automationスキャン | スキャン専用STAスレッド |
-| UI Automationフォーカスイベント登録 | イベント専用STAスレッド。外部プロバイダーによる停止をスキャンへ伝播させない。 |
+| UI Automationスキャン | スキャン専用MTAスレッド |
+| UI Automationフォーカスイベント登録 | イベント専用MTAスレッド。外部プロバイダーによる停止をスキャンへ伝播させない。 |
 | 診断ログのファイル書き込み | バックグラウンドライター |
 | Compositionアニメーション進行 | Compositor |
+
+停止・スキャン要求・WaitHandle解放は同じロックで同期する。UIスレッドはネイティブ呼び出しの終了を待たず、最後のワーカー処理完了時に待機ハンドルを解放する。イベント解除が失敗した場合も新世代を重ねずWin32検出を継続する。UI予約通知は破棄フラグと通知元の世代を実行時に確認する。
 
 SnapshotChangedは `HybridStartMenuMonitor` が `DispatcherQueue` へ戻してから `MainWindow` に通知する。UI AutomationワーカーからWinUI要素を直接操作してはいけない。
 
@@ -227,7 +229,7 @@ Windowsキーとスタートボタンからの表示はStartへフォーカス�
 
 1. Composition、アクティブ化、表示検証の途中状態を破棄し、実HWNDを非表示へ戻す。
 2. Windowsキーの低レベルフックと`Ctrl+Alt+Space`を解除して再登録する。
-3. UI Automationのスキャン／フォーカスイベント用STAと250msフォールバック監視を再初期化する。
+3. UI Automationの旧MTAワーカーへ停止を要求する。スキャンとイベント解除の処理完了を確認してから次の世代を起動する。待機中は250msのWin32検出でWindowsキー・スタートボタン経路を維持する。
 4. `[Recovery] action=resume`で各領域の成功／失敗を個別に記録する。
 
 アプリプロセス、設定画面、トレイ、音声COMサービスはこの復帰処理では作り直さない。設定の未保存状態を壊さず、起動経路と表示状態だけを小さく回復させる。
@@ -304,7 +306,7 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 - `WindowsKey standalone` の後に `start-confirmation=expired`: OSがスタートを開かなかったか検出漏れ。Win32候補とSearchHost PIDを確認する。
 - `scan=slow` が1秒前後で連続: 子孫ツリー走査の再導入、COM停止、対象プロセス応答停止を疑う。
 - `detect-start-menu source=idle-fallback`: フォーカス通知を利用できず、250msの可視ウィンドウ確認経由で検出した。クリック後の体感遅延と時刻を照合する。
-- `focus-event=registered elapsed-ms` が大きい: 外部UI Automationプロバイダーによる登録停止。スキャン用STAが独立しているため、Windowsキー起動は継続できなければならない。
+- `focus-event=registered elapsed-ms` が大きい: 外部UI Automationプロバイダーによる登録停止。スキャン用MTAが独立しているため、Windowsキー起動は継続できなければならない。
 - `WindowPlacement result=failed` の `start` がモニター作業領域と一致: モニター全面サーフェス除外の回帰。
 - アクション成功直後に `Exiting → EnteringWithStart`: Snapshotリセットまたは反転ガードの回帰。
 - Exitが200ms超: UIスレッド処理、設定画面生成、DispatcherQueue遅延を確認する。

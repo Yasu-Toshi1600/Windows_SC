@@ -31,6 +31,10 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     private readonly object _stateLock = new();
     private StartMenuSnapshot _snapshot = StartMenuSnapshot.Hidden;
     private volatile bool _isDisposed;
+    private bool _isStarted;
+    private int _runningWorkers;
+    private bool _handlesDisposed;
+    private bool _eventCleanupFailed;
     private string _lastSnapshotSignature = string.Empty;
     private string _lastFocusedElementSignature = string.Empty;
     private int _monitoringActive;
@@ -46,18 +50,18 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     {
         _logger = logger;
         _windowInspector = new StartMenuWindowInspector(logger);
-        _workerThread = new Thread(WorkerLoop)
+        _workerThread = new Thread(() => RunWorker(WorkerLoop))
         {
             IsBackground = true,
             Name = "Windows_SC UI Automation"
         };
-        _workerThread.SetApartmentState(ApartmentState.STA);
-        _focusEventThread = new Thread(FocusEventLoop)
+        _workerThread.SetApartmentState(ApartmentState.MTA);
+        _focusEventThread = new Thread(() => RunWorker(FocusEventLoop))
         {
             IsBackground = true,
             Name = "Windows_SC UI Automation Events"
         };
-        _focusEventThread.SetApartmentState(ApartmentState.STA);
+        _focusEventThread.SetApartmentState(ApartmentState.MTA);
     }
 
     public bool IsStartMenuVisible
@@ -73,6 +77,16 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     public bool IsReady => Volatile.Read(ref _isReady) != 0;
 
+    // A replacement must not overlap registration/removal by the old generation.
+    public bool CanRestart
+    {
+        get
+        {
+            lock (_scanRequestLock)
+                return _isDisposed && _runningWorkers == 0 && !_eventCleanupFailed;
+        }
+    }
+
     public StartMenuSnapshot Snapshot
     {
         get
@@ -86,31 +100,40 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     public void Start()
     {
-        _workerThread.Start();
-        _focusEventThread.Start();
+        lock (_scanRequestLock)
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+            if (_isStarted) return;
+            _isStarted = true;
+            try
+            {
+                StartWorker(_workerThread);
+                StartWorker(_focusEventThread);
+            }
+            catch
+            {
+                RequestStopLocked();
+                throw;
+            }
+        }
         RequestScan(StartMenuScanTrigger.Startup);
         _logger.WriteDetailed(
-            "[UIAutomation] action=start-workers result=success apartment=sta");
+            "[UIAutomation] action=start-workers result=success apartment=mta");
     }
 
     public void RequestScan(StartMenuScanTrigger trigger)
     {
-        if (_isDisposed)
-        {
-            return;
-        }
-
         lock (_scanRequestLock)
         {
+            if (_isDisposed) return;
             if (_pendingScanRequest.RequestedTimestamp == 0)
             {
                 _pendingScanRequest = new StartMenuScanRequest(
                     trigger,
                     Stopwatch.GetTimestamp());
             }
+            _scanRequested.Set();
         }
-
-        _scanRequested.Set();
     }
 
     public void SetMonitoringActive(
@@ -139,22 +162,65 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     public void Dispose()
     {
-        if (_isDisposed)
+        lock (_scanRequestLock)
         {
-            return;
+            if (_isDisposed) return;
+            RequestStopLocked();
         }
+    }
 
+    private void RequestStopLocked()
+    {
         _isDisposed = true;
+        Interlocked.Exchange(ref _isReady, 0);
         _disposeRequested.Set();
         _scanRequested.Set();
-        _workerThread.Join(TimeSpan.FromSeconds(1));
-        if (!_workerThread.IsAlive)
-        {
-            _scanRequested.Dispose();
-        }
+        _logger.Write(
+            $"[UIAutomation] action=request-worker-stop result=success pending={_runningWorkers}");
+        ReleaseWaitHandlesIfStopped();
+    }
 
-        // Focus-event registration can be blocked by an external UI Automation
-        // provider. It is a background thread, so shutdown must not wait for it.
+    private void StartWorker(Thread worker)
+    {
+        _runningWorkers++;
+        try { worker.Start(); }
+        catch
+        {
+            _runningWorkers--;
+            throw;
+        }
+    }
+
+    private void RunWorker(Action work)
+    {
+        try { work(); }
+        catch (Exception exception)
+        {
+            _logger.Write(
+                $"[UIAutomation] action=run-worker result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+        }
+        finally
+        {
+            lock (_scanRequestLock)
+            {
+                _runningWorkers--;
+                ReleaseWaitHandlesIfStopped();
+            }
+        }
+    }
+
+    // Called under the same lock as RequestScan and stop signaling. Native calls
+    // may block, so their workers release handles on completion without a UI Join.
+    private void ReleaseWaitHandlesIfStopped()
+    {
+        if (!_isDisposed || _runningWorkers != 0 || _handlesDisposed) return;
+        _scanRequested.Dispose();
+        _disposeRequested.Dispose();
+        _handlesDisposed = true;
+        _logger.Write(
+            $"[UIAutomation] action=stop-workers result={(_eventCleanupFailed ? "failed" : "success")} " +
+            $"event-cleanup={(_eventCleanupFailed ? "failed" : "complete")}");
     }
 
     private void WorkerLoop()
@@ -214,6 +280,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     {
         _focusChangedHandler = (_, _) =>
         {
+            if (_isDisposed) return;
             if (Volatile.Read(ref _monitoringActive) != 0
                 || _windowInspector.IsStartMenuVisible())
             {
@@ -232,12 +299,11 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             {
                 Automation.AddAutomationFocusChangedEventHandler(_focusChangedHandler);
                 registered = true;
-                if (_isDisposed)
+                lock (_scanRequestLock)
                 {
-                    return;
+                    if (_isDisposed) return;
+                    Interlocked.Exchange(ref _isReady, 1);
                 }
-
-                Interlocked.Exchange(ref _isReady, 1);
                 ReadyChanged?.Invoke(this, EventArgs.Empty);
                 string registrationMessage =
                     $"[UIAutomation] action=register-focus-event result=success elapsed-ms=" +
@@ -294,7 +360,8 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                     }
                     catch (Exception exception)
                     {
-                        _logger.WriteDetailed(
+                        lock (_scanRequestLock) _eventCleanupFailed = true;
+                        _logger.Write(
                             $"[UIAutomation] action=unregister-focus-event result=failed " +
                             $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
                     }

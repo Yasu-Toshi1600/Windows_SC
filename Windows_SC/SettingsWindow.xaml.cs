@@ -19,6 +19,10 @@ public sealed partial class SettingsWindow : Window
 {
     private readonly SettingsViewModel _viewModel;
     private bool _isDeleteLogsFlowActive;
+    private bool _isClosed;
+    private Windows.Foundation.IAsyncInfo? _pendingPicker;
+    private ContentDialog? _confirmationDialog;
+    private readonly System.Threading.CancellationTokenSource _windowLifetime = new();
 
     internal SettingsWindow(SettingsViewModel viewModel)
     {
@@ -28,11 +32,33 @@ public sealed partial class SettingsWindow : Window
         TroubleshootingDialog.DataContext = viewModel;
         DiagnosticsPanel.DataContext = viewModel.Diagnostics;
         DiagnosticsPanel.DeleteLogsRequested += DiagnosticsPanel_DeleteLogsRequested;
+        Closed += SettingsWindow_Closed;
 
         nint windowHandle = WindowNative.GetWindowHandle(this);
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
         AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
         ResizeAndCenter(appWindow, windowId, windowHandle);
+    }
+
+    private void SettingsWindow_Closed(object sender, WindowEventArgs args)
+    {
+        if (_isClosed) return;
+        _isClosed = true;
+        Closed -= SettingsWindow_Closed;
+        DiagnosticsPanel.DeleteLogsRequested -= DiagnosticsPanel_DeleteLogsRequested;
+        _windowLifetime.Cancel();
+        _windowLifetime.Dispose();
+        try { _pendingPicker?.Cancel(); }
+        catch (COMException) { /* The picker can already be disconnected. */ }
+        _pendingPicker = null;
+        try { TroubleshootingDialog.Hide(); }
+        catch (COMException) { /* The XAML root can already be disconnected. */ }
+        try { _confirmationDialog?.Hide(); }
+        catch (COMException) { /* The XAML root can already be disconnected. */ }
+        _confirmationDialog = null;
+        DiagnosticsPanel.DataContext = null;
+        TroubleshootingDialog.DataContext = null;
+        RootGrid.DataContext = null;
     }
 
     private void LauncherItemMoveUp_Click(object sender, RoutedEventArgs args)
@@ -218,6 +244,7 @@ public sealed partial class SettingsWindow : Window
 
     private async void SelectTargetFile_Click(object sender, RoutedEventArgs args)
     {
+        if (_isClosed || _pendingPicker is not null) return;
         if (_viewModel.SelectedItem is not { IsButton: true } selectedItem)
         {
             return;
@@ -234,23 +261,28 @@ public sealed partial class SettingsWindow : Window
             picker.FileTypeFilter.Add("*");
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
 
-            Windows.Storage.StorageFile? file = await picker.PickSingleFileAsync();
-            if (file is not null)
+            var operation = picker.PickSingleFileAsync();
+            _pendingPicker = operation;
+            Windows.Storage.StorageFile? file = await operation;
+            if (!_isClosed && file is not null)
             {
                 selectedItem.Target = file.Path;
             }
         }
+        catch (OperationCanceledException) when (_isClosed) { }
         catch (Exception exception) when (exception is InvalidOperationException
             or UnauthorizedAccessException
             or IOException
             or COMException)
         {
-            _viewModel.ReportTargetSelectionFailed("file", exception);
+            if (!_isClosed) _viewModel.ReportTargetSelectionFailed("file", exception);
         }
+        finally { _pendingPicker = null; }
     }
 
     private async void SelectTargetFolder_Click(object sender, RoutedEventArgs args)
     {
+        if (_isClosed || _pendingPicker is not null) return;
         if (_viewModel.SelectedItem is not { IsButton: true } selectedItem)
         {
             return;
@@ -267,35 +299,45 @@ public sealed partial class SettingsWindow : Window
             picker.FileTypeFilter.Add("*");
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
 
-            Windows.Storage.StorageFolder? folder = await picker.PickSingleFolderAsync();
-            if (folder is not null)
+            var operation = picker.PickSingleFolderAsync();
+            _pendingPicker = operation;
+            Windows.Storage.StorageFolder? folder = await operation;
+            if (!_isClosed && folder is not null)
             {
                 selectedItem.Target = folder.Path;
             }
         }
+        catch (OperationCanceledException) when (_isClosed) { }
         catch (Exception exception) when (exception is InvalidOperationException
             or UnauthorizedAccessException
             or IOException
             or COMException)
         {
-            _viewModel.ReportTargetSelectionFailed("folder", exception);
+            if (!_isClosed) _viewModel.ReportTargetSelectionFailed("folder", exception);
         }
+        finally { _pendingPicker = null; }
     }
 
     private async void TroubleshootingButton_Click(object sender, RoutedEventArgs args)
     {
+        if (_isClosed) return;
         _viewModel.Diagnostics.RefreshEnvironmentInformationLog();
         TroubleshootingScrollViewer.MaxHeight = Math.Max(
             280,
             RootGrid.ActualHeight - 180);
         TroubleshootingDialog.XamlRoot = RootGrid.XamlRoot;
-        await TroubleshootingDialog.ShowAsync();
+        try { await TroubleshootingDialog.ShowAsync(); }
+        catch (OperationCanceledException) when (_isClosed) { }
+        catch (COMException) when (_isClosed) { }
     }
 
     private void KeepItemVisible(ListView listView, object item)
     {
         listView.SelectedItem = item;
-        DispatcherQueue.TryEnqueue(() => listView.ScrollIntoView(item));
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_isClosed) listView.ScrollIntoView(item);
+        });
     }
 
     private static void ResizeAndCenter(AppWindow appWindow, WindowId windowId, nint windowHandle)
@@ -324,7 +366,7 @@ public sealed partial class SettingsWindow : Window
 
     private async void DiagnosticsPanel_DeleteLogsRequested(object? sender, EventArgs args)
     {
-        if (_isDeleteLogsFlowActive)
+        if (_isClosed || _isDeleteLogsFlowActive)
         {
             return;
         }
@@ -344,8 +386,14 @@ public sealed partial class SettingsWindow : Window
             }
 
             TroubleshootingDialog.Closed += TroubleshootingDialog_Closed;
-            TroubleshootingDialog.Hide();
-            await closed.Task;
+            var cancellationToken = _windowLifetime.Token;
+            try
+            {
+                TroubleshootingDialog.Hide();
+                await closed.Task.WaitAsync(cancellationToken);
+            }
+            finally { TroubleshootingDialog.Closed -= TroubleshootingDialog_Closed; }
+            if (_isClosed) return;
 
             ContentDialog confirmation = new()
             {
@@ -357,13 +405,17 @@ public sealed partial class SettingsWindow : Window
                 DefaultButton = ContentDialogButton.Close
             };
 
-            if (await confirmation.ShowAsync() == ContentDialogResult.Primary)
+            _confirmationDialog = confirmation;
+            if (await confirmation.ShowAsync() == ContentDialogResult.Primary && !_isClosed)
             {
                 _viewModel.Diagnostics.ClearLogs();
             }
         }
+        catch (OperationCanceledException) when (_isClosed) { }
+        catch (COMException) when (_isClosed) { }
         finally
         {
+            _confirmationDialog = null;
             _isDeleteLogsFlowActive = false;
         }
     }

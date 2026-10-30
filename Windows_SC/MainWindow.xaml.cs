@@ -46,6 +46,7 @@ public sealed partial class MainWindow : Window
     private bool _isVisible;
     private bool _isInitialized;
     private bool _shutdownResourcesReleased;
+    private ContentDialog? _actionErrorDialog;
     private bool _launcherIsActivated;
     private bool? _lastLoggedLauncherFocus;
     private bool? _lastLoggedStartMenuVisibility;
@@ -245,6 +246,7 @@ public sealed partial class MainWindow : Window
 
     internal void RequestManualShow()
     {
+        if (_shutdownResourcesReleased) return;
         MoveLauncherToCurrentVirtualDesktop("system-tray");
         if (_motionCoordinator.State == LauncherMotionState.Exiting)
         {
@@ -282,6 +284,7 @@ public sealed partial class MainWindow : Window
 
     private void HandleWindowsKeyReleasedAlone(long releasedTimestamp)
     {
+        if (_shutdownResourcesReleased) return;
         _windowsKeyReleasedTimestamp = releasedTimestamp;
         _logger.WriteDetailed(
             "[InputMonitor] action=dispatch-windows-key result=success " +
@@ -312,6 +315,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWindow(bool activate, string reason, StartMenuSnapshot? startMenuSnapshot)
     {
+        if (_shutdownResourcesReleased) return;
         MoveLauncherToCurrentVirtualDesktop(reason);
         bool reversingExit = _motionCoordinator.State == LauncherMotionState.Exiting;
         bool needsPlacement = !_isVisible
@@ -389,6 +393,7 @@ public sealed partial class MainWindow : Window
 
     private void RequestExit(string reason)
     {
+        if (_shutdownResourcesReleased) return;
         if (!_motionCoordinator.BeginExit(reason))
         {
             return;
@@ -527,6 +532,7 @@ public sealed partial class MainWindow : Window
 
     private void Window_Activated(object sender, WindowActivatedEventArgs args)
     {
+        if (_shutdownResourcesReleased) return;
         _launcherIsActivated = args.WindowActivationState != WindowActivationState.Deactivated;
         _logger.WriteDetailed(
             $"[Launcher] action=activation-change result=success " +
@@ -721,6 +727,7 @@ public sealed partial class MainWindow : Window
     {
         DispatcherQueue.TryEnqueue(() =>
         {
+            if (_shutdownResourcesReleased) return;
             ViewModel.RefreshAudioOutputState();
         });
     }
@@ -731,6 +738,7 @@ public sealed partial class MainWindow : Window
     {
         DispatcherQueue.TryEnqueue(() =>
         {
+            if (_shutdownResourcesReleased) return;
             _motionService.AnimationsEnabled = sender.AnimationsEnabled;
             _logger.Write(
                 $"[Motion] action=configure result=success " +
@@ -798,7 +806,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowActionErrorAsync(string errorMessage)
     {
-        if (RootBorder.XamlRoot is null)
+        if (_shutdownResourcesReleased || RootBorder.XamlRoot is null)
         {
             _logger.Write(
                 "[Launcher] action=show-action-error result=skipped reason=no-xaml-root");
@@ -812,7 +820,9 @@ public sealed partial class MainWindow : Window
             CloseButtonText = "閉じる",
             XamlRoot = RootBorder.XamlRoot
         };
-        await dialog.ShowAsync();
+        _actionErrorDialog = dialog;
+        try { await dialog.ShowAsync(); }
+        finally { _actionErrorDialog = null; }
     }
 
     private void LogActionErrorDialogFailure(Exception exception)
@@ -1170,6 +1180,8 @@ public sealed partial class MainWindow : Window
             return;
         }
         _shutdownResourcesReleased = true;
+        Activated -= Window_Activated;
+        release("action-error-dialog", () => _actionErrorDialog?.Hide());
         ViewModel.SetLauncherVisible(false);
         _logger.Write("[Application] action=release-window-resources result=success phase=begin");
         _shortcutKeyExecutionCoordinator.Detach(PrepareShortcutKeyTargetAsync);

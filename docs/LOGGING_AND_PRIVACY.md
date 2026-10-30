@@ -46,6 +46,8 @@ MSIXは公開配布しないが、プロジェクトに残るMSIX構成では`%L
 通常ログは常に有効とし、次を記録する。
 
 - アプリの起動、二重起動拒否、終了
+- UIAの停止要求`request-worker-stop`と実際のワーカー処理完了`stop-workers`、復帰時の`restart-uia`。`event-cleanup=failed`では新しいUIA世代を作らずWin32検出を継続する。
+- `shutdown-resources-released`はUI・サービスの解放呼び出し終了を示す。Logger停止とApplication.Exitより前の記録であり、プロセス終了や停止要求中の全バックグラウンド処理の完了を保証しない。旧`shutdown-complete`も同じ位置にあった。
 - 設定の作成、読込、保存、破損復旧
 - スタート検出結果と監視状態
 - ランチャーの状態遷移、表示・退出理由

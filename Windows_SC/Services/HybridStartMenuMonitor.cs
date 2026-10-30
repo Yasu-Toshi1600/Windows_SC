@@ -14,6 +14,10 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly DiagnosticLogger _logger;
     private UiAutomationStartMenuInspector _uiAutomationInspector;
+    private readonly StartMenuWindowInspector _recoveryWindowInspector;
+    private bool _inspectorRestartPending;
+    private StartMenuSnapshot _recoverySnapshot = StartMenuSnapshot.Hidden;
+    private DateTimeOffset _nextRestartAttempt;
     private readonly DispatcherQueueTimer _fallbackTimer;
     private DateTimeOffset _fastMonitoringUntil;
     private bool _launcherIsVisible;
@@ -28,6 +32,7 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
         _dispatcherQueue = dispatcherQueue;
         _logger = logger;
         _uiAutomationInspector = new UiAutomationStartMenuInspector(logger);
+        _recoveryWindowInspector = new StartMenuWindowInspector(logger);
 
         _fallbackTimer = dispatcherQueue.CreateTimer();
         _fallbackTimer.Interval = FastMonitoringInterval;
@@ -41,9 +46,10 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
 
     public event EventHandler? StartConfirmationExpired;
 
-    public StartMenuSnapshot Snapshot => _uiAutomationInspector.Snapshot;
+    public StartMenuSnapshot Snapshot => _inspectorRestartPending
+        ? _recoverySnapshot : _uiAutomationInspector.Snapshot;
 
-    public bool IsReady => _uiAutomationInspector.IsReady;
+    public bool IsReady => !_inspectorRestartPending && _uiAutomationInspector.IsReady;
 
     public void Start()
     {
@@ -71,33 +77,26 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
         }
 
         _fallbackTimer.Stop();
-        DetachInspectorEvents();
-        _uiAutomationInspector.Dispose();
-        _uiAutomationInspector = new UiAutomationStartMenuInspector(_logger);
-        AttachInspectorEvents();
+        if (!_inspectorRestartPending)
+        {
+            DetachInspectorEvents();
+            _uiAutomationInspector.Dispose();
+            _inspectorRestartPending = true;
+        }
+        _recoverySnapshot = StartMenuSnapshot.Hidden;
         _awaitingStartConfirmation = false;
         _presentationRecoveryPending = false;
         _fastMonitoringUntil = DateTimeOffset.MinValue;
         _launcherIsVisible = false;
         _launcherIsInteractive = false;
 
-        try
-        {
-            _uiAutomationInspector.Start();
-            UpdateFallbackMonitoring();
-            _logger.Write(
-                "[StartMenu] action=recover-monitor result=success reason=resume " +
-                "components=ui-automation,fallback-timer");
-            return true;
-        }
-        catch (Exception exception)
-        {
-            _uiAutomationInspector.Dispose();
-            _logger.Write(
-                $"[StartMenu] action=recover-monitor result=failed reason=resume " +
-                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
-            return false;
-        }
+        TryRestartInspector();
+        UpdateFallbackMonitoring();
+        ReadyChanged?.Invoke(this, EventArgs.Empty);
+        _logger.Write(
+            "[StartMenu] action=recover-monitor result=success reason=resume " +
+            $"mode={(_inspectorRestartPending ? "win32-pending-uia-stop" : "hybrid-event-driven")}");
+        return true;
     }
 
     public void BeginPresentationRecovery()
@@ -121,7 +120,7 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
 
     public void CancelPresentationRecovery()
     {
-        if (!_presentationRecoveryPending)
+        if (_isDisposed || !_presentationRecoveryPending)
         {
             return;
         }
@@ -163,12 +162,14 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
         _fallbackTimer.Stop();
         _uiAutomationInspector.SetMonitoringActive(false);
         _uiAutomationInspector.AssumeHidden();
+        if (_inspectorRestartPending) UpdateRecoverySnapshot(StartMenuSnapshot.Hidden);
         _logger.Write(
             "[StartMenu] action=assume-hidden result=success source=windows-key-close");
     }
 
     public void SetLauncherVisible(bool isVisible)
     {
+        if (_isDisposed) return;
         _launcherIsVisible = isVisible;
         if (!isVisible)
         {
@@ -180,6 +181,7 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
 
     public void SetLauncherInteractive(bool isInteractive)
     {
+        if (_isDisposed) return;
         _launcherIsInteractive = isInteractive;
         if (isInteractive)
         {
@@ -208,6 +210,19 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
 
     private void FallbackTimer_Tick(DispatcherQueueTimer sender, object args)
     {
+        if (_isDisposed) return;
+        TryRestartInspector();
+        if (_inspectorRestartPending)
+        {
+            // Keep Windows-key and Start-button detection available while an old
+            // native UIA call finishes. Never add another generation meanwhile.
+            bool visible = _recoveryWindowInspector.TryGetStartMenuBounds(null, out var bounds);
+            UpdateRecoverySnapshot(visible
+                ? new StartMenuSnapshot(true, bounds, false, null)
+                : StartMenuSnapshot.Hidden);
+            UpdateFallbackMonitoring();
+            return;
+        }
         if (!_presentationRecoveryPending
             && !_awaitingStartConfirmation
             && !_launcherIsVisible)
@@ -247,6 +262,7 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
 
     private void UpdateFallbackMonitoring()
     {
+        if (!_isStarted || _isDisposed) return;
         if (_launcherIsInteractive)
         {
             _fallbackTimer.Stop();
@@ -274,17 +290,17 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
             return;
         }
 
-        if (!IsReady)
-        {
-            SetFallbackInterval(InitializationFallbackInterval);
-            return;
-        }
-
         _uiAutomationInspector.SetMonitoringActive(false);
         if (_awaitingStartConfirmation && !Snapshot.IsVisible)
         {
             _awaitingStartConfirmation = false;
             StartConfirmationExpired?.Invoke(this, EventArgs.Empty);
+        }
+
+        if (!IsReady)
+        {
+            SetFallbackInterval(InitializationFallbackInterval);
+            return;
         }
 
         // UI Automation focus notifications can stop without reporting an
@@ -295,6 +311,7 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
 
     private void SetFallbackInterval(TimeSpan interval)
     {
+        if (_isDisposed) return;
         if (_fallbackTimer.Interval != interval)
         {
             _fallbackTimer.Interval = interval;
@@ -310,6 +327,8 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
     {
         _dispatcherQueue.TryEnqueue(() =>
         {
+            if (_isDisposed || _inspectorRestartPending
+                || !ReferenceEquals(sender, _uiAutomationInspector)) return;
             bool isVisible = _uiAutomationInspector.Snapshot.IsVisible;
             if (isVisible)
             {
@@ -332,9 +351,44 @@ internal sealed class HybridStartMenuMonitor : IStartMenuMonitor
     private void UiAutomationInspector_ReadyChanged(object? sender, EventArgs args) =>
         _dispatcherQueue.TryEnqueue(() =>
         {
+            if (_isDisposed || _inspectorRestartPending
+                || !ReferenceEquals(sender, _uiAutomationInspector)) return;
             UpdateFallbackMonitoring();
             ReadyChanged?.Invoke(this, EventArgs.Empty);
         });
+
+    private void TryRestartInspector()
+    {
+        if (_isDisposed || !_inspectorRestartPending || !_uiAutomationInspector.CanRestart
+            || DateTimeOffset.UtcNow < _nextRestartAttempt) return;
+        _uiAutomationInspector = new UiAutomationStartMenuInspector(_logger);
+        AttachInspectorEvents();
+        try
+        {
+            _uiAutomationInspector.Start();
+            _inspectorRestartPending = false;
+            _logger.Write("[StartMenu] action=restart-uia result=success previous-workers=stopped");
+        }
+        catch (Exception exception)
+        {
+            DetachInspectorEvents();
+            _uiAutomationInspector.Dispose();
+            _nextRestartAttempt = DateTimeOffset.UtcNow.AddSeconds(5);
+            _logger.Write(
+                $"[StartMenu] action=restart-uia result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+        }
+    }
+
+    private void UpdateRecoverySnapshot(StartMenuSnapshot snapshot)
+    {
+        if (_isDisposed || snapshot == _recoverySnapshot) return;
+        _recoverySnapshot = snapshot;
+        if (snapshot.IsVisible) _awaitingStartConfirmation = false;
+        if (_presentationRecoveryPending && !snapshot.IsVisible)
+            _presentationRecoveryPending = false;
+        SnapshotChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     private void AttachInspectorEvents()
     {
