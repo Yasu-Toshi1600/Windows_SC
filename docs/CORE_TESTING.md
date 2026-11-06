@@ -27,6 +27,7 @@ dotnet test Windows_SC.Tests/Windows_SC.Tests.csproj -c Release -p:Platform=x64 
 | 非同期状態 | 最新値優先、逐次キュー、例外通知失敗後の継続、idle完了 |
 | 音声状態 | デバイスID正規化、次候補と折返し、出力先別アプリ音量、範囲補正、破損状態隔離 |
 | システムモニター | 履歴上限、0～100への補正、欠損値、グラフ座標 |
+| システム計測とUI反映 | 選択項目のキャッシュ・履歴、設定変更中の旧結果破棄、非表示中のUI投入抑止、通知集約、再表示と終了後の抑止 |
 | ログ値 | 改行等の除去、ユーザー名・既知パス・パス末尾の匿名化 |
 | 結果契約 | 成功／失敗ファクトリーの値と件数 |
 
@@ -51,3 +52,34 @@ Coreの振る舞いを変更するときは、正常系だけでなく境界値�
 ## 4. 検証結果
 
 件数と直近結果は[現在の状況](NEXT_STEPS_AND_DECISIONS.md)に集約する。
+
+## 5. UI寿命管理の分離検証
+
+`scripts/UiLifecycleChecks`はCoreテストと別のコンソール検証で、製品ソースをリンクし、
+外部UI／ネイティブ依存を代替して順序と所有資源を確認する。WorkersはWindowsで実行する。
+
+```powershell
+dotnet run --project scripts/UiLifecycleChecks/Monitor/Monitor.csproj -c Release
+dotnet run --project scripts/UiLifecycleChecks/Workers/Workers.csproj -c Release
+dotnet run --project scripts/UiLifecycleChecks/Motion/Motion.csproj -c Release
+```
+
+Monitorは破棄後・旧世代の通知、停止未完了時の復帰100回、Win32代替検出を確認する。
+Workersは実WaitHandleと要求・破棄・ワーカー終了処理で競合100回と遅延解放を確認する。
+既定のWin32経路では、実際のStart／ワーカーを実行し、UIAイベント用スレッドが開始されず、
+Windowsキー・アイドル検出・非表示化・停止がWin32代替実装で処理されることも確認する。
+Motionは完了・反転500回、中断・無効化・終了時の所有資源解放を確認する。
+これは実UIAプロバイダー、ネイティブComposition、GUIや長時間メモリ改善の確認ではない。
+
+Win32イベントの検証:
+
+```powershell
+dotnet run --project scripts/UiLifecycleChecks/WinEvents/WinEvents.csproj -c Release
+dotnet run --project scripts/UiLifecycleChecks/WinEvents/WinEvents.csproj -c Release -- --native-smoke
+```
+
+通常実行は製品のイベント管理コードをリンクし、ネイティブAPIを代替して、フィルター、PID更新、
+部分登録失敗、解除失敗、旧コールバック抑止、登録スレッド制約を確認する。
+native-smokeは実Win32で7本のフックを登録し、2秒のメッセージ処理後に同一スレッドで解除する。
+通知数0でも登録・解除の確認は成功となるため、Start操作のGUI受信試験の代替にはならない。
+Monitor検証には通知100件の集約と対話中・復帰後・破棄後の通知抑止も含む。

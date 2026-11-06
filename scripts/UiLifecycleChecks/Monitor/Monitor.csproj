@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../Windows_SC/Services/HybridStartMenuMonitor.cs" Link="HybridStartMenuMonitor.cs" />
+    <Compile Include="../../../Windows_SC/Services/IStartMenuMonitor.cs" Link="IStartMenuMonitor.cs" />
+  </ItemGroup>
+</Project>

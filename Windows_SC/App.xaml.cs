@@ -31,6 +31,7 @@ public partial class App : Application
     private IUiDispatcher? _uiDispatcher;
     private readonly SettingsPersistenceCoordinator _settingsPersistenceCoordinator = new();
     private bool _isShuttingDown;
+    private bool _allowWindowClose;
 
     public App()
     {
@@ -149,7 +150,8 @@ public partial class App : Application
         _viewModel.SettingsRequested += ViewModel_SettingsRequested;
         _startMenuMonitor = new HybridStartMenuMonitor(
             DispatcherQueue.GetForCurrentThread(),
-            logger);
+            logger,
+            settings.EnableUiAutomation);
         _inputService = new GlobalInputService(logger);
         ILauncherPlacementService placementService = new LauncherPlacementService(logger);
         _systemTrayService = new WindowsSystemTrayService(logger);
@@ -169,8 +171,10 @@ public partial class App : Application
             _environmentInformationService,
             shortcutKeyExecutionCoordinator);
         _window.Closed += Window_Closed;
+        _window.AppWindow.Closing += MainAppWindow_Closing;
         _window.InitializeBackgroundWindow();
-        _memoryDiagnostics = new ProcessMemoryDiagnostics(logger);
+        _memoryDiagnostics = new ProcessMemoryDiagnostics(logger,
+            () => (_systemMetricsService.RequestedMetrics & SystemMonitorMetric.Gpu) != 0);
         _memoryDiagnostics.Capture("startup");
     }
 
@@ -214,11 +218,30 @@ public partial class App : Application
             TaskScheduler_UnobservedTaskException;
         ReleaseForShutdown("single-instance", () => _singleInstanceService?.Dispose());
         _singleInstanceService = null;
-        _logger?.Write("[Application] action=shutdown-complete result=success");
-        _logger?.Dispose();
-        _logger = null;
+        _logger?.Write("[Application] action=shutdown-resources-released result=success");
         _environmentInformationService = null;
-        Exit();
+        if (_window is not null)
+        {
+            _window.AppWindow.Closing -= MainAppWindow_Closing;
+            _window.Closed -= Window_Closed;
+        }
+        _window = null;
+        _viewModel = null;
+        try { _logger?.Dispose(); }
+        finally
+        {
+            _logger = null;
+            Exit();
+        }
+    }
+
+    private void MainAppWindow_Closing(
+        Microsoft.UI.Windowing.AppWindow sender,
+        Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
+    {
+        if (_allowWindowClose) return;
+        args.Cancel = true;
+        _window?.DispatcherQueue.TryEnqueue(() => RequestShutdown("window-close"));
     }
 
     private void ReleaseForShutdown(string component, Action release)
@@ -310,7 +333,10 @@ public partial class App : Application
 
     private void SystemTrayService_ShowLauncherRequested(object? sender, EventArgs args)
     {
-        _window?.DispatcherQueue.TryEnqueue(() => _window?.RequestManualShow());
+        _window?.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_isShuttingDown) _window?.RequestManualShow();
+        });
     }
 
     private void SystemTrayService_SettingsRequested(object? sender, EventArgs args)
@@ -336,6 +362,9 @@ public partial class App : Application
         _settingsWindow?.Close();
         await _settingsPersistenceCoordinator.WaitForIdleAsync();
         _logger?.Write("[Settings] action=wait-before-shutdown result=success");
+        // Stop UI callbacks/Composition while the surface is still connected.
+        ReleaseForShutdown("window", () => _window?.ReleaseShutdownResources(ReleaseForShutdown));
+        _allowWindowClose = true;
         _window?.Close();
     }
 

@@ -43,6 +43,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private ApplicationAudioTargetOption? _selectedApplicationAudioTarget;
     private bool _assumePhonePanelVisible;
     private bool _startWithWindows;
+    private bool _enableUiAutomation;
     private LayoutModeOption? _selectedLayoutMode;
     private LauncherItemBackgroundColorOption? _selectedBackgroundColor;
     private string _statusMessage = string.Empty;
@@ -51,6 +52,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
     private bool _isSaving;
     private bool _isRefreshingAudioDevices;
     private bool _isRefreshingApplications;
+    private bool _isDisposed;
     private bool _isRecordingShortcutKey;
     private string _shortcutRecordingStatus = "［キーを記録］を押して登録します。";
 
@@ -95,6 +97,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         LauncherSettings settings = mainWindowViewModel.ExportSettings();
         _assumePhonePanelVisible = settings.AssumePhonePanelVisible;
         _startWithWindows = settings.StartWithWindows;
+        _enableUiAutomation = settings.EnableUiAutomation;
         Diagnostics = new DiagnosticsSettingsViewModel(
             settings,
             settingsRepository,
@@ -379,6 +382,15 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
+    public bool EnableUiAutomation
+    {
+        get => _enableUiAutomation;
+        set
+        {
+            if (SetProperty(ref _enableUiAutomation, value)) MarkDirty();
+        }
+    }
+
     public bool StartWithWindows
     {
         get => _startWithWindows;
@@ -608,6 +620,8 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (_isDisposed) return;
+        _isDisposed = true;
         CancelShortcutKeyRecording();
         _globalInputService.ShortcutKeyCaptured -= GlobalInputService_ShortcutKeyCaptured;
         _applicationVolumeService.StateChanged -= ApplicationVolumeService_StateChanged;
@@ -796,6 +810,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         InfoBarSeverity severity,
         bool includeUnsavedReminder = true)
     {
+        if (_isDisposed) return;
         if (IsDirty && includeUnsavedReminder)
         {
             const string unsavedReminder = "変更内容はまだ保存されていません。";
@@ -1131,6 +1146,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
 
     private void NotifyAudioDeviceCommands()
     {
+        if (_isDisposed) return;
         AddAudioDeviceCommand.NotifyCanExecuteChanged();
         RefreshAudioDevicesCommand.NotifyCanExecuteChanged();
         ReplaceAudioDeviceCommand.NotifyCanExecuteChanged();
@@ -1152,6 +1168,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         try
         {
             await _applicationVolumeService.RefreshAsync();
+            if (_isDisposed) return;
             RefreshApplicationCandidatesFromCache();
             SetStatus(
                 $"アプリ別音量の候補を更新しました（{AvailableApplications.Count}件）。",
@@ -1169,12 +1186,13 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         finally
         {
             _isRefreshingApplications = false;
-            RefreshApplicationsCommand.NotifyCanExecuteChanged();
+            if (!_isDisposed) RefreshApplicationsCommand.NotifyCanExecuteChanged();
         }
     }
 
     private void RefreshApplicationCandidatesFromCache()
     {
+        if (_isDisposed) return;
         ApplicationAudioTargetDefinition? selectedDefinition =
             SelectedItem?.ApplicationAudioTarget;
         List<ApplicationAudioTargetOption> options = _applicationVolumeService
@@ -1263,6 +1281,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             string? selectedAddDeviceId = AudioDeviceToAdd?.Id;
             string? selectedRegisteredDeviceId = SelectedRegisteredAudioDevice?.Id;
             await _audioOutputService.RefreshAsync();
+            if (_isDisposed) return;
 
             IReadOnlyList<AudioOutputDeviceOption> refreshedDevices = _audioOutputService
                 .GetCachedDevices()
@@ -1513,6 +1532,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
             await _persistenceCoordinator.RunAsync(async () =>
             {
                 LauncherSettings previousSettings = _mainWindowViewModel.ExportSettings();
+                bool monitoringChanged = settings.EnableUiAutomation != previousSettings.EnableUiAutomation;
                 settings.DetailedLoggingExpiresAtUtc =
                     previousSettings.DetailedLoggingExpiresAtUtc;
                 settings.DetailedLoggingAlwaysEnabled =
@@ -1547,7 +1567,9 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 _environmentInformationService.LogIfChanged("settings-save");
                 _mainWindowViewModel.ApplySettings(settings);
                 MarkSaved(savedRevision);
-                SetStatus("保存しました。", InfoBarSeverity.Success);
+                SetStatus(monitoringChanged
+                    ? "保存しました。UIA監視の変更はアプリを再起動すると反映されます。"
+                    : "保存しました。", InfoBarSeverity.Success);
             });
         }
         catch (Exception exception)
@@ -1564,7 +1586,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         finally
         {
             _isSaving = false;
-            SaveCommand.NotifyCanExecuteChanged();
+            if (!_isDisposed) SaveCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -1600,6 +1622,7 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
         {
             AssumePhonePanelVisible = AssumePhonePanelVisible,
             StartWithWindows = StartWithWindows,
+            EnableUiAutomation = EnableUiAutomation,
             DetailedLoggingExpiresAtUtc = previousSettings.DetailedLoggingExpiresAtUtc,
             DetailedLoggingAlwaysEnabled = previousSettings.DetailedLoggingAlwaysEnabled,
             LayoutMode = SelectedLayoutMode?.Value ?? LauncherLayoutMode.Standard,

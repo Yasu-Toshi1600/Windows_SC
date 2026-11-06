@@ -127,6 +127,8 @@ Windowsキー待機中でなくても、新しいスタートVisible Snapshotを
 - アニメーションごとに世代IDを増やす。
 - `CompositionScopedBatch.Completed`はUI Dispatcherへ戻す。
 - 完了通知の世代IDが現在と一致しない場合は無視する。
+- 完了・反転・中断時にはCompleted購読を解除し、所有するBatch、KeyFrameAnimation、EasingFunctionをDisposeする。
+- 終了時にはSurface側のTranslation／OpacityのExpressionAnimationもStopAnimationしてDisposeし、PropertySetを解放する。XAML所有のCompositorは破棄しない。
 - 退出完了前に新しいWindowsキー、手動表示、トレイ表示を受けた場合は即時反転する。
 - スタート非表示を確認して退出した後、新しいVisible Snapshotを受けた場合も連続クリックによる再表示として反転する。
 - 退出前から残っていた古いVisible Snapshotだけでは反転しない。
@@ -158,7 +160,7 @@ Windowsキー待機中でなくても、新しいスタートVisible Snapshotを
 
 - `key-to-start-ms`: Windowsキー解放からスタート確認
 - `request-to-detect-ms`: スタート検出要求から検出成功
-- `scan-ms`: 検出に成功したUI Automationスキャン
+- `scan-ms`: 検出に成功したスキャン（既定はWin32。UIAオンの場合だけUI Automationを使用）
 - `start-to-request-ms`: スタート確認から表示要求
 - `request-to-complete-ms`: 表示要求から進入完了
 - `motion-ms`: Compositionの実完了時間
@@ -221,7 +223,7 @@ OS側のスタート表示待ちを含む`key-to-start-ms`、検出処理の
 
 - スタートとランチャーは別プロセスであり、同じ進行率やComposition Timelineを共有できない。
 - Windows更新によってスタートの表示速度、矩形、UI Automation要素が変わる可能性がある。
-- Explorerの`StartButton`もスタート本体のフォーカスも取得できないOS状態では、複数`SearchHost`候補のクリック元モニターを確定できない可能性がある。
+- 既定はWin32検出であり、UIAのExplorer StartButton補助を使わない。スタート本体が前景でなく複数SearchHost候補がある場合、クリック元モニターを確定できない可能性がある。
 - 60／120／144Hz、主要DPI、RDP、途中反転100回の正式な合否記録は未完了である。
 - Surface単位のDesktop AcrylicはWindows App SDK 2.0以降への更新時に再検討する。
 - カード個別アニメーションは、全体モーションの安定性を崩さないことを確認できるまで追加しない。

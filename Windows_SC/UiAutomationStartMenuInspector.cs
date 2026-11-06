@@ -23,6 +23,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     ];
 
     private readonly DiagnosticLogger _logger;
+    private readonly bool _enableUiAutomation;
     private readonly StartMenuWindowInspector _windowInspector;
     private readonly AutoResetEvent _scanRequested = new(false);
     private readonly ManualResetEvent _disposeRequested = new(false);
@@ -31,6 +32,10 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     private readonly object _stateLock = new();
     private StartMenuSnapshot _snapshot = StartMenuSnapshot.Hidden;
     private volatile bool _isDisposed;
+    private bool _isStarted;
+    private int _runningWorkers;
+    private bool _handlesDisposed;
+    private bool _eventCleanupFailed;
     private string _lastSnapshotSignature = string.Empty;
     private string _lastFocusedElementSignature = string.Empty;
     private int _monitoringActive;
@@ -42,22 +47,26 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     public event EventHandler? ReadyChanged;
 
-    public UiAutomationStartMenuInspector(DiagnosticLogger logger)
+    public UiAutomationStartMenuInspector(DiagnosticLogger logger, bool enableUiAutomation = false)
     {
         _logger = logger;
+        // WPF's global focus subscription can retain IAccessible proxies for
+        // LockApp and stall finalization during COM release. Keep both that
+        // subscription and FocusedElement scans out of the default path.
+        _enableUiAutomation = enableUiAutomation;
         _windowInspector = new StartMenuWindowInspector(logger);
-        _workerThread = new Thread(WorkerLoop)
+        _workerThread = new Thread(() => RunWorker(WorkerLoop))
         {
             IsBackground = true,
             Name = "Windows_SC UI Automation"
         };
-        _workerThread.SetApartmentState(ApartmentState.STA);
-        _focusEventThread = new Thread(FocusEventLoop)
+        _workerThread.SetApartmentState(ApartmentState.MTA);
+        _focusEventThread = new Thread(() => RunWorker(FocusEventLoop))
         {
             IsBackground = true,
             Name = "Windows_SC UI Automation Events"
         };
-        _focusEventThread.SetApartmentState(ApartmentState.STA);
+        _focusEventThread.SetApartmentState(ApartmentState.MTA);
     }
 
     public bool IsStartMenuVisible
@@ -73,6 +82,18 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     public bool IsReady => Volatile.Read(ref _isReady) != 0;
 
+    public string DetectionMode => _enableUiAutomation ? "hybrid-event-driven" : "win32-only";
+
+    // A replacement must not overlap registration/removal by the old generation.
+    public bool CanRestart
+    {
+        get
+        {
+            lock (_scanRequestLock)
+                return _isDisposed && _runningWorkers == 0 && !_eventCleanupFailed;
+        }
+    }
+
     public StartMenuSnapshot Snapshot
     {
         get
@@ -86,31 +107,44 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     public void Start()
     {
-        _workerThread.Start();
-        _focusEventThread.Start();
+        lock (_scanRequestLock)
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+            if (_isStarted) return;
+            _isStarted = true;
+            try
+            {
+                StartWorker(_workerThread);
+                if (_enableUiAutomation)
+                    StartWorker(_focusEventThread);
+                else
+                    Interlocked.Exchange(ref _isReady, 1);
+            }
+            catch
+            {
+                RequestStopLocked();
+                throw;
+            }
+        }
         RequestScan(StartMenuScanTrigger.Startup);
+        if (!_enableUiAutomation) ReadyChanged?.Invoke(this, EventArgs.Empty);
         _logger.WriteDetailed(
-            "[UIAutomation] action=start-workers result=success apartment=sta");
+            $"[UIAutomation] action=start-workers result=success apartment=mta mode={DetectionMode}");
     }
 
     public void RequestScan(StartMenuScanTrigger trigger)
     {
-        if (_isDisposed)
-        {
-            return;
-        }
-
         lock (_scanRequestLock)
         {
+            if (_isDisposed) return;
             if (_pendingScanRequest.RequestedTimestamp == 0)
             {
                 _pendingScanRequest = new StartMenuScanRequest(
                     trigger,
                     Stopwatch.GetTimestamp());
             }
+            _scanRequested.Set();
         }
-
-        _scanRequested.Set();
     }
 
     public void SetMonitoringActive(
@@ -139,22 +173,65 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     public void Dispose()
     {
-        if (_isDisposed)
+        lock (_scanRequestLock)
         {
-            return;
+            if (_isDisposed) return;
+            RequestStopLocked();
         }
+    }
 
+    private void RequestStopLocked()
+    {
         _isDisposed = true;
+        Interlocked.Exchange(ref _isReady, 0);
         _disposeRequested.Set();
         _scanRequested.Set();
-        _workerThread.Join(TimeSpan.FromSeconds(1));
-        if (!_workerThread.IsAlive)
-        {
-            _scanRequested.Dispose();
-        }
+        _logger.Write(
+            $"[UIAutomation] action=request-worker-stop result=success pending={_runningWorkers}");
+        ReleaseWaitHandlesIfStopped();
+    }
 
-        // Focus-event registration can be blocked by an external UI Automation
-        // provider. It is a background thread, so shutdown must not wait for it.
+    private void StartWorker(Thread worker)
+    {
+        _runningWorkers++;
+        try { worker.Start(); }
+        catch
+        {
+            _runningWorkers--;
+            throw;
+        }
+    }
+
+    private void RunWorker(Action work)
+    {
+        try { work(); }
+        catch (Exception exception)
+        {
+            _logger.Write(
+                $"[UIAutomation] action=run-worker result=failed " +
+                $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
+        }
+        finally
+        {
+            lock (_scanRequestLock)
+            {
+                _runningWorkers--;
+                ReleaseWaitHandlesIfStopped();
+            }
+        }
+    }
+
+    // Called under the same lock as RequestScan and stop signaling. Native calls
+    // may block, so their workers release handles on completion without a UI Join.
+    private void ReleaseWaitHandlesIfStopped()
+    {
+        if (!_isDisposed || _runningWorkers != 0 || _handlesDisposed) return;
+        _scanRequested.Dispose();
+        _disposeRequested.Dispose();
+        _handlesDisposed = true;
+        _logger.Write(
+            $"[UIAutomation] action=stop-workers result={(_eventCleanupFailed ? "failed" : "success")} " +
+            $"event-cleanup={(_eventCleanupFailed ? "failed" : "complete")}");
     }
 
     private void WorkerLoop()
@@ -185,7 +262,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                         $"request-to-detect-ms={Stopwatch.GetElapsedTime(request.RequestedTimestamp).TotalMilliseconds:F1} " +
                         $"scan-ms={scanElapsed.TotalMilliseconds:F1}" +
                         (request.Trigger.IsFallback()
-                            ? " fallback=true poll-interval-ms=250"
+                            ? " fallback=true poll-interval-ms=125"
                             : " fallback=false"));
                 }
 
@@ -214,6 +291,7 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
     {
         _focusChangedHandler = (_, _) =>
         {
+            if (_isDisposed) return;
             if (Volatile.Read(ref _monitoringActive) != 0
                 || _windowInspector.IsStartMenuVisible())
             {
@@ -232,12 +310,11 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
             {
                 Automation.AddAutomationFocusChangedEventHandler(_focusChangedHandler);
                 registered = true;
-                if (_isDisposed)
+                lock (_scanRequestLock)
                 {
-                    return;
+                    if (_isDisposed) return;
+                    Interlocked.Exchange(ref _isReady, 1);
                 }
-
-                Interlocked.Exchange(ref _isReady, 1);
                 ReadyChanged?.Invoke(this, EventArgs.Empty);
                 string registrationMessage =
                     $"[UIAutomation] action=register-focus-event result=success elapsed-ms=" +
@@ -294,7 +371,8 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
                     }
                     catch (Exception exception)
                     {
-                        _logger.WriteDetailed(
+                        lock (_scanRequestLock) _eventCleanupFailed = true;
+                        _logger.Write(
                             $"[UIAutomation] action=unregister-focus-event result=failed " +
                             $"exception={exception.GetType().Name} hresult=0x{exception.HResult:X8}");
                     }
@@ -305,6 +383,16 @@ internal sealed class UiAutomationStartMenuInspector : IDisposable
 
     private void ScanDesktopAutomationTree()
     {
+        if (!_enableUiAutomation)
+        {
+            bool visible = _windowInspector.TryGetStartMenuBounds(null, out var bounds);
+            UpdateSnapshot(visible
+                ? new StartMenuSnapshot(true, bounds, false, null)
+                : StartMenuSnapshot.Hidden);
+            LogSnapshotIfChanged(visible ? "visible-win32-window" : "hidden", []);
+            return;
+        }
+
         int[] processIds = new[] { "StartMenuExperienceHost", "SearchHost" }
             .SelectMany(Process.GetProcessesByName)
             .Select(process =>
@@ -596,6 +684,7 @@ internal enum StartMenuScanTrigger
     Startup,
     MonitoringActivated,
     FocusEvent,
+    Win32Event,
     WindowsKeyImmediate,
     WindowsKeyFallback,
     VisibleFallback,
@@ -616,6 +705,7 @@ internal static class StartMenuScanTriggerExtensions
         StartMenuScanTrigger.Startup => "startup",
         StartMenuScanTrigger.MonitoringActivated => "monitoring-activated",
         StartMenuScanTrigger.FocusEvent => "focus-event",
+        StartMenuScanTrigger.Win32Event => "win32-event",
         StartMenuScanTrigger.WindowsKeyImmediate => "windows-key-immediate",
         StartMenuScanTrigger.WindowsKeyFallback => "windows-key-fallback",
         StartMenuScanTrigger.VisibleFallback => "visible-fallback",

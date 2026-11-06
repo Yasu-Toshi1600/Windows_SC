@@ -2,7 +2,7 @@
 
 ランチャーSurfaceの移動量、時間、イージング、Composition実装、途中反転の視覚仕様は[モーション仕様書](MOTION_SPECIFICATION.md)を参照する。
 
-更新日: 2026-09-01
+更新日: 2026-11-06
 対象: Windows_SC `0.9.9` / Windows 11 25H2 / Windows App SDK 1.8
 目的: スタートメニュー検出、Windowsキー監視、ランチャー状態、フォーカス、モーションの保守判断を一か所に集約する。
 
@@ -12,7 +12,7 @@ Windowsには、外部アプリからスタートメニューの開閉、表示�
 
 - Windowsキー単体操作
 - `StartMenuExperienceHost` / `SearchHost` のWin32ウィンドウ状態
-- UI Automationのフォーカス要素とその祖先
+- UIAオン時に使用するUI Automationのフォーカス要素とその祖先（既定では停止）
 - ランチャー自身の表示、フォーカス、操作状態
 - 短時間の有界フォールバック確認
 
@@ -58,8 +58,8 @@ Windowsには、外部アプリからスタートメニューの開閉、表示�
 | `Windows_SC/Services/GlobalInputService.cs` | Windowsキー単体イベントと`Ctrl+Alt+Space`の登録・公開。休止状態／スリープ復帰時はフックと固定ホットキーを再登録する。 |
 | `Windows_SC/StartMenuWindowInspector.cs` | Win32による軽量検出。対象プロセス、可視状態、DWMクローキング、矩形を確認する。 |
 | `Windows_SC/StartMenuBoundsValidator.cs` | SearchHost等のモニター全面サーフェスをスタートメニュー矩形から除外する。 |
-| `Windows_SC/UiAutomationStartMenuInspector.cs` | スキャン用STAとイベント登録用STAを分離し、フォーカス中のUI Automation矩形を優先し、取得不能時だけWin32検出へフォールバックしてSnapshotを更新する。 |
-| `Windows_SC/Services/HybridStartMenuMonitor.cs` | イベント監視と50/250msの有界フォールバック、監視の開始・停止。復帰時は内部のUI Automation監視を作り直す。 |
+| `Windows_SC/UiAutomationStartMenuInspector.cs` | 既定はWin32のみのMTAスキャンでSnapshotを更新する。設定でUIAをオンにした場合だけUIAフォーカス確認とイベント専用MTAを起動する。 |
+| `Windows_SC/Services/HybridStartMenuMonitor.cs` | Windowsキーと50/125msの有界確認、監視の開始・停止。復帰時は旧世代の停止を待って同じ既定モードのインスペクターを作り直す。 |
 | `Windows_SC/StartMenuSnapshot.cs` | 可視状態、スタート矩形、スマートフォン連携パネル情報の不変Snapshot。 |
 | `Windows_SC/Services/LauncherMotionCoordinator.cs` | ランチャー表示の論理状態機械。 |
 | `Windows_SC/Services/CompositionLauncherMotionService.cs` | SurfaceのTranslation / Opacity、完了通知、途中反転。 |
@@ -70,7 +70,50 @@ OS依存の検出条件は `StartMenuWindowInspector` と `UiAutomationStartMenu
 
 ## 4. スタート検出の優先順位
 
-### 4.1 第1段: UI Automationフォーカス検出
+### 4.0a Win32イベントとフォーカス補助（2026-11-06）
+
+UIAオン・オフの双方でWin32イベント通知を併用する。`Win32StartMenuEventMonitor`は
+UIスレッドで前景変更、FOCUS、SHOW/HIDE、LOCATIONCHANGE、CLOAKED/UNCLOAKEDの
+7種類をOUTOFCONTEXT・SKIPOWNPROCESSで登録し、同じスレッドで解除する。
+前景変更は全体を契機とし、それ以外はStart/Search/ExplorerのPIDを確認してから要求する。
+状態イベントはOBJID_WINDOW・CHILDID_SELFに限定し、フォーカス通知は部品IDを解決しない。
+対象PID一覧は125msタイマー内で最大2秒ごとに更新する。AccessibleObjectFromEvent等は呼ばない。
+
+コールバックはスキャン要求をUIキューへ保留1件に集約する。同期COMや列挙は実行しない。
+対話中・破棄後・旧世代の通知は捨てる。フック登録失敗時も125ms確認で動作し、
+復帰時は再登録する。解除失敗時は無効化したコールバックを保持し、新しいフックを重ねない。
+
+Win32スキャンではGetGUIThreadInfoのhwndFocusをGetAncestor(GA_ROOT)でたどり、
+Start/Searchの検証済みルート矩形を前景候補とともに優先する。
+どちらも可視・非クローキング・サイズ条件を適用する。起動元がExplorerの
+Shell_TrayWnd／Shell_SecondaryTrayWndならタスクバー矩形からモニターを選ぶ。
+これはStartButton自体を識別する処理ではなく、専用HWNDがない部品階層も復元しない。
+前景・フォーカスが取得不能なら既存の候補列挙へ戻る。UIAから明示された起動元は優先して保持する。
+
+125ms確認とWindowsキー後の50ms確認は通知欠落対策として維持する。
+現行ビルドのStartイベント受信と複数モニターのGUI確認は未完了。
+
+### 4.0 既定経路（2026-10-30）
+
+LockAppへのIAccessible解放がファイナライザーを待たせることをダンプで確認したため、
+既定は`win32-only`。グローバルUIAフォーカス通知の登録とFocusedElement取得を両方停止する。
+`UiAutomationStartMenuInspector`は既存の名前を保つが、既定ではWin32スキャン用MTAだけを開始し、
+イベント用MTAは開始しない。通常起動・スリープ復帰とも同じモードを維持する。
+
+既存の`StartMenuWindowInspector`でStart/Searchの前景ウィンドウを優先し、
+可視・非クローキング・サイズ検証を通るトップレベル候補からSnapshotを更新する。
+UIAのStartButton矩形によるモニター補助は既定では停止するが、Win32のフォーカス・
+タスクバーHWNDによる補助を追加した。複数候補がある場合の選択は実機確認が必要。
+ボタン起動はWin32通知と125ms周期の可視確認で検出する。
+
+以下4.1〜4.3と5章のUIAイベントに関する説明は、コンストラクターへ
+`enableUiAutomation: true`を渡すUIAオンの経路に限る。設定画面の「次回起動時のUIA監視」を
+明示保存し、再起動すると適用される。保存前の切り替えと保存直後は実行中のモードを変更しない。
+JSONの`EnableUiAutomation`がない既存設定はfalse。通常の保存・診断ログ設定の適用でも値を保持する。
+起動時に選択した値を監視サービスで保持し、スリープ復帰による再生成にも同じ値を渡す。
+統合後の確認状況は[現在の状況](NEXT_STEPS_AND_DECISIONS.md)を参照。
+
+### 4.1 UIAオンの経路の第1段: フォーカス検出
 
 複数モニターでは、最初にフォーカス要素から現在表示中のスタート矩形を確認する。
 
@@ -83,9 +126,10 @@ OS依存の検出条件は `StartMenuWindowInspector` と `UiAutomationStartMenu
 
 フォーカスされたスタート矩形をWin32列挙結果より優先する。`SearchHost`は複数モニターに可視ウィンドウを持つ場合があり、列挙順で選ぶとスタートとランチャーが別モニターへ分離するためである。
 
-### 4.2 第2段: Win32ウィンドウ補助検出
+### 4.2 Win32検出（UIAオンの経路では第2段）
 
-UI Automationで有効なフォーカス矩形を取れない場合のみ、`StartMenuWindowInspector.TryGetStartMenuBounds` を実行する。
+既定経路では常に`StartMenuWindowInspector.TryGetStartMenuBounds`を実行する。
+UIAオンの経路では有効なフォーカス矩形を取れない場合に実行する。以下の2はUIAオンの場合だけ適用し、8はWin32のタスクバー補助またはUIAで起動元を得た場合に適用する。
 
 1. 前景ウィンドウのプロセスが `StartMenuExperienceHost` または `SearchHost` なら矩形を確認する。
 2. フォーカスがExplorerの`StartButton`に残っている場合は、その矩形が属するモニターをクリック元として保持する。
@@ -98,30 +142,32 @@ UI Automationで有効なフォーカス矩形を取れない場合のみ、`Sta
 
 `SearchHost`は環境によってスタートメニュー本体とは別にモニター全面のホストウィンドウを持つ。この矩形を採用すると、配置処理がスタートの右側に空きがないと誤判定するため、プロセス名と最小サイズだけで矩形を採用してはいけない。
 
-### 4.3 スタートボタンクリック
+### 4.3 UIAオンの経路のスタートボタンクリック
 
 グローバルフォーカス変更時にWin32でスタートウィンドウが可視か確認する。可視なら
-STAワーカーへスキャンを要求し、`Hidden`から`EnteringWithStart`へ遷移する。
+MTAワーカーへスキャンを要求し、`Hidden`から`EnteringWithStart`へ遷移する。
 さらに、UI Automationのフォーカス通知が長時間稼働後に無言で途絶える場合に備え、
-非表示・非対話中も250ms間隔で同じ軽量なWin32可視確認を行う。スタート系
+非表示・非対話中も125ms間隔で同じ軽量なWin32可視確認を行う。スタート系
 ウィンドウが可視の場合だけUI Automationスキャンを要求する。
 
 ## 5. 監視期間と負荷制御
 
 `HybridStartMenuMonitor` は次の期間だけフォールバックTimerを動かす。
+既定構成では、このTimerとWindowsキーの即時要求がWin32スキャンを起動する。
+UIAイベントの登録待ち・再試行についての記述は、UIAオンの経路だけに適用する。
 
 | 状態 | 間隔 | 目的 |
 |---|---:|---|
 | Windowsキー解放後 | 50ms、最大1500ms | イベント欠落を補い、スタート表示を確認する。 |
-| スタート連動表示中・未操作 | 250ms | スタート終了イベントの欠落を補う。 |
-| UI Automationイベント登録待ち | 250ms | Win32の軽量確認だけを行い、登録が外部プロバイダーで停止しても起動経路を維持する。 |
+| スタート連動表示中・未操作 | 125ms | スタート終了イベントの欠落を補う。 |
+| UI Automationイベント登録待ち | 125ms | Win32の軽量確認だけを行い、登録が外部プロバイダーで停止しても起動経路を維持する。 |
 | ランチャー対話状態 | 停止 | 外側クリックやアプリ操作と監視を競合させない。 |
-| 非表示アイドル | 250ms | Win32で可視候補がある場合だけスキャンする。フォーカス通知の無言停止を補う。 |
+| 非表示アイドル | 125ms | Win32で可視候補がある場合だけスキャンする。フォーカス通知の無言停止を補う。 |
 
 UI Automationのフォーカスイベント登録に失敗した場合は、1秒、2秒、5秒、10秒、
-30秒の順で待って再試行し、それ以降も30秒間隔で再試行する。再試行中も250msの
+30秒の順で待って再試行し、それ以降も30秒間隔で再試行する。再試行中も125msの
 Win32ゲート付きフォールバック監視を継続する。登録に成功するとイベント監視へ
-自動復帰するが、無言停止を検出できないため非表示アイドル時の250msゲート付き
+自動復帰するが、無言停止を検出できないため非表示アイドル時の125msゲート付き
 フォールバックは維持する。
 
 初回の登録失敗は通常ログへ記録し、以降の連続失敗は詳細ログだけへ記録する。
@@ -160,7 +206,6 @@ GlobalWindowsKeyMonitor
   → MainWindow: AwaitingStartConfirmation
   → HybridStartMenuMonitor: 50ms監視を最大1500ms開始
   → Win32可視ウィンドウ確認
-  → 必要時のみUI Automationフォーカス確認
   → Snapshot.Visible + Bounds
   → 配置確定
   → AppWindow.Show(activate: false)
@@ -182,9 +227,9 @@ OS側の非表示検出を待つ方式へ戻すと、フォーカスやCOM応答
 ### スタートボタンで開く
 
 ```text
-OSのフォーカス変更イベント
+Win32イベント通知（または非表示・非対話中の125msタイマー）
   → Win32でStart/Searchウィンドウの可視状態を確認
-  → STAワーカーへスキャン要求
+  → MTAワーカーへスキャン要求
   → Snapshot.Visible
   → Hiddenから直接EnteringWithStart
 ```
@@ -208,10 +253,12 @@ OSのフォーカス変更イベント
 |---|---|
 | WinUI、AppWindow、Coordinator、Composition開始 | UIスレッド |
 | 低レベルキーボードフック | 登録スレッド。コールバックではキー分類と`DispatcherQueue`への登録だけを行い、短時間で復帰する。 |
-| UI Automationスキャン | スキャン専用STAスレッド |
-| UI Automationフォーカスイベント登録 | イベント専用STAスレッド。外部プロバイダーによる停止をスキャンへ伝播させない。 |
+| StartのWin32スキャン（UIAオン時はUIAも使用） | スキャン専用MTAスレッド |
+| UI Automationフォーカスイベント登録 | 既定では停止。UIAオン時だけイベント専用MTAを開始する。 |
 | 診断ログのファイル書き込み | バックグラウンドライター |
 | Compositionアニメーション進行 | Compositor |
+
+停止・スキャン要求・WaitHandle解放は同じロックで同期する。UIスレッドはネイティブ呼び出しの終了を待たず、最後のワーカー処理完了時に待機ハンドルを解放する。イベント解除が失敗した場合も新世代を重ねずWin32検出を継続する。UI予約通知は破棄フラグと通知元の世代を実行時に確認する。
 
 SnapshotChangedは `HybridStartMenuMonitor` が `DispatcherQueue` へ戻してから `MainWindow` に通知する。UI AutomationワーカーからWinUI要素を直接操作してはいけない。
 
@@ -221,13 +268,13 @@ Windowsキーとスタートボタンからの表示はStartへフォーカス�
 
 表示APIの戻りやComposition状態だけを実表示成功の根拠にしない。表示直後にHWNDの`IsWindowVisible`、`WS_EX_TOPMOST`、`DWMWA_CLOAKED`を確認し、不一致時は短時間の再試行を行う。再試行後も一致しない場合は`verify-presentation result=failed`を記録して非表示状態へ戻し、内部だけが表示済みの状態を残さない。非表示完了時も`IsWindowVisible`を確認する。
 
-最前面状態の検証に失敗した場合、StartのVisible Snapshotを根拠にHide直後の再進入を繰り返してはいけない。StartがHiddenになったことを250msフォールバックで確認するまでStart連動表示を遮断する。`Ctrl+Alt+Space`またはトレイからの手動表示はこの遮断を解除できる。
+最前面状態の検証に失敗した場合、StartのVisible Snapshotを根拠にHide直後の再進入を繰り返してはいけない。StartがHiddenになったことを125msフォールバックで確認するまでStart連動表示を遮断する。`Ctrl+Alt+Space`またはトレイからの手動表示はこの遮断を解除できる。
 
 休止状態／スリープ復帰の`WM_POWERBROADCAST`を受けた場合は、ExplorerとDWMの復帰を待つため1秒デバウンスした後、次をUIスレッドで行う。
 
 1. Composition、アクティブ化、表示検証の途中状態を破棄し、実HWNDを非表示へ戻す。
 2. Windowsキーの低レベルフックと`Ctrl+Alt+Space`を解除して再登録する。
-3. UI Automationのスキャン／フォーカスイベント用STAと250msフォールバック監視を再初期化する。
+3. 旧MTAワーカーへ停止を要求し、処理完了後に起動時に選択した同じモードで再生成する。待機中も125msのWin32検出でWindowsキー・スタートボタン経路を維持する。UIAオン時はUIAイベント解除の成功も待つ。
 4. `[Recovery] action=resume`で各領域の成功／失敗を個別に記録する。
 
 アプリプロセス、設定画面、トレイ、音声COMサービスはこの復帰処理では作り直さない。設定の未保存状態を壊さず、起動経路と表示状態だけを小さく回復させる。
@@ -271,7 +318,9 @@ Windowsキーとスタートボタンからの表示はStartへフォーカス�
 [Motion] direction=Entrance completed=true ...
 ```
 
-UI Automationフォーカス経由では `visible-focused-element` になる。
+既定の起動ログは`[StartMenu] action=start-monitor result=success mode=win32-only`。
+`visible-focused-element`やUIAイベント登録はUIAオンの経路だけであり、既定で出た場合は
+保存済みUIA設定と再起動の有無を確認する。
 
 ### 正常なWindowsキー終了
 
@@ -303,8 +352,8 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 
 - `WindowsKey standalone` の後に `start-confirmation=expired`: OSがスタートを開かなかったか検出漏れ。Win32候補とSearchHost PIDを確認する。
 - `scan=slow` が1秒前後で連続: 子孫ツリー走査の再導入、COM停止、対象プロセス応答停止を疑う。
-- `detect-start-menu source=idle-fallback`: フォーカス通知を利用できず、250msの可視ウィンドウ確認経由で検出した。クリック後の体感遅延と時刻を照合する。
-- `focus-event=registered elapsed-ms` が大きい: 外部UI Automationプロバイダーによる登録停止。スキャン用STAが独立しているため、Windowsキー起動は継続できなければならない。
+- `detect-start-menu source=idle-fallback`: 既定構成では正常なボタン起動経路。125ms確認による体感遅延と時刻を照合する。
+- UIAオンの構成の`focus-event=registered elapsed-ms`が大きい: 外部プロバイダーによる登録停止。既定構成ではこの登録を行わない。
 - `WindowPlacement result=failed` の `start` がモニター作業領域と一致: モニター全面サーフェス除外の回帰。
 - アクション成功直後に `Exiting → EnteringWithStart`: Snapshotリセットまたは反転ガードの回帰。
 - Exitが200ms超: UIスレッド処理、設定画面生成、DispatcherQueue遅延を確認する。
@@ -329,7 +378,7 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 ## 12. 変更時の禁止事項
 
 1. `TreeScope.Descendants` でStart/Searchツリー全体を同期走査しない。
-2. 非表示アイドル中に50ms監視または無条件のUI Automationスキャンを常時動かさない。250msのWin32可視ゲート付き確認は維持する。
+2. 非表示アイドル中に50ms監視または無条件のUI Automationスキャンを常時動かさない。125msのWin32可視ゲート付き確認は維持する。
 3. Windowsキーで閉じるとき、UI AutomationのHidden通知を待たない。
 4. 表示ホットパスへ音声列挙、ファイルI/O、`UpdateLayout`、同期再描画を入れない。
 5. `VisibleInteractive`へ移った後に、スタート由来の古いVisibleで進入反転しない。
@@ -378,7 +427,7 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 2. 可視時にトップレベルウィンドウが列挙できるか確認する。
 3. 非表示時に `IsWindowVisible` または `DWMWA_CLOAKED` で除外できるか確認する。
 4. 取得矩形がスタート本体か、全画面透明Hostではないか確認する。
-5. UI AutomationのフォーカスPID、AutomationId、親Windowを採取する。
+5. 複数候補がある場合、前景ウィンドウとモニター、候補の可視・クローキング状態を詳細ログで確認する。UIA調査が必要ならUIAオンの構成を分ける。
 6. 回帰試験チェックリストを実行する。
 
 検出条件を追加する場合は、表示中と非表示中の両方で候補を記録し、誤検出しないことを確認してから採用する。
@@ -390,7 +439,7 @@ UI Automationフォーカス経由では `visible-focused-element` になる。
 - 下端タスクバー以外は初期対応外。
 - スマートフォン連携パネルの個別矩形検出は無効で、設定による予約幅を使用する。
 - スタートとランチャーは別プロセスであり、アニメーション進行率を共有していない。
-- セキュリティ製品や高負荷状態でキーボードフック、UI Automationイベントが遅延する可能性がある。
-- スタートボタンをクリックした直後にExplorerの`StartButton`を取得できる場合は、同じモニターのWin32候補だけを採用する。OS更新等で`StartButton`のAutomationIdもスタート本体のフォーカスも取得できない場合は、Win32候補だけではクリック元を確定できない可能性が残る。
+- セキュリティ製品や高負荷状態でキーボードフックや検出が遅延する可能性がある。既定ではボタン検出に最大約125msの確認待ちがある。
+- 既定ではUIAのStartButton補助を停止し、Win32のフォーカス／タスクバー補助を使用する。両方取得できず、複数のSearchHost候補がある場合、列挙順で別モニターを選ぶ可能性が残る。複数モニターは実機確認が必要。
 
 不具合時は、まず入力、検出、表示要求、Compositionのどの区間が遅いかログで分ける。検出精度を上げる目的で重い全ツリー走査へ戻さず、Win32条件、対象イベント、有界フォールバックの順に検討する。

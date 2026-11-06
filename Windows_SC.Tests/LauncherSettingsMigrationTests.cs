@@ -11,6 +11,21 @@ namespace Windows_SC.Tests;
 [TestClass]
 public sealed class LauncherSettingsMigrationTests
 {
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void UiAutomationSetting_RoundTripPreservesModeAndItems(bool enabled)
+    {
+        LauncherSettings original = LauncherSettings.CreateDefault();
+        original.EnableUiAutomation = enabled;
+        JsonNode root = JsonNode.Parse(JsonSerializer.Serialize(original))!;
+        LauncherSettingsMigrator.Migrate(root);
+        LauncherSettings loaded = root.Deserialize<LauncherSettings>(SerializerOptions)!;
+        Assert.AreEqual(enabled, loaded.EnableUiAutomation);
+        CollectionAssert.AreEqual(original.Pages[0].Items.Select(item => item.Id).ToArray(),
+            loaded.Pages[0].Items.Select(item => item.Id).ToArray());
+    }
+
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -63,6 +78,7 @@ public sealed class LauncherSettingsMigrationTests
         LauncherSettings settings = root.Deserialize<LauncherSettings>(SerializerOptions)!;
 
         Assert.AreEqual(2, settings.SchemaVersion);
+        Assert.IsFalse(settings.EnableUiAutomation, "Existing settings must keep UIA disabled by default.");
         Assert.IsFalse(settings.AssumePhonePanelVisible);
         Assert.IsTrue(settings.StartWithWindows);
         Assert.AreEqual(LauncherLayoutMode.Compact, settings.LayoutMode);

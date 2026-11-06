@@ -97,12 +97,22 @@ internal sealed class StartMenuWindowInspector
         out RectInt32 bounds)
     {
         IntPtr foregroundWindow = GetForegroundWindow();
-        if (foregroundWindow != IntPtr.Zero
-            && TryGetProcessName(foregroundWindow, out string foregroundProcessName)
-            && StartMenuProcesses.Contains(foregroundProcessName)
-            && TryGetUsableBounds(foregroundWindow, out bounds))
+        GuiThreadInfo info = new() { Size = (uint)Marshal.SizeOf<GuiThreadInfo>() };
+        IntPtr focusedRoot = GetGUIThreadInfo(0, ref info)
+            ? GetAncestor(info.Focus, 2) : IntPtr.Zero;
+        if (TryGetStartWindowBounds(focusedRoot, out bounds)
+            || TryGetStartWindowBounds(foregroundWindow, out bounds))
         {
             return true;
+        }
+
+        // A taskbar HWND identifies a monitor, not the Start button itself.
+        // Never use the current cursor position to guess a keyboard origin.
+        if (preferredOwnerBounds is null)
+        {
+            if (TryGetTaskbarBounds(focusedRoot, out var taskbarBounds)
+                || TryGetTaskbarBounds(GetAncestor(foregroundWindow, 2), out taskbarBounds))
+                preferredOwnerBounds = taskbarBounds;
         }
 
         List<StartWindowCandidate> candidates = [];
@@ -168,6 +178,28 @@ internal sealed class StartMenuWindowInspector
         long deltaX = bounds.X + (bounds.Width / 2L) - point.X;
         long deltaY = bounds.Y + (bounds.Height / 2L) - point.Y;
         return (deltaX * deltaX) + (deltaY * deltaY);
+    }
+
+    private bool TryGetStartWindowBounds(IntPtr window, out RectInt32 bounds)
+    {
+        bounds = default;
+        return window != IntPtr.Zero && IsWindowVisible(window) && !IsWindowCloaked(window)
+            && TryGetProcessName(window, out string process) && StartMenuProcesses.Contains(process)
+            && TryGetUsableBounds(window, out bounds);
+    }
+
+    private static bool TryGetTaskbarBounds(IntPtr window, out RectInt32 bounds)
+    {
+        bounds = default;
+        if (window == IntPtr.Zero || !IsWindowVisible(window) || IsWindowCloaked(window)
+            || !TryGetProcessName(window, out string process)
+            || !string.Equals(process, "explorer", StringComparison.OrdinalIgnoreCase)) return false;
+        string windowClass = GetClassName(window);
+        if (windowClass != "Shell_TrayWnd" && windowClass != "Shell_SecondaryTrayWnd") return false;
+        if (!GetWindowRect(window, out var rectangle)) return false;
+        bounds = new(rectangle.Left, rectangle.Top, rectangle.Right - rectangle.Left,
+            rectangle.Bottom - rectangle.Top);
+        return bounds.Width > 0 && bounds.Height > 0;
     }
 
     private bool TryGetUsableBounds(IntPtr windowHandle, out RectInt32 bounds)
@@ -271,6 +303,21 @@ internal sealed class StartMenuWindowInspector
     private sealed record StartWindowCandidate(IntPtr WindowHandle, RectInt32 Bounds);
 
     private const uint MonitorDefaultToNearest = 0x00000002;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GuiThreadInfo
+    {
+        public uint Size, Flags;
+        public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+        public NativeRectangle CaretBounds;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo info);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr window, uint flags);
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly struct NativePoint(int x, int y)

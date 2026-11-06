@@ -6,6 +6,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
+using Windows.Foundation;
 
 namespace Windows_SC.Services;
 
@@ -20,6 +21,12 @@ internal sealed class CompositionLauncherMotionService : ILauncherMotionService
     private UIElement? _surface;
     private CompositionPropertySet? _motionProperties;
     private CompositionScopedBatch? _batch;
+    private TypedEventHandler<object, CompositionBatchCompletedEventArgs>? _batchCompleted;
+    private ExpressionAnimation? _translationExpression;
+    private ExpressionAnimation? _opacityExpression;
+    private Vector3KeyFrameAnimation? _translationAnimation;
+    private ScalarKeyFrameAnimation? _opacityAnimation;
+    private CubicBezierEasingFunction? _easing;
     private Vector3 _fromTranslation;
     private Vector3 _toTranslation;
     private float _fromOpacity;
@@ -51,23 +58,24 @@ internal sealed class CompositionLauncherMotionService : ILauncherMotionService
     public void Attach(UIElement surface)
     {
         ObjectDisposedException.ThrowIf(_isDisposed, this);
+        if (_surface is not null) throw new InvalidOperationException("モーション対象は接続済みです。");
         _surface = surface;
         Compositor compositor = CompositionTarget.GetCompositorForCurrentThread();
         _motionProperties = compositor.CreatePropertySet();
         _motionProperties.InsertVector3("Translation", Vector3.Zero);
         _motionProperties.InsertScalar("Opacity", 1);
 
-        ExpressionAnimation translationExpression = compositor.CreateExpressionAnimation(
+        _translationExpression = compositor.CreateExpressionAnimation(
             "motion.Translation");
-        translationExpression.Target = "Translation";
-        translationExpression.SetReferenceParameter("motion", _motionProperties);
-        surface.StartAnimation(translationExpression);
+        _translationExpression.Target = "Translation";
+        _translationExpression.SetReferenceParameter("motion", _motionProperties);
+        surface.StartAnimation(_translationExpression);
 
-        ExpressionAnimation opacityExpression = compositor.CreateExpressionAnimation(
+        _opacityExpression = compositor.CreateExpressionAnimation(
             "motion.Opacity");
-        opacityExpression.Target = "Opacity";
-        opacityExpression.SetReferenceParameter("motion", _motionProperties);
-        surface.StartAnimation(opacityExpression);
+        _opacityExpression.Target = "Opacity";
+        _opacityExpression.SetReferenceParameter("motion", _motionProperties);
+        surface.StartAnimation(_opacityExpression);
     }
 
     public void PrepareEntrance(float translationY, bool startLinked)
@@ -116,12 +124,30 @@ internal sealed class CompositionLauncherMotionService : ILauncherMotionService
 
         _isDisposed = true;
         _generation++;
-        StopAtCurrentValue();
-        _batch?.Dispose();
-        _batch = null;
-        _motionProperties?.Dispose();
+        IsRunning = false;
+        // Attempt every release even if the XAML surface has already closed.
+        Exception? failure = null;
+        void Release(Action action)
+        {
+            try { action(); }
+            catch (Exception exception) { failure ??= exception; }
+        }
+        Release(StopPropertyAnimations);
+        Release(ReleaseTransitionResources);
+        if (_translationExpression is not null)
+            Release(() => _surface?.StopAnimation(_translationExpression));
+        if (_opacityExpression is not null)
+            Release(() => _surface?.StopAnimation(_opacityExpression));
+        Release(() => _translationExpression?.Dispose());
+        Release(() => _opacityExpression?.Dispose());
+        Release(() => _motionProperties?.Dispose());
+        _translationExpression = null;
+        _opacityExpression = null;
         _motionProperties = null;
         _surface = null;
+        Completed = null;
+        if (failure is not null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     private bool StartTransition(
@@ -131,6 +157,7 @@ internal sealed class CompositionLauncherMotionService : ILauncherMotionService
         TimeSpan duration,
         string reason)
     {
+        if (_isDisposed) return false;
         if (_surface is null || _motionProperties is null)
         {
             throw new InvalidOperationException("モーション対象が設定されていません。");
@@ -138,6 +165,8 @@ internal sealed class CompositionLauncherMotionService : ILauncherMotionService
 
         CaptureCurrentValues();
         StopPropertyAnimations();
+        ReleaseTransitionResources();
+        long generation = ++_generation;
 
         _fromTranslation = ReadTranslation();
         _fromOpacity = ReadOpacity();
@@ -157,7 +186,7 @@ internal sealed class CompositionLauncherMotionService : ILauncherMotionService
         }
 
         Compositor compositor = _motionProperties.Compositor;
-        CubicBezierEasingFunction easing = direction == LauncherMotionDirection.Entrance
+        _easing = direction == LauncherMotionDirection.Entrance
             ? compositor.CreateCubicBezierEasingFunction(
                 new Vector2(0, 0),
                 new Vector2(0, 1))
@@ -165,29 +194,28 @@ internal sealed class CompositionLauncherMotionService : ILauncherMotionService
                 new Vector2(1, 0),
                 new Vector2(1, 1));
 
-        Vector3KeyFrameAnimation translationAnimation =
+        _translationAnimation =
             compositor.CreateVector3KeyFrameAnimation();
-        translationAnimation.InsertKeyFrame(0, _fromTranslation);
-        translationAnimation.InsertKeyFrame(1, targetTranslation, easing);
-        translationAnimation.Duration = duration;
+        _translationAnimation.InsertKeyFrame(0, _fromTranslation);
+        _translationAnimation.InsertKeyFrame(1, targetTranslation, _easing);
+        _translationAnimation.Duration = duration;
 
-        ScalarKeyFrameAnimation opacityAnimation = compositor.CreateScalarKeyFrameAnimation();
-        opacityAnimation.InsertKeyFrame(0, _fromOpacity);
-        opacityAnimation.InsertKeyFrame(1, targetOpacity, easing);
-        opacityAnimation.Duration = _opacityDuration;
+        _opacityAnimation = compositor.CreateScalarKeyFrameAnimation();
+        _opacityAnimation.InsertKeyFrame(0, _fromOpacity);
+        _opacityAnimation.InsertKeyFrame(1, targetOpacity, _easing);
+        _opacityAnimation.Duration = _opacityDuration;
 
-        long generation = ++_generation;
-        _batch?.Dispose();
         _batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
-        _batch.Completed += (_, _) =>
+        _batchCompleted = (_, _) =>
         {
             _dispatcherQueue.TryEnqueue(() => CompleteTransition(generation));
         };
+        _batch.Completed += _batchCompleted;
 
-        _motionProperties.StartAnimation("Translation", translationAnimation);
-        _motionProperties.StartAnimation("Opacity", opacityAnimation);
-        _batch.End();
         IsRunning = true;
+        _motionProperties.StartAnimation("Translation", _translationAnimation);
+        _motionProperties.StartAnimation("Opacity", _opacityAnimation);
+        _batch.End();
         return true;
     }
 
@@ -204,6 +232,7 @@ internal sealed class CompositionLauncherMotionService : ILauncherMotionService
         StopPropertyAnimations();
         SetValues(_toTranslation, _toOpacity);
         IsRunning = false;
+        ReleaseTransitionResources();
         Completed?.Invoke(
             this,
             new LauncherMotionCompletedEventArgs(direction, reason, elapsed));
@@ -215,6 +244,38 @@ internal sealed class CompositionLauncherMotionService : ILauncherMotionService
         StopPropertyAnimations();
         IsRunning = false;
         _generation++;
+        ReleaseTransitionResources();
+    }
+
+    private void ReleaseTransitionResources()
+    {
+        CompositionScopedBatch? batch = _batch;
+        var handler = _batchCompleted;
+        var translation = _translationAnimation;
+        var opacity = _opacityAnimation;
+        var easing = _easing;
+        _batch = null;
+        _batchCompleted = null;
+        _translationAnimation = null;
+        _opacityAnimation = null;
+        _easing = null;
+        try
+        {
+            if (batch is not null && handler is not null) batch.Completed -= handler;
+        }
+        finally
+        {
+            try { batch?.Dispose(); }
+            finally
+            {
+                try { translation?.Dispose(); }
+                finally
+                {
+                    try { opacity?.Dispose(); }
+                    finally { easing?.Dispose(); }
+                }
+            }
+        }
     }
 
     private void CaptureCurrentValues()

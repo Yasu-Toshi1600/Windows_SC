@@ -18,7 +18,7 @@
                 BorderBrush="{ThemeResource SettingsCardBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="8">
-        <Grid ColumnDefinitions="*,180,Auto,Auto" ColumnSpacing="16">
+        <Grid ColumnDefinitions="*,180,Auto,Auto" RowDefinitions="Auto,Auto" RowSpacing="12" ColumnSpacing="16">
             <StackPanel Spacing="4">
                 <TextBlock FontSize="24" FontWeight="SemiBold" Text="ランチャー設定" />
                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -39,6 +39,15 @@
                           IsOn="{Binding StartWithWindows, Mode=TwoWay}"
                           OffContent="起動しない"
                           OnContent="自動起動" />
+            <StackPanel Grid.Row="1" Grid.ColumnSpan="4" Spacing="4">
+                <ToggleSwitch Header="次回起動時のUIA監視"
+                              IsOn="{Binding EnableUiAutomation, Mode=TwoWay}"
+                              OffContent="オフ（Win32のみ）"
+                              OnContent="オン（UIAとWin32）" />
+                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Text="［保存］後にアプリを再起動すると反映されます。オンは反応や複数モニターの検出を補助しますが、環境によってメモリが増える場合があります。"
+                           TextWrapping="Wrap" />
+            </StackPanel>
         </Grid>
         </Border>
 

@@ -15,6 +15,8 @@ internal sealed class LauncherSettings
 
     public bool StartWithWindows { get; set; }
 
+    public bool EnableUiAutomation { get; set; }
+
     public DateTimeOffset? DetailedLoggingExpiresAtUtc { get; set; }
 
     public bool DetailedLoggingAlwaysEnabled { get; set; }

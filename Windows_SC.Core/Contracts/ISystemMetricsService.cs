@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using Windows_SC.Models;
 
 namespace Windows_SC.Services;
 
@@ -16,5 +18,9 @@ internal interface ISystemMetricsService : IDisposable
 
     SystemMetricsSnapshot GetCachedMetrics();
 
-    void SetActive(bool isActive);
+    IReadOnlyList<MonitorGraphPoint> GetGraphPoints(SystemMonitorMetric metric);
+
+    SystemMonitorMetric RequestedMetrics { get; }
+
+    void SetMetrics(SystemMonitorMetric metrics);
 }
