@@ -9,7 +9,7 @@ namespace Windows_SC.Tests;
 public sealed class ShortcutRecordingSessionTests
 {
     [TestMethod]
-    public void Stop_ReleasesSuppressionBeforeTargetIsResolved()
+    public void Stop_ReturnsTargetAndReleasesSuppression()
     {
         List<bool> suppressionChanges = [];
         ShortcutRecordingSession session = new(suppressionChanges.Add);
@@ -51,12 +51,5 @@ public sealed class ShortcutRecordingSessionTests
         session.Begin(second);
 
         Assert.AreEqual(second, session.ActiveTarget);
-    }
-
-    [TestMethod]
-    public void Constructor_RejectsMissingSuppressionCallback()
-    {
-        Assert.ThrowsExactly<ArgumentNullException>(() =>
-            new ShortcutRecordingSession(null!));
     }
 }

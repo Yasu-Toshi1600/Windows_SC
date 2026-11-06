@@ -81,7 +81,7 @@ internal sealed class ActionExecutionService(
         return action.Kind switch
         {
             LauncherActionKind.Command => CreateCommandStartInfo(
-                BuildCommandLine(target, action.Arguments),
+                string.IsNullOrWhiteSpace(action.Arguments) ? target : $"{target} {action.Arguments}",
                 workingDirectory,
                 action.HideCommandWindow),
             LauncherActionKind.BatchFile => CreateCommandStartInfo(
@@ -90,26 +90,22 @@ internal sealed class ActionExecutionService(
                     ? Path.GetDirectoryName(target) ?? string.Empty
                     : workingDirectory,
                 action.HideCommandWindow),
-            _ when IsCommandScript(target) => CreateCommandStartInfo(
+            _ when target.EndsWith(".bat", StringComparison.OrdinalIgnoreCase)
+                || target.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) => CreateCommandStartInfo(
                 BuildCommandScriptLine(target, action.Arguments),
                 string.IsNullOrWhiteSpace(workingDirectory)
                     ? Path.GetDirectoryName(target) ?? string.Empty
                     : workingDirectory,
                 action.HideCommandWindow),
-            _ => CreateShellStartInfo(target, action.Arguments, workingDirectory)
+            _ => new ProcessStartInfo
+            {
+                FileName = target,
+                Arguments = action.Arguments,
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = true
+            }
         };
     }
-
-    private static ProcessStartInfo CreateShellStartInfo(
-        string target,
-        string arguments,
-        string workingDirectory) => new()
-    {
-        FileName = target,
-        Arguments = arguments,
-        WorkingDirectory = workingDirectory,
-        UseShellExecute = true
-    };
 
     private static ProcessStartInfo CreateCommandStartInfo(
         string commandLine,
@@ -131,9 +127,6 @@ internal sealed class ActionExecutionService(
         return startInfo;
     }
 
-    private static string BuildCommandLine(string command, string arguments) =>
-        string.IsNullOrWhiteSpace(arguments) ? command : $"{command} {arguments}";
-
     private static string BuildCommandScriptLine(string path, string arguments)
     {
         string escapedPath = path.Replace("\"", "\"\"");
@@ -141,9 +134,5 @@ internal sealed class ActionExecutionService(
             ? $"call \"{escapedPath}\""
             : $"call \"{escapedPath}\" {arguments}";
     }
-
-    private static bool IsCommandScript(string target) =>
-        target.EndsWith(".bat", StringComparison.OrdinalIgnoreCase)
-        || target.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase);
 
 }

@@ -53,42 +53,21 @@ public sealed class SettingsPersistenceTests
     }
 
     [TestMethod]
-    public void MarkSaved_RejectsNegativeOrFutureRevision()
-    {
-        SettingsEditRevisionTracker tracker = new();
-        tracker.MarkChanged();
-
-        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => tracker.MarkSaved(-1));
-        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => tracker.MarkSaved(2));
-    }
-
-    [TestMethod]
-    public async Task CancelledPersistenceRequest_DoesNotRunOperation()
+    public async Task FailedSaveDoesNotBlockNextSaveOrShutdownWait()
     {
         SettingsPersistenceCoordinator coordinator = new();
-        using System.Threading.CancellationTokenSource cancellation = new();
-        cancellation.Cancel();
-        bool ran = false;
+        await Assert.ThrowsExactlyAsync<System.IO.IOException>(() =>
+            coordinator.RunAsync(() => throw new System.IO.IOException("Save failed")));
 
-        await Assert.ThrowsExactlyAsync<System.Threading.Tasks.TaskCanceledException>(() =>
-            coordinator.RunAsync(
-                () =>
-                {
-                    ran = true;
-                    return Task.CompletedTask;
-                },
-                cancellation.Token));
+        bool nextSaveRan = false;
+        await coordinator.RunAsync(() =>
+        {
+            nextSaveRan = true;
+            return Task.CompletedTask;
+        }).WaitAsync(TimeSpan.FromSeconds(5));
+        await coordinator.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.IsFalse(ran);
-    }
-
-    [TestMethod]
-    public async Task PersistenceCoordinator_RejectsNullOperation()
-    {
-        SettingsPersistenceCoordinator coordinator = new();
-
-        await Assert.ThrowsExactlyAsync<ArgumentNullException>(() =>
-            coordinator.RunAsync(null!));
+        Assert.IsTrue(nextSaveRan);
     }
 
     [TestMethod]

@@ -1,3 +1,5 @@
+> 履歴資料（2026-11-06退避）。現行仕様・残作業は[現在の状況](../NEXT_STEPS_AND_DECISIONS.md)と現行保守ガイドを参照。未完了項目は現行文書へ引き継ぎ済み。
+
 # Windows_SC プロジェクトレビュー
 
 レビュー日: 2026-09-05
@@ -372,11 +374,11 @@ Coreテストは設定モデル、移行、検証、マクロの順序、最新�
 
 ## 7. 関連文書
 
-- [現行設計](DESIGN.md)
-- [次に行う作業と判断事項](NEXT_STEPS_AND_DECISIONS.md)
-- [UI・MVVMリファクタリング計画](UI_MVVM_REFACTORING_PLAN.md)
-- [機能保守ガイド](FEATURE_MAINTENANCE.md)
-- [ログ・詳細診断・プライバシー仕様](LOGGING_AND_PRIVACY.md)
-- [Core自動テスト方針](CORE_TESTING.md)
-- [簡易テストチェックリスト](TEST_CHECKLIST.md)
-- [配布手順](DISTRIBUTION.md)
+- [現行設計](../DESIGN.md)
+- [次に行う作業と判断事項](../NEXT_STEPS_AND_DECISIONS.md)
+- [UI・MVVMリファクタリング計画](../UI_MVVM_REFACTORING_PLAN.md)
+- [機能保守ガイド](../FEATURE_MAINTENANCE.md)
+- [ログ・詳細診断・プライバシー仕様](../LOGGING_AND_PRIVACY.md)
+- [Core自動テスト方針](../CORE_TESTING.md)
+- [簡易テストチェックリスト](../TEST_CHECKLIST.md)
+- [配布手順](../DISTRIBUTION.md)

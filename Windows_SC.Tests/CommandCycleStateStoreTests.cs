@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Windows_SC.Models;
@@ -36,7 +37,33 @@ public sealed class CommandCycleStateStoreTests
     }
 
     [TestMethod]
-    public async Task InvalidIndexFallsBackAndSaveFailureIsReported()
+    [DataRow(-1)]
+    [DataRow(2)]
+    public async Task OutOfRangeIndexInStateFileRestartsAtFirstStep(int invalidIndex)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "Windows_SC-cycle-test-" + Guid.NewGuid());
+        string path = Path.Combine(directory, "state.json");
+        try
+        {
+            CommandCycleStepDefinition[] steps = [new(), new()];
+            Guid id = Guid.NewGuid();
+            CommandCycleStateStore store = new(path, _ => { });
+            await store.SaveNextAsync(id, steps, 1);
+            JsonNode state = JsonNode.Parse(File.ReadAllText(path))!;
+            state[id.ToString()]!["NextIndex"] = invalidIndex;
+            File.WriteAllText(path, state.ToJsonString());
+
+            CommandCycleStateStore restarted = new(path, _ => { });
+            Assert.AreEqual(0, restarted.GetNext(id, steps));
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task SaveFailureIsReported()
     {
         string directory = Path.Combine(Path.GetTempPath(), "Windows_SC-cycle-test-" + Guid.NewGuid());
         Directory.CreateDirectory(directory);
@@ -46,9 +73,8 @@ public sealed class CommandCycleStateStoreTests
             CommandCycleStateStore store = new(directory, _ => failed = true);
             CommandCycleStepDefinition[] steps = [new(), new()];
             Guid id = Guid.NewGuid();
-            await store.SaveNextAsync(id, steps, -1);
+            await store.SaveNextAsync(id, steps, 1);
             Assert.IsTrue(failed);
-            Assert.AreEqual(0, store.GetNext(id, steps));
         }
         finally
         {

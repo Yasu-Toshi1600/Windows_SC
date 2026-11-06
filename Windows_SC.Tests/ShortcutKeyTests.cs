@@ -10,6 +10,19 @@ namespace Windows_SC.Tests;
 public sealed class ShortcutKeyTests
 {
     [TestMethod]
+    public void Validate_RejectsUnsupportedModifierBitsInImportedDefinition()
+    {
+        ShortcutKeyDefinition definition = new()
+        {
+            Modifiers = ShortcutKeyModifiers.Control | (ShortcutKeyModifiers)16,
+            VirtualKey = 0x41,
+            ScanCode = 0x1E
+        };
+
+        StringAssert.Contains(ShortcutKeyValidator.Validate(definition), "未対応の修飾キー");
+    }
+
+    [TestMethod]
     public void Validate_NormalChord_IsAcceptedAndFormatted()
     {
         ShortcutKeyDefinition definition = new()

@@ -25,13 +25,12 @@ Windowsには、外部アプリからスタートメニューの開閉、表示�
 
 このため、検出、状態管理、配置、モーションを分離し、`MainWindow` で統合している。
 
-## 2. 現在保証する動作
+## 2. 現行実装の動作
 
 ### スタートを開く
 
 - 表示検証でHWNDが非最前面の場合、最初の再試行でPresenterの`IsAlwaysOnTop`をfalse→trueに再適用し、非アクティブの`SetWindowPos`で復旧する。`Activate`や`Show(true)`でスタートのフォーカスを奪わない。
 - 各再試行後は次のUIタイマーで実状態を再確認する。最後の再試行前の状態で失敗を確定しない。上限後は既存のStart非表示待ちガードと退出処理を維持する。
-- 2026-09-16の0.9.5ログでは22:43:02にtopmost=falseで失敗、22:43:07のトレイ表示で成功、その後スタート連動も成功。上記対策の自動起動直後の実機確認は未完了。
 
 - Windowsキー単体でスタートが開いた場合、ランチャーを非アクティブで表示する。
 - タスクバーのスタートボタンをクリックした場合も表示する。
@@ -88,7 +87,7 @@ Start/Searchの検証済みルート矩形を前景候補とともに優先す�
 どちらも可視・非クローキング・サイズ条件を適用する。起動元がExplorerの
 Shell_TrayWnd／Shell_SecondaryTrayWndならタスクバー矩形からモニターを選ぶ。
 これはStartButton自体を識別する処理ではなく、専用HWNDがない部品階層も復元しない。
-前景・フォーカスが取得不能なら既存の候補列挙へ戻る。UIAから明示された起動元は優先して保持する。
+前景・フォーカスが取得不能なら既存の候補列挙へ戻る。UIAから明示された起動元はタスクバー推定で上書きしない。ただし有効なStart/Searchのフォーカス・前景候補は先に採用し、起動元モニターによる絞り込みは候補列挙時に適用する。
 
 125ms確認とWindowsキー後の50ms確認は通知欠落対策として維持する。
 現行ビルドのStartイベント受信と複数モニターのGUI確認は未完了。
@@ -172,7 +171,7 @@ Win32ゲート付きフォールバック監視を継続する。登録に成功
 
 初回の登録失敗は通常ログへ記録し、以降の連続失敗は詳細ログだけへ記録する。
 復旧成功は通常ログへ試行回数とともに記録する。トラブルシューティング画面には
-現在の監視状態を「正常」または「代替モードで動作中」と表示する。
+IsReadyに従い「スタートメニュー監視: 正常」または「スタートメニュー監視: 準備中」と表示する。Win32のみでも準備済みなら正常であり、WinEvent登録成功そのものを示す表示ではない。
 
 対話状態へ移った時点でSnapshotを `Hidden` に確定する。停止前の `Visible` がアクション終了後まで残り、退出中のランチャーを誤って再進入させることを防ぐためである。
 
@@ -310,12 +309,12 @@ Windowsキーとスタートボタンからの表示はStartへフォーカス�
 ### 正常なWindowsキー起動
 
 ```text
-[WindowsKey] key-up; classification=standalone
-[MotionState] from=Hidden to=AwaitingStartConfirmation
-[UIAutomation] start-menu-state=visible-win32-window
-[LaunchTiming] event=start-confirmed key-to-start-ms=...
+[InputMonitor] action=classify-windows-key result=success classification=standalone
+[Motion] action=transition result=success from=Hidden to=AwaitingStartConfirmation
+[UIAutomation] action=update-start-menu-state result=success state=visible-win32-window
+[Launcher] action=confirm-start result=success key-to-start-ms=...
 [Launcher] action=show-request ...
-[Motion] direction=Entrance completed=true ...
+[Motion] action=complete result=success direction=Entrance ...
 ```
 
 既定の起動ログは`[StartMenu] action=start-monitor result=success mode=win32-only`。
@@ -325,10 +324,10 @@ Windowsキーとスタートボタンからの表示はStartへフォーカス�
 ### 正常なWindowsキー終了
 
 ```text
-[LaunchTiming] event=windows-key-close action=exit-immediate
-[StartMenuMonitor] state=hidden source=windows-key-close
-[MotionState] ... to=Exiting reason=windows-key-close
-[Motion] direction=Exit completed=true elapsed-ms=...
+[Launcher] action=exit-request result=success reason=windows-key-close mode=immediate
+[StartMenu] action=assume-hidden result=success source=windows-key-close
+[Motion] action=transition result=success ... to=Exiting reason=windows-key-close
+[Motion] action=complete result=success direction=Exit elapsed-ms=...
 ```
 
 ### 正常なスタートボタンクリック
@@ -341,39 +340,27 @@ Windowsキーとスタートボタンからの表示はStartへフォーカス�
 |---|---|---:|
 | `key-to-start-ms` | Windowsキー解放からスタート確認 | 通常10～100ms。コールド準備は分離する。 |
 | `start-to-request-ms` | スタート確認から表示要求 | 50ms以内。 |
-| `request-to-detect-ms` | UI Automationスキャン要求からスタート検出 | 検出元ごとに比較する。 |
-| `scan-ms` | スタート検出に成功したUI Automationスキャン | 50ms超が継続する場合は調査する。 |
+| `request-to-detect-ms` | スキャン要求からスタート検出（既定Win32、UIAオン時はUIA併用） | 検出元ごとに比較する。 |
+| `scan-ms` | スタート検出に成功したスキャン | 50ms超が継続する場合は調査する。 |
 | `request-to-complete-ms` | 表示要求から進入完了 | 約250ms＋数ms。 |
 | Entrance `elapsed-ms` | Composition進入 | 約250ms。 |
 | Exit `elapsed-ms` | Composition退出 | 約125ms。 |
-| UIA `scan=slow` | 1回の確認が50ms超 | 継続発生する場合は回帰。 |
+| 検出 `action=scan slow=true` | 1回の確認が50ms超 | 継続発生する場合は回帰。 |
 
 ### 異常パターン
 
 - `WindowsKey standalone` の後に `start-confirmation=expired`: OSがスタートを開かなかったか検出漏れ。Win32候補とSearchHost PIDを確認する。
-- `scan=slow` が1秒前後で連続: 子孫ツリー走査の再導入、COM停止、対象プロセス応答停止を疑う。
+- `action=scan slow=true` が1秒前後で連続: 子孫ツリー走査の再導入、COM停止、対象プロセス応答停止を疑う。
 - `detect-start-menu source=idle-fallback`: 既定構成では正常なボタン起動経路。125ms確認による体感遅延と時刻を照合する。
-- UIAオンの構成の`focus-event=registered elapsed-ms`が大きい: 外部プロバイダーによる登録停止。既定構成ではこの登録を行わない。
+- UIAオンの構成の`action=register-focus-event elapsed-ms`が大きい: 外部プロバイダーによる登録停止。既定構成ではこの登録を行わない。
 - `WindowPlacement result=failed` の `start` がモニター作業領域と一致: モニター全面サーフェス除外の回帰。
 - アクション成功直後に `Exiting → EnteringWithStart`: Snapshotリセットまたは反転ガードの回帰。
 - Exitが200ms超: UIスレッド処理、設定画面生成、DispatcherQueue遅延を確認する。
 - `compiled-bindings=initialized items=0`: 設定適用順または初回 `Bindings.Update()` の位置を確認する。
 
-## 11. 過去の回帰と防止策
+## 11. 過去の回帰事例
 
-| 症状 | 原因 | 現在の防止策 |
-|---|---|---|
-| 初回表示で静的な「設定」だけ見え、登録項目が出ない | 表示ホットパス整理時に初回のcompiled binding初期化まで削除した | ウィンドウ生成時に `Bindings.Update()` を一度だけ実行し、表示処理では実行しない。 |
-| Windowsキーで閉じると約1秒遅れる | StartのHiddenをUI Automationで確認してから退出していた | `EnteringWithStart` / `VisibleWithStart` ではWindowsキー解放時に即退出する。 |
-| 画面外クリックや設定画面表示が遅れる | Start/Searchの子孫ツリー全走査が1.0～1.2秒ブロックした | 子孫走査を削除し、Win32トップレベル＋UIA祖先方向だけに限定。対話開始時に監視停止。 |
-| Windowsキーで開かない回がある | UIAフォーカスだけに絞り、Startがフォーカスとして公開されない回を検出できなかった | 可視・非クローキングWin32ウィンドウを50msフォールバックで確認する。 |
-| スタートボタンクリックで起動しない | Windowsキー後だけ監視を有効にし、アイドル中のクリック経路を失った | フォーカス変更時にWin32可視状態を軽く確認し、クリック由来のSnapshotを許可する。 |
-| アクション成功後に一瞬再表示する | 対話開始前の `Visible` Snapshotが残り、退出中の再開条件を満たした | 対話開始時にSnapshotをHiddenへ確定し、スタート連動の最終要求を破棄する。 |
-| 連続クリック後に起動しなくなる | 退出中の新しいVisibleを無視し、退出完了後に状態変更通知が残らなかった | 未操作のスタート連動中はVisible／Hiddenの最後の要求へ収束し、Hide完了時にも最新Snapshotを再確認する。 |
-| 複数モニターで別画面へ表示される | ExplorerのStartButtonにフォーカスが残る間、複数SearchHost候補を列挙順で選んだ | StartButton矩形のモニターと候補を対応付け、不一致候補へフォールバックしない。 |
-| 退出が体感上遅い | 167ms退出と同時間のOpacityが残った | Translation 125ms、Opacity 83msへ短縮。 |
-
-この表の防止策を削除・一般化する場合は、対応する回帰試験を先に自動化または実機実施する。
+旧版の事例表は[履歴](archive/START_MENU_MAINTENANCE_HISTORY_2026-11-06.md)へ退避した。現行の防止条件は本書の各節と禁止事項を参照する。
 
 ## 12. 変更時の禁止事項
 
@@ -405,7 +392,7 @@ Windowsキーとスタートボタンからの表示はStartへフォーカス�
 
 ### 環境
 
-- [ ] 初回起動直後とUI Automation準備後。
+- [ ] 初回起動直後と監視準備後。UIAオン／オフは保存・再起動して個別に確認する。
 - [ ] 100 / 125 / 150 / 200% DPI。
 - [ ] 複数モニター、負の画面座標、各モニターでのWindowsキー／クリック。
 - [ ] 60 / 120 / 144Hz。
@@ -417,7 +404,7 @@ Windowsキーとスタートボタンからの表示はStartへフォーカス�
 
 - [ ] `start-to-request-ms <= 50` が通常時に維持される。
 - [ ] Exitが通常約125ms。
-- [ ] `scan=slow` が連続しない。
+- [ ] `action=scan slow=true` が連続しない。
 - [ ] `start-confirmation=expired` が通常のスタート表示で発生しない。
 - [ ] アクション成功直後に意図しない `Exiting → EnteringWithStart` がない。
 

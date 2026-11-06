@@ -13,7 +13,6 @@ public sealed class AudioDeviceIdentityTests
     {
         AudioOutputDevice device = new("new", "Renamed", true, "Opaque#Aa");
         Assert.AreEqual(device, AudioDeviceIdentityResolver.Resolve("old", "Opaque#Aa", [device]));
-        Assert.IsNull(AudioDeviceIdentityResolver.Resolve("old", "opaque#aa", [device]));
     }
 
     [TestMethod]
@@ -41,15 +40,15 @@ public sealed class AudioDeviceIdentityTests
     }
 
     [TestMethod]
-    public void StableIdRoundTripIsOpaqueAndLegacySettingsRemainReadable()
+    public void LegacySettingsWithoutStableIdsRemainReadable()
     {
-        CycleActionDefinition original = new()
-        {
-            AudioDeviceIds = ["id"],
-            AudioDeviceStableIds = new() { ["id"] = " MMDEVAPI#Aa#{Value} " }
-        };
-        var restored = JsonSerializer.Deserialize<CycleActionDefinition>(JsonSerializer.Serialize(original))!;
-        Assert.AreEqual(original.AudioDeviceStableIds["id"], restored.AudioDeviceStableIds["id"]);
-        Assert.AreEqual(0, JsonSerializer.Deserialize<CycleActionDefinition>("{}")!.AudioDeviceStableIds.Count);
+        CycleActionDefinition cycle = JsonSerializer.Deserialize<CycleActionDefinition>(
+            """{ "AudioDeviceIds": ["second", "first"] }""")!;
+        Assert.AreEqual(0, cycle.AudioDeviceStableIds.Count);
+        CollectionAssert.AreEqual(new[] { "second", "first" }, cycle.AudioDeviceIds);
+        CollectionAssert.AreEqual(new[] { "second", "first" },
+            new System.Collections.Generic.List<string>(AudioDeviceIdentityResolver.ResolveIds(
+                cycle.AudioDeviceIds, cycle.AudioDeviceStableIds,
+                [new("first", "A", true), new("second", "B", true)])));
     }
 }

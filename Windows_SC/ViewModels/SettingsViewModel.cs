@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.IO;
 using System.Linq;
 using Microsoft.UI.Xaml.Controls;
 using Windows_SC.Models;
@@ -1636,12 +1635,6 @@ internal sealed class SettingsViewModel : ObservableObject, IDisposable
                 }
             ]
         };
-
-        IReadOnlyList<string> errors = LauncherSettingsValidator.Validate(settings);
-        if (errors.Count > 0)
-        {
-            throw new InvalidDataException(string.Join(" ", errors));
-        }
 
         return settings;
     }

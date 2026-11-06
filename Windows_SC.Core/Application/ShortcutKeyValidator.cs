@@ -17,8 +17,7 @@ internal static class ShortcutKeyValidator
             return "修飾キー以外の本体キーを指定してください。";
         }
 
-        if (!System.Enum.IsDefined(definition.Modifiers)
-            && (definition.Modifiers & ~(
+        if ((definition.Modifiers & ~(
                 ShortcutKeyModifiers.Control
                 | ShortcutKeyModifiers.Alt
                 | ShortcutKeyModifiers.Shift

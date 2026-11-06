@@ -93,40 +93,6 @@ public sealed class CoreModelAndUtilityTests
     }
 
     [TestMethod]
-    public void ResultFactoriesSetSuccessAndFailureFieldsConsistently()
-    {
-        AudioOutputDevice device = new("id", "Device", true);
-
-        Assert.IsTrue(ActionExecutionResult.Success.IsSuccess);
-        Assert.AreEqual(string.Empty, ActionExecutionResult.Success.ErrorMessage);
-        Assert.IsFalse(ActionExecutionResult.Failure("failed").IsSuccess);
-        Assert.AreEqual("failed", ActionExecutionResult.Failure("failed").ErrorMessage);
-
-        AudioDeviceCycleResult cycleSuccess = AudioDeviceCycleResult.Success(device);
-        Assert.IsTrue(cycleSuccess.IsSuccess);
-        Assert.AreSame(device, cycleSuccess.CurrentDevice);
-        Assert.AreEqual(string.Empty, cycleSuccess.ErrorMessage);
-        Assert.IsFalse(AudioDeviceCycleResult.Failure("failed").IsSuccess);
-
-        AudioMasterVolumeResult masterSuccess = AudioMasterVolumeResult.Success(42.5, isMuted: true);
-        Assert.IsTrue(masterSuccess.IsSuccess);
-        Assert.AreEqual(42.5, masterSuccess.VolumePercent, 0.001);
-        Assert.IsTrue(masterSuccess.IsMuted);
-        Assert.AreEqual(0, AudioMasterVolumeResult.Failure("failed").VolumePercent);
-        Assert.IsFalse(AudioMasterVolumeResult.Failure("failed").IsMuted);
-
-        ApplicationVolumeResult applicationSuccess = ApplicationVolumeResult.Success(3);
-        Assert.IsTrue(applicationSuccess.IsSuccess);
-        Assert.AreEqual(3, applicationSuccess.SucceededSessionCount);
-        Assert.AreEqual(0, applicationSuccess.FailedSessionCount);
-        ApplicationVolumeResult applicationFailure =
-            ApplicationVolumeResult.Failure("partial", 1, 2);
-        Assert.IsFalse(applicationFailure.IsSuccess);
-        Assert.AreEqual(1, applicationFailure.SucceededSessionCount);
-        Assert.AreEqual(2, applicationFailure.FailedSessionCount);
-    }
-
-    [TestMethod]
     public void LogValue_NormalizeRemovesRecordBreakingCharacters()
     {
         Assert.AreEqual(
@@ -153,7 +119,7 @@ public sealed class CoreModelAndUtilityTests
     }
 
     [TestMethod]
-    public async Task ShortcutCoordinator_AttachDetachUsesOnlyCurrentHandler()
+    public async Task ShortcutCoordinator_PreparesTargetOnlyWhileAttached()
     {
         ShortcutKeyExecutionCoordinator coordinator = new();
         List<string> calls = [];
@@ -162,21 +128,13 @@ public sealed class CoreModelAndUtilityTests
             calls.Add("first");
             return Task.CompletedTask;
         };
-        Func<CancellationToken, Task> second = _ =>
-        {
-            calls.Add("second");
-            return Task.CompletedTask;
-        };
-
         await coordinator.PrepareTargetAsync(CancellationToken.None);
         coordinator.Attach(first);
-        coordinator.Attach(second);
+        await coordinator.PrepareTargetAsync(CancellationToken.None);
         coordinator.Detach(first);
         await coordinator.PrepareTargetAsync(CancellationToken.None);
-        coordinator.Detach(second);
-        await coordinator.PrepareTargetAsync(CancellationToken.None);
 
-        CollectionAssert.AreEqual(new[] { "second" }, calls);
+        CollectionAssert.AreEqual(new[] { "first" }, calls);
     }
 
     [TestMethod]

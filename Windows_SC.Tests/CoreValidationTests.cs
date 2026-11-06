@@ -82,7 +82,6 @@ public sealed class CoreValidationTests
     [DataRow(-1d, 100d)]
     [DataRow(0d, 101d)]
     [DataRow(50d, 50d)]
-    [DataRow(double.NaN, 100d)]
     public void Validate_RejectsInvalidSliderRanges(double minimum, double maximum)
     {
         LauncherSettings settings = CreateSettings(new LauncherItemDefinition

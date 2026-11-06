@@ -49,15 +49,14 @@ internal static class SettingsSaveValidator
                 "ボタンの起動対象またはコマンドを入力してください。");
         }
 
-        LauncherItemEditorViewModel? incompleteShortcut = items.FirstOrDefault(item =>
-            item.IsButton
-            && item.ActionKind == LauncherActionKind.ShortcutKey
-            && ShortcutKeyValidator.Validate(item.ShortcutKey) is not null);
-        if (incompleteShortcut is not null)
+        foreach (LauncherItemEditorViewModel item in items.Where(item =>
+                     item.IsButton && item.ActionKind == LauncherActionKind.ShortcutKey))
         {
-            return SettingsSaveValidationResult.Invalid(
-                incompleteShortcut.Id,
-                ShortcutKeyValidator.Validate(incompleteShortcut.ShortcutKey)!);
+            string? error = ShortcutKeyValidator.Validate(item.ShortcutKey);
+            if (error is not null)
+            {
+                return SettingsSaveValidationResult.Invalid(item.Id, error);
+            }
         }
 
         LauncherItemEditorViewModel? incompleteApplicationSlider = items.FirstOrDefault(item =>

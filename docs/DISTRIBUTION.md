@@ -1,6 +1,6 @@
 # Windows_SC 配布手順
 
-更新日: 2026-10-08
+更新日: 2026-11-06
 対象ソースバージョン: `0.9.10`
 
 2026-11-06のmain統合には終了・UI更新の修正とUIA設定／Win32検出の強化を含む。
@@ -62,7 +62,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Distribu
 7. Windowsの未署名アプリ警告が出る可能性を利用者へ伝える。
 8. 1080p未満の警告動作を確認できていなければ、未検証範囲として明記する。
 9. Gitタグ、Release本文、公開アセットの版とSHA-256を確認する。
-10. 起動後と設定画面の開閉後に通常ログの`[Memory]`行が記録され、メモリ・CPU・I/O・GPU診断を確認できる。GPU取得不可時は`unavailable`を許容する。指標の意味は[ログ仕様](LOGGING_AND_PRIVACY.md#メモリ診断)を参照する。
+10. 起動後と設定画面の開閉後に通常ログの`[Memory]`行が記録される。GPU選択時は`warming-up`／測定値／`unavailable`、未選択時は`not-selected`を確認する。指標の意味は[ログ仕様](LOGGING_AND_PRIVACY.md#メモリ診断)を参照する。
 
 ## 5. 自動起動と配置
 
@@ -72,9 +72,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Distribu
 
 ## 6. 公開状況と再配布
 
-外側背景の透明化と標準フレーム除去は既存`0.9.9` ZIPに含まれる。既存`0.9.8` ZIPも保持する。
 現行`0.9.10`のZIP生成・公開は未実施。
-`0.9.9`は手元での試験用ZIP生成で、GUI外観・進入・退出の実機確認は未完了。
+旧版のZIP確認・ハッシュは[履歴](archive/STATUS_HISTORY_2026-11-06.md)を参照する。
 
 版ごとの検証・公開状況は[現在の状況](NEXT_STEPS_AND_DECISIONS.md)に集約する。
 同じ版の成果物を内容だけ差し替えず、再配布時は増版する。

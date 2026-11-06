@@ -13,6 +13,21 @@
 
 ## 収録資料
 
+2026-11-06に現行仕様と履歴を整理した。以下は移動・退避時点の記録であり、現在の合否や実装予定の根拠にしない。
+音声クラッシュとUI・MVVMの未完了項目は現行docsへ引き継いでいる。
+
+| 退避資料 | 内容 |
+|---|---|
+| [PROJECT_REVIEW_2026-09-05.md](PROJECT_REVIEW_2026-09-05.md) | 旧0.9.3に対するレビュー・対応経緯 |
+| [SHUTDOWN_INVESTIGATION_2026-09-06.md](SHUTDOWN_INVESTIGATION_2026-09-06.md) | 終了処理の旧調査・版ごとの結果 |
+| [CODE_SIMPLIFICATION_REVIEW_2026-11-06.md](CODE_SIMPLIFICATION_REVIEW_2026-11-06.md) | 不要処理・テスト整理の調査と実施記録 |
+| [STATUS_HISTORY_2026-11-06.md](STATUS_HISTORY_2026-11-06.md) | 旧版のビルド・テスト件数、ZIPハッシュ、main統合・版更新の記録 |
+| [UI_MVVM_PLAN_PROGRESS_2026-11-06.md](UI_MVVM_PLAN_PROGRESS_2026-11-06.md) | UI・MVVM計画の過去Phaseと完了記録。残計画は現行docsで継続 |
+| [AUDIO_DEVICE_INVESTIGATION_2026-09-08.md](AUDIO_DEVICE_INVESTIGATION_2026-09-08.md) | 音声削除クラッシュの当時のログ・ダンプ解析・試験結果 |
+| [DESIGN_BEFORE_DOCUMENTATION_CLEANUP_2026-11-06.md](DESIGN_BEFORE_DOCUMENTATION_CLEANUP_2026-11-06.md) | 重複・旧進捗を含む整理前の設計書 |
+| [START_MENU_MAINTENANCE_HISTORY_2026-11-06.md](START_MENU_MAINTENANCE_HISTORY_2026-11-06.md) | スタート保守の旧回帰事例・実装記録 |
+| [MOTION_SPECIFICATION_HISTORY_2026-11-06.md](MOTION_SPECIFICATION_HISTORY_2026-11-06.md) | 過去Debug版のモーション計測例 |
+
 | 文書 | 内容 |
 |---|---|
 | `INITIAL_DESIGN.md` | 初期要件、Phase進捗、当時の設計案 |

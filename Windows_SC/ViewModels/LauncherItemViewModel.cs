@@ -40,9 +40,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
     private int _layoutColumnSpan = 2;
     private double _tileHeight = 160;
     private LauncherLayoutMode _layoutMode = LauncherLayoutMode.Standard;
-    private string _cpuUsageText = "CPU  —";
-    private string _gpuUsageText = "GPU  —";
-    private string _memoryUsageText = "メモリ  —";
     private string _primaryMonitorText = "CPU  —";
     private string _secondaryMonitorText = string.Empty;
     private readonly PointCollection _standardMonitorGraphPoints = [];
@@ -128,24 +125,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
     public Visibility WidgetVisibility => Kind == LauncherItemKind.Widget
         ? Visibility.Visible
         : Visibility.Collapsed;
-
-    public string CpuUsageText
-    {
-        get => _cpuUsageText;
-        private set => SetProperty(ref _cpuUsageText, value);
-    }
-
-    public string GpuUsageText
-    {
-        get => _gpuUsageText;
-        private set => SetProperty(ref _gpuUsageText, value);
-    }
-
-    public string MemoryUsageText
-    {
-        get => _memoryUsageText;
-        private set => SetProperty(ref _memoryUsageText, value);
-    }
 
     public string PrimaryMonitorText
     {
@@ -412,17 +391,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
         }
 
         SystemMetricsSnapshot snapshot = _systemMetricsService.GetCachedMetrics();
-        CpuUsageText = snapshot.CpuPercent is { } cpu
-            ? $"CPU  {cpu:F0}%"
-            : "CPU  —";
-        GpuUsageText = snapshot.GpuPercent is { } gpu
-            ? $"GPU  {gpu:F0}%"
-            : "GPU  —";
-        MemoryUsageText = snapshot.TotalMemoryBytes == 0
-            ? "メモリ  —"
-            : $"メモリ  {snapshot.MemoryPercent:F0}%  " +
-              $"{FormatBytes(snapshot.UsedMemoryBytes)} / {FormatBytes(snapshot.TotalMemoryBytes)}";
-
         PrimaryMonitorText = FormatMonitorMetric(_selectedMonitorMetrics[0], snapshot);
         SecondaryMonitorText = _selectedMonitorMetrics.Count == 2
             ? FormatMonitorMetric(_selectedMonitorMetrics[1], snapshot)
@@ -430,7 +398,11 @@ internal sealed class LauncherItemViewModel : ObservableObject
 
         if (_selectedMonitorMetrics.Count == 1)
         {
-            UpdateMonitorGraphPoints();
+            List<Point> points = _systemMetricsService.GetGraphPoints(_selectedMonitorMetrics[0])
+                .Select(point => new Point(point.X, point.Y))
+                .ToList();
+            ReplacePoints(_standardMonitorGraphPoints, points);
+            ReplacePoints(_compactMonitorGraphPoints, points);
         }
     }
 
@@ -492,18 +464,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
             _ => snapshot.CpuPercent
         };
 
-    private void UpdateMonitorGraphPoints()
-    {
-        List<Point> points = BuildMonitorGraphPoints();
-        ReplacePoints(_standardMonitorGraphPoints, points);
-        ReplacePoints(_compactMonitorGraphPoints, points);
-    }
-
-    private List<Point> BuildMonitorGraphPoints() =>
-        _systemMetricsService.GetGraphPoints(_selectedMonitorMetrics[0])
-            .Select(point => new Point(point.X, point.Y))
-            .ToList();
-
     private static void ReplacePoints(
         PointCollection target,
         IReadOnlyList<Point> source)
@@ -513,12 +473,6 @@ internal sealed class LauncherItemViewModel : ObservableObject
         {
             target.Add(point);
         }
-    }
-
-    private static string FormatBytes(ulong bytes)
-    {
-        const double gibibyte = 1024d * 1024 * 1024;
-        return $"{bytes / gibibyte:F1}GB";
     }
 
     private async System.Threading.Tasks.Task CycleAudioOutputAsync()

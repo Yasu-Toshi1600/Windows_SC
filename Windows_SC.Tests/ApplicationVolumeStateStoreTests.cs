@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json.Nodes;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Windows_SC.Models;
@@ -71,28 +72,30 @@ public sealed class ApplicationVolumeStateStoreTests
     }
 
     [TestMethod]
-    public void Store_NormalizesDeviceAndTargetIdentityAndClampsVolume()
+    public void Store_LoadsLegacyInterfaceDeviceIdAndMatchesTargetByIdentity()
     {
         string directory = CreateTemporaryDirectory();
         string path = Path.Combine(directory, "application-volume-state.json");
-        ApplicationAudioTarget writtenTarget = new(
-            ApplicationAudioIdentifierKind.ExecutablePath,
-            " C:\\Apps\\Player.exe ",
-            "Player");
         ApplicationAudioTarget readTarget = new(
             ApplicationAudioIdentifierKind.ExecutablePath,
             "c:\\apps\\player.EXE",
             "Renamed display label");
         try
         {
+            File.WriteAllText(path, JsonSerializer.Serialize(new
+            {
+                SchemaVersion = 1,
+                Entries = new[]
+                {
+                    new ApplicationVolumeStateEntry(
+                        "SWD\\MMDEVAPI#{ENDPOINT-ID}#{interface-id}",
+                        ApplicationAudioIdentifierKind.ExecutablePath,
+                        "c:\\apps\\player.exe", 65)
+                }
+            }));
             using ApplicationVolumeStateStore store = new(path, _ => { });
-            store.Set(
-                "SWD\\MMDEVAPI#{ENDPOINT-ID}#{interface-id}",
-                writtenTarget,
-                130);
-
             Assert.IsTrue(store.TryGet("{endpoint-id}", readTarget, out int volume));
-            Assert.AreEqual(100, volume);
+            Assert.AreEqual(65, volume);
         }
         finally
         {

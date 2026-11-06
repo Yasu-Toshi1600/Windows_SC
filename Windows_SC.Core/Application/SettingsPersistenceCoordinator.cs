@@ -9,11 +9,9 @@ internal sealed class SettingsPersistenceCoordinator
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public async Task RunAsync(Func<Task> operation, CancellationToken cancellationToken = default)
+    public async Task RunAsync(Func<Task> operation)
     {
-        ArgumentNullException.ThrowIfNull(operation);
-
-        await _gate.WaitAsync(cancellationToken);
+        await _gate.WaitAsync();
         try
         {
             await operation();
@@ -24,9 +22,9 @@ internal sealed class SettingsPersistenceCoordinator
         }
     }
 
-    public async Task WaitForIdleAsync(CancellationToken cancellationToken = default)
+    public async Task WaitForIdleAsync()
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync().ConfigureAwait(false);
         _gate.Release();
     }
 }

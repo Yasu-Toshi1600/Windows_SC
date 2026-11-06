@@ -15,8 +15,7 @@ internal readonly record struct ShortcutRecordingTarget(
 
 internal sealed class ShortcutRecordingSession(Action<bool> setInputSuppressed)
 {
-    private readonly Action<bool> _setInputSuppressed =
-        setInputSuppressed ?? throw new ArgumentNullException(nameof(setInputSuppressed));
+    private readonly Action<bool> _setInputSuppressed = setInputSuppressed;
 
     public ShortcutRecordingTarget? ActiveTarget { get; private set; }
 
